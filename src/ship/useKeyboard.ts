@@ -7,6 +7,7 @@ const WATCHED = [
   'KeyE',
   'KeyF',
   'KeyT',
+  'KeyJ',
   'ArrowUp',
   'ArrowDown',
   'ArrowLeft',

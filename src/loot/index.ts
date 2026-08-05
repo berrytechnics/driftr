@@ -7,3 +7,4 @@ export {
 export * from './economy'
 export * from './buffs'
 export * from './shop'
+export * from './cargoBait'

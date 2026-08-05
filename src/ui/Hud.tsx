@@ -4,17 +4,66 @@ import {
   formatCredits,
   type CargoHold,
 } from '@/loot/economy'
+import { ARMOR_MAX_TIER, armorTierLabel } from '@/loot/shop'
+
+function Meter({
+  value,
+  color,
+  width = 140,
+}: {
+  value: number
+  color: string
+  width?: number
+}) {
+  const pct = Math.max(0, Math.min(100, Math.round(value * 100)))
+  return (
+    <div
+      style={{
+        width,
+        height: 5,
+        background: 'rgba(255,255,255,0.12)',
+        overflow: 'hidden',
+      }}
+    >
+      <div
+        style={{
+          width: `${pct}%`,
+          height: '100%',
+          background: color,
+          transition: 'width 80ms linear',
+        }}
+      />
+    </div>
+  )
+}
 
 export function Hud({
   telemetry,
   credits,
   cargo,
+  armorTier = 0,
 }: {
   telemetry: OrbitalTelemetry | null
   credits: number
   cargo: CargoHold
+  armorTier?: number
 }) {
   const hold = cargoUnits(cargo)
+  const dead = !!telemetry && telemetry.hp <= 0
+  const hullPct =
+    telemetry && telemetry.maxHp > 0 ? telemetry.hp / telemetry.maxHp : 0
+  const hullColor = dead
+    ? '#ff7b72'
+    : hullPct < 0.35
+      ? '#ffa657'
+      : '#7ee787'
+  const heatColor = telemetry?.overheated
+    ? '#ff7b72'
+    : (telemetry?.heat ?? 0) > 0.75
+      ? '#ffa657'
+      : '#ff6a4a'
+  const plating = armorTierLabel(armorTier)
+
   return (
     <div
       style={{
@@ -24,71 +73,91 @@ export function Hud({
         color: '#c9d1d9',
         fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
         fontSize: 13,
-        lineHeight: 1.55,
+        lineHeight: 1.45,
         pointerEvents: 'none',
         userSelect: 'none',
         textShadow: '0 1px 4px rgba(0,0,0,0.85)',
         zIndex: 6,
+        minWidth: 168,
       }}
     >
       {telemetry && (
         <div style={{ marginBottom: 10 }}>
           <div
             style={{
-              color:
-                telemetry.hp <= 0
-                  ? '#ff7b72'
-                  : telemetry.hp < telemetry.maxHp * 0.35
-                    ? '#ffa657'
-                    : '#7ee787',
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 12,
+              color: hullColor,
+              marginBottom: 3,
             }}
           >
-            HP {telemetry.hp} / {telemetry.maxHp}
+            <span>
+              HULL {Math.round(telemetry.hp)}/{Math.round(telemetry.maxHp)}
+            </span>
+            <span
+              style={{
+                color: 'rgba(201, 209, 217, 0.45)',
+                fontSize: 11,
+              }}
+            >
+              {armorTier > 0
+                ? `T${armorTier}/${ARMOR_MAX_TIER}`
+                : 'STOCK'}
+            </span>
           </div>
-          <div style={{ marginTop: 6, marginBottom: 4 }}>
+          <Meter value={hullPct} color={hullColor} />
+          <div
+            style={{
+              marginTop: 2,
+              fontSize: 11,
+              color: 'rgba(201, 209, 217, 0.4)',
+            }}
+          >
+            {plating}
+          </div>
+
+          <div
+            style={{
+              marginTop: 10,
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: '2px 14px',
+            }}
+          >
+            <div>
+              <span style={{ color: 'rgba(201, 209, 217, 0.45)' }}>SPD </span>
+              {telemetry.speed.toFixed(0)}
+            </div>
+            <div>
+              <span style={{ color: 'rgba(201, 209, 217, 0.45)' }}>ALT </span>
+              {telemetry.altitude.toFixed(0)}
+            </div>
+          </div>
+
+          <div style={{ marginTop: 10, marginBottom: 3 }}>
             <div
               style={{
-                color: telemetry.overheated
-                  ? '#ff7b72'
-                  : telemetry.heat > 0.75
-                    ? '#ffa657'
-                    : '#c9d1d9',
+                color: heatColor,
                 marginBottom: 3,
+                display: 'flex',
+                justifyContent: 'space-between',
+                gap: 8,
               }}
             >
-              {telemetry.overheated
-                ? 'OVERHEAT — cooling'
-                : `Guns ${Math.round(telemetry.heat * 100)}%`}
+              <span>
+                {telemetry.overheated
+                  ? 'GUNS OVERHEAT'
+                  : `GUNS ${Math.round(telemetry.heat * 100)}%`}
+              </span>
             </div>
+            <Meter value={telemetry.heat} color={heatColor} />
+          </div>
+
+          {telemetry.torpedoOwned ? (
             <div
               style={{
-                width: 140,
-                height: 6,
-                background: 'rgba(255,255,255,0.12)',
-                overflow: 'hidden',
-              }}
-            >
-              <div
-                style={{
-                  width: `${Math.round(telemetry.heat * 100)}%`,
-                  height: '100%',
-                  background: telemetry.overheated
-                    ? '#ff7b72'
-                    : telemetry.heat > 0.75
-                      ? '#ffa657'
-                      : '#ff6a4a',
-                  transition: 'width 80ms linear',
-                }}
-              />
-            </div>
-          </div>
-          <div style={{ marginTop: 6, color: '#ffd78a' }}>
-            ₡ {formatCredits(credits)}
-          </div>
-          {telemetry.torpedoOwned && (
-            <div
-              style={{
-                marginTop: 4,
+                marginTop: 8,
                 color:
                   telemetry.torpedoAmmo <= 0
                     ? 'rgba(201, 209, 217, 0.4)'
@@ -97,42 +166,78 @@ export function Hud({
                       : '#5ad0ff',
               }}
             >
-              Torpedoes {telemetry.torpedoAmmo}/{telemetry.torpedoMaxAmmo}
+              TPD {telemetry.torpedoAmmo}/{telemetry.torpedoMaxAmmo}
               {telemetry.torpedoAmmo > 0 &&
                 (telemetry.torpedoLock >= 1
-                  ? ' · LOCKED — T fire'
+                  ? ' · LOCK'
                   : telemetry.torpedoLock > 0.05
-                    ? ` · locking ${Math.round(telemetry.torpedoLock * 100)}%`
-                    : ' · face foe · T')}
+                    ? ` · ${Math.round(telemetry.torpedoLock * 100)}%`
+                    : '')}
+            </div>
+          ) : (
+            <div
+              style={{
+                marginTop: 8,
+                color: 'rgba(201, 209, 217, 0.35)',
+              }}
+            >
+              TPD — none
             </div>
           )}
+
           <div
             style={{
-              color: hold > 0 ? '#c4a574' : 'rgba(201, 209, 217, 0.45)',
+              marginTop: 8,
+              display: 'flex',
+              justifyContent: 'space-between',
+              gap: 12,
             }}
           >
-            Cargo {hold}
-            {hold > 0 &&
-              ` · ore ${cargo.ore} · ice ${cargo.ice} · alloy ${cargo.alloy}`}
+            <span style={{ color: '#ffd78a' }}>
+              ₡ {formatCredits(credits)}
+            </span>
+            <span
+              style={{
+                color: hold > 0 ? '#c4a574' : 'rgba(201, 209, 217, 0.4)',
+              }}
+            >
+              HOLD {hold}
+            </span>
           </div>
+          {hold > 0 && (
+            <div
+              style={{
+                marginTop: 2,
+                fontSize: 11,
+                color: 'rgba(196, 165, 116, 0.7)',
+              }}
+            >
+              {cargo.ore} ore · {cargo.ice} ice · {cargo.alloy} alloy
+              <span style={{ color: 'rgba(201, 209, 217, 0.4)' }}>
+                {' '}
+                · J dump
+              </span>
+            </div>
+          )}
+
           {(telemetry.speedBuff > 0 || telemetry.fireBuff > 0) && (
-            <div style={{ marginTop: 6 }}>
+            <div style={{ marginTop: 8 }}>
               {telemetry.speedBuff > 0 && (
                 <div style={{ color: '#5cffd0' }}>
-                  Speed boost {telemetry.speedBuff.toFixed(1)}s
+                  SPD + {telemetry.speedBuff.toFixed(1)}s
                 </div>
               )}
               {telemetry.fireBuff > 0 && (
                 <div style={{ color: '#ffc14a' }}>
-                  Double fire-rate {telemetry.fireBuff.toFixed(1)}s
+                  RATE ×2 {telemetry.fireBuff.toFixed(1)}s
                 </div>
               )}
             </div>
           )}
         </div>
       )}
-      <div style={{ color: 'rgba(201, 209, 217, 0.55)' }}>
-        Hold M — map · Esc — pause
+      <div style={{ color: 'rgba(201, 209, 217, 0.45)', fontSize: 12 }}>
+        M map · Esc pause · T torpedo · J dump
       </div>
     </div>
   )

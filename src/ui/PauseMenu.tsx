@@ -5,20 +5,47 @@ import {
   setSfxVolume,
   subscribeAudioSettings,
 } from '@/audio/audioSettings'
+import {
+  cargoUnits,
+  formatCredits,
+  type CargoHold,
+} from '@/loot/economy'
+import {
+  ARMOR_MAX_TIER,
+  TORPEDO_MAX_AMMO,
+  armorTierLabel,
+} from '@/loot/shop'
+
+export type PauseShipStatus = {
+  hp: number
+  maxHp: number
+  armorTier: number
+  credits: number
+  cargo: CargoHold
+  torpedoOwned: boolean
+  torpedoAmmo: number
+  heat: number
+  overheated: boolean
+  speed: number
+  altitude: number
+}
 
 type PauseMenuProps = {
   mode: 'start' | 'paused'
   onResume: () => void
+  ship?: PauseShipStatus | null
 }
 
 const controls = [
   ['Mouse / arrows', 'Steer'],
   ['LMB / F', 'Fire cannons'],
   ['T', 'Torpedo (locks nearest foe ahead)'],
+  ['J', 'Jettison cargo (bandits scavenge)'],
   ['W / S', 'Thrust / brake'],
   ['Q / E', 'Roll'],
   ['Shift', 'Boost'],
   ['Hold M', 'System map'],
+  ['F', 'Dock (near station)'],
   ['Esc', 'Pause / resume'],
 ] as const
 
@@ -39,10 +66,10 @@ function VolumeSlider({
     <label
       style={{
         display: 'grid',
-        gridTemplateColumns: '72px 1fr 44px',
+        gridTemplateColumns: '80px 1fr 48px',
         alignItems: 'center',
         gap: 12,
-        fontSize: 13,
+        fontSize: 15,
         letterSpacing: '0.12em',
       }}
     >
@@ -101,7 +128,7 @@ function Corner({
   )
 }
 
-export function PauseMenu({ mode, onResume }: PauseMenuProps) {
+export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
   const isPaused = mode === 'paused'
   const stamp = isPaused ? 'HOLD' : 'STBY'
   const title = isPaused ? 'SYSTEMS HOLD' : 'FLIGHT READY'
@@ -111,6 +138,25 @@ export function PauseMenu({ mode, onResume }: PauseMenuProps) {
   const [audio, setAudio] = useState(getAudioSettings)
 
   useEffect(() => subscribeAudioSettings(setAudio), [])
+
+  const hullPct =
+    ship && ship.maxHp > 0
+      ? Math.round((ship.hp / ship.maxHp) * 100)
+      : null
+  const hold = ship ? cargoUnits(ship.cargo) : 0
+  const plating = ship ? armorTierLabel(ship.armorTier) : '—'
+  const hullReadout =
+    ship && hullPct != null
+      ? ship.hp <= 0
+        ? 'LOST'
+        : `${hullPct}%`
+      : '—'
+  const heatReadout = ship
+    ? ship.overheated
+      ? 'HOT'
+      : `${Math.round(ship.heat * 100)}%`
+    : '—'
+  const linkReadout = isPaused ? 'HOLD' : 'IDLE'
 
   return (
     <div
@@ -187,8 +233,8 @@ export function PauseMenu({ mode, onResume }: PauseMenuProps) {
         }
         .pause-mfd-grid {
           display: grid;
-          grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
-          gap: clamp(24px, 4vw, 56px);
+          grid-template-columns: minmax(0, 1.55fr) minmax(0, 0.75fr);
+          gap: clamp(20px, 3vw, 40px);
           align-items: start;
           flex: 1;
           min-height: 0;
@@ -323,7 +369,7 @@ export function PauseMenu({ mode, onResume }: PauseMenuProps) {
               marginBottom: 18,
               paddingBottom: 12,
               borderBottom: '1px solid rgba(120, 200, 180, 0.18)',
-              fontSize: 12,
+              fontSize: 14,
               letterSpacing: '0.14em',
               color: 'rgba(160, 210, 195, 0.7)',
             }}
@@ -344,7 +390,7 @@ export function PauseMenu({ mode, onResume }: PauseMenuProps) {
             style={{
               display: 'flex',
               justifyContent: 'space-between',
-              fontSize: 11,
+              fontSize: 13,
               letterSpacing: '0.2em',
               color: 'rgba(255, 196, 92, 0.75)',
               marginBottom: 8,
@@ -361,7 +407,7 @@ export function PauseMenu({ mode, onResume }: PauseMenuProps) {
               <h1
                 style={{
                   margin: '10px 0 10px',
-                  fontSize: 'clamp(32px, 5vw, 52px)',
+                  fontSize: 'clamp(40px, 6vw, 64px)',
                   fontWeight: 400,
                   letterSpacing: '0.12em',
                   color: '#ffe2a8',
@@ -373,41 +419,53 @@ export function PauseMenu({ mode, onResume }: PauseMenuProps) {
               <p
                 style={{
                   margin: '0 0 28px',
-                  fontSize: 'clamp(14px, 1.4vw, 17px)',
+                  fontSize: 'clamp(16px, 1.6vw, 20px)',
                   lineHeight: 1.5,
                   color: 'rgba(180, 210, 200, 0.75)',
                   letterSpacing: '0.04em',
-                  maxWidth: 420,
+                  maxWidth: 520,
                 }}
               >
                 {subtitle}
               </p>
 
-              {/* Fake instrument readouts */}
+              {/* Live ship instruments */}
               <div
                 style={{
                   display: 'grid',
                   gridTemplateColumns: '1fr 1fr 1fr',
-                  gap: 10,
-                  marginBottom: 28,
+                  gap: 12,
+                  marginBottom: 18,
                 }}
               >
-                {[
-                  ['HULL', '100%'],
-                  ['FUEL', 'OK'],
-                  ['LINK', isPaused ? 'HOLD' : 'IDLE'],
-                ].map(([label, value]) => (
+                {(
+                  [
+                    [
+                      'HULL',
+                      hullReadout,
+                      hullPct != null && hullPct < 35
+                        ? '#ff8a8a'
+                        : '#9ef0c8',
+                    ],
+                    [
+                      'GUNS',
+                      heatReadout,
+                      ship?.overheated ? '#ff8a8a' : '#9ef0c8',
+                    ],
+                    ['LINK', linkReadout, '#9ef0c8'],
+                  ] as const
+                ).map(([label, value, color]) => (
                   <div
                     key={label}
                     style={{
                       border: '1px solid rgba(120, 200, 180, 0.22)',
                       background: 'rgba(0, 0, 0, 0.28)',
-                      padding: '12px 14px',
+                      padding: '14px 16px',
                     }}
                   >
                     <div
                       style={{
-                        fontSize: 10,
+                        fontSize: 12,
                         letterSpacing: '0.18em',
                         color: 'rgba(160, 210, 195, 0.55)',
                         marginBottom: 6,
@@ -415,10 +473,97 @@ export function PauseMenu({ mode, onResume }: PauseMenuProps) {
                     >
                       {label}
                     </div>
-                    <div style={{ fontSize: 20, color: '#9ef0c8' }}>{value}</div>
+                    <div style={{ fontSize: 24, color }}>{value}</div>
                   </div>
                 ))}
               </div>
+
+              {ship && (
+                <div
+                  style={{
+                    marginBottom: 22,
+                    border: '1px solid rgba(120, 200, 180, 0.2)',
+                    background: 'rgba(0, 8, 10, 0.4)',
+                    padding: '16px 18px 18px',
+                  }}
+                >
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      fontSize: 13,
+                      letterSpacing: '0.18em',
+                      color: 'rgba(160, 210, 195, 0.55)',
+                      marginBottom: 12,
+                      paddingBottom: 8,
+                      borderBottom: '1px dashed rgba(120, 200, 180, 0.18)',
+                    }}
+                  >
+                    <span>SHIP STATUS</span>
+                    <span>
+                      {ship.armorTier > 0
+                        ? `ARMOR ${ship.armorTier}/${ARMOR_MAX_TIER}`
+                        : 'STOCK FIT'}
+                    </span>
+                  </div>
+                  {(
+                    [
+                      [
+                        'Integrity',
+                        `${Math.round(ship.hp)} / ${Math.round(ship.maxHp)}`,
+                      ],
+                      ['Plating', plating],
+                      ['Credits', `₡ ${formatCredits(ship.credits)}`],
+                      [
+                        'Cargo',
+                        hold > 0
+                          ? `${hold} u · ${ship.cargo.ore} ore · ${ship.cargo.ice} ice · ${ship.cargo.alloy} alloy`
+                          : 'Empty',
+                      ],
+                      [
+                        'Torpedoes',
+                        ship.torpedoOwned
+                          ? `${ship.torpedoAmmo}/${TORPEDO_MAX_AMMO} tubes`
+                          : 'Not installed',
+                      ],
+                      ...(isPaused
+                        ? ([
+                            ['Speed', `${ship.speed.toFixed(0)} u/s`],
+                            ['Altitude', `${ship.altitude.toFixed(0)}`],
+                          ] as const)
+                        : []),
+                    ] as const
+                  ).map(([label, value]) => (
+                    <div
+                      key={label}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '120px 1fr',
+                        gap: 10,
+                        fontSize: 16,
+                        lineHeight: 1.85,
+                        color: 'rgba(210, 230, 220, 0.88)',
+                      }}
+                    >
+                      <span style={{ color: 'rgba(160, 210, 195, 0.5)' }}>
+                        {label}
+                      </span>
+                      <span
+                        style={{
+                          color:
+                            label === 'Credits'
+                              ? '#ffd78a'
+                              : label === 'Torpedoes' && ship.torpedoOwned
+                                ? '#9ad8ff'
+                                : 'rgba(210, 230, 220, 0.88)',
+                        }}
+                      >
+                        {value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <button
                 type="button"
@@ -430,8 +575,8 @@ export function PauseMenu({ mode, onResume }: PauseMenuProps) {
                   border: '1px solid rgba(255, 196, 92, 0.75)',
                   background: 'rgba(255, 196, 92, 0.1)',
                   color: '#ffd78a',
-                  padding: '16px 22px',
-                  fontSize: 16,
+                  padding: '18px 24px',
+                  fontSize: 18,
                   letterSpacing: '0.22em',
                   textTransform: 'uppercase',
                   fontFamily: font,
@@ -447,14 +592,14 @@ export function PauseMenu({ mode, onResume }: PauseMenuProps) {
                   marginTop: 22,
                   border: '1px solid rgba(120, 200, 180, 0.2)',
                   background: 'rgba(0, 8, 10, 0.4)',
-                  padding: '14px 16px 16px',
+                  padding: '16px 18px 18px',
                 }}
               >
                 <div
                   style={{
                     display: 'flex',
                     justifyContent: 'space-between',
-                    fontSize: 11,
+                    fontSize: 13,
                     letterSpacing: '0.18em',
                     color: 'rgba(160, 210, 195, 0.55)',
                     marginBottom: 14,
@@ -465,7 +610,7 @@ export function PauseMenu({ mode, onResume }: PauseMenuProps) {
                   <span>AUDIO</span>
                   <span>GAIN BUS</span>
                 </div>
-                <div style={{ display: 'grid', gap: 14 }}>
+                <div style={{ display: 'grid', gap: 16 }}>
                   <VolumeSlider
                     label="MUSIC"
                     value={audio.music}
@@ -485,7 +630,7 @@ export function PauseMenu({ mode, onResume }: PauseMenuProps) {
               style={{
                 border: '1px solid rgba(120, 200, 180, 0.2)',
                 background: 'rgba(0, 8, 10, 0.45)',
-                padding: '16px 18px 14px',
+                padding: '12px 12px 10px',
                 height: '100%',
                 boxSizing: 'border-box',
               }}
@@ -494,11 +639,11 @@ export function PauseMenu({ mode, onResume }: PauseMenuProps) {
                 style={{
                   display: 'flex',
                   justifyContent: 'space-between',
-                  fontSize: 11,
-                  letterSpacing: '0.18em',
+                  fontSize: 10,
+                  letterSpacing: '0.16em',
                   color: 'rgba(160, 210, 195, 0.55)',
-                  marginBottom: 12,
-                  paddingBottom: 10,
+                  marginBottom: 8,
+                  paddingBottom: 8,
                   borderBottom: '1px dashed rgba(120, 200, 180, 0.18)',
                 }}
               >
@@ -510,10 +655,10 @@ export function PauseMenu({ mode, onResume }: PauseMenuProps) {
                   key={key}
                   style={{
                     display: 'grid',
-                    gridTemplateColumns: '28px 1fr 1fr',
-                    gap: 12,
-                    fontSize: 'clamp(13px, 1.2vw, 16px)',
-                    lineHeight: 2,
+                    gridTemplateColumns: '22px 1fr 1fr',
+                    gap: 8,
+                    fontSize: 'clamp(11px, 0.95vw, 13px)',
+                    lineHeight: 1.75,
                     color: 'rgba(210, 230, 220, 0.88)',
                     borderBottom:
                       i === controls.length - 1
@@ -546,7 +691,7 @@ export function PauseMenu({ mode, onResume }: PauseMenuProps) {
               justifyContent: 'space-between',
               alignItems: 'flex-end',
               gap: 16,
-              fontSize: 11,
+              fontSize: 13,
               letterSpacing: '0.12em',
               color: 'rgba(160, 210, 195, 0.4)',
             }}
@@ -558,7 +703,7 @@ export function PauseMenu({ mode, onResume }: PauseMenuProps) {
               height={1254}
               style={{
                 display: 'block',
-                width: 'clamp(88px, 12vw, 128px)',
+                width: 'clamp(100px, 13vw, 148px)',
                 height: 'auto',
                 animation: 'cockpitLogoIn 0.55s ease-out both',
               }}

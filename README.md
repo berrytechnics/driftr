@@ -39,6 +39,8 @@ npm run preview  # serve the build locally (use this to test the PWA)
 | `Shift` | Boost |
 | `Q` / `E` | Roll |
 | LMB / `F` | Fire cannons |
+| `T` | Torpedo (locks nearest foe ahead) |
+| `J` | Jettison cargo (bandits scavenge) |
 | Hold `M` | System map |
 | `F` (near station) | Dock |
 | `Esc` | Pause / resume |
@@ -52,8 +54,8 @@ Named bodies orbit Sol: Hermes, Ares, Boreas, Thalassa, Kronos, and Ouranos, plu
 ## Loop
 
 1. **Mine** — blast asteroids for rock ore, volatile ice, and rare alloys. Occasional speed and fire-rate buff pickups drop too.
-2. **Fight** — bandits patrol the belt. Hull HP, weapon heat / overheat, hit feedback, and off-screen chevrons keep combat readable. Die and you dump cargo (credits stay).
-3. **Dock** — approach Thalassa Station and press `F`. Sell cargo, repair, then undock back into flight.
+2. **Fight** — bandits patrol the belt. Hull HP, weapon heat / overheat, hit feedback, and off-screen chevrons keep combat readable. Jettison cargo with `J` to bait scavengers; die and you dump cargo (credits stay).
+3. **Dock** — approach Thalassa Station and press `F`. Sell cargo, repair, buy armor and torpedoes, then undock back into flight.
 4. **Save** — credits, cargo, hull, heat, buffs, and dock state autosave to `localStorage`.
 
 ## Features
@@ -61,8 +63,9 @@ Named bodies orbit Sol: Hermes, Ares, Boreas, Thalassa, Kronos, and Ouranos, plu
 - Boot splash that tracks asset load before the start menu
 - Flight model with thrusters, boost, mouse aiming, and roll
 - Procedural asteroid belt with mining and loot
-- Bandit AI and combat HUD
-- Station economy and repair at Thalassa
+- Bandit AI, seeking torpedoes, and combat HUD
+- Cargo jettison bait that pulls bandits off your trail
+- Station economy, repair, armor, and ordnance at Thalassa
 - Theme music in flight, station ambience when docked, separate volume sliders
 - Installable PWA with offline-ready assets (service worker on production builds)
 - Leva debug panel in local `dev` only (stubbed out of production)

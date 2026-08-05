@@ -2,10 +2,13 @@ import { useFrame } from '@react-three/fiber'
 import { useLayoutEffect, useRef, type RefObject } from 'react'
 import { Group, Mesh, Vector3, type MeshStandardMaterial } from 'three'
 import {
+  JETTISON_LIFETIME,
   MATERIAL_COLOR,
+  MATERIAL_KINDS,
   MATERIAL_LIFETIME,
   rollMaterialAmount,
   rollMaterialKind,
+  type CargoHold,
   type MaterialKind,
 } from '@/loot/economy'
 
@@ -24,6 +27,8 @@ type Shard = {
   vx: number
   vy: number
   vz: number
+  /** Bandit bait — player cannot scoop these. */
+  scavengeOnly: boolean
 }
 
 export type MaterialPickup = {
@@ -34,6 +39,10 @@ export type MaterialPickup = {
 export type MaterialDropsHandle = {
   /** Always spawn a material shard (caller already decided no buff). */
   spawn: (x: number, y: number, z: number) => void
+  /** Spill an exact cargo hold as scavenger bait (not player-collectible). */
+  spawnDump: (x: number, y: number, z: number, cargo: CargoHold) => void
+  /** Remove jettison bait shards after bandits finish scavenging. */
+  clearScavenge: () => void
   collect: (point: Vector3, radius: number) => MaterialPickup | null
   clear: () => void
 }
@@ -56,6 +65,7 @@ function makeShard(): Shard {
     vx: 0,
     vy: 0,
     vz: 0,
+    scavengeOnly: false,
   }
 }
 
@@ -66,6 +76,38 @@ function applyVisual(shard: Shard, kind: MaterialKind) {
   mat.emissive.set(MATERIAL_COLOR[kind])
   mat.emissiveIntensity = kind === 'alloy' ? 0.35 : kind === 'ice' ? 0.22 : 0.08
   mat.needsUpdate = true
+}
+
+function activateShard(
+  shard: Shard,
+  kind: MaterialKind,
+  amount: number,
+  x: number,
+  y: number,
+  z: number,
+  scavengeOnly: boolean,
+) {
+  shard.alive = true
+  shard.kind = kind
+  shard.amount = amount
+  shard.scavengeOnly = scavengeOnly
+  shard.life = scavengeOnly
+    ? JETTISON_LIFETIME * (0.9 + Math.random() * 0.25)
+    : MATERIAL_LIFETIME * (0.85 + Math.random() * 0.3)
+  shard.spin = 0.6 + Math.random() * 1.2
+  shard.bob = Math.random() * Math.PI * 2
+  const burst = scavengeOnly ? 2.8 : 1.6
+  shard.vx = (Math.random() - 0.5) * burst
+  shard.vy = (Math.random() - 0.5) * (scavengeOnly ? 1.6 : 1.0)
+  shard.vz = (Math.random() - 0.5) * burst
+  if (!shard.root) return
+  shard.root.position.set(x, y, z)
+  const s = scavengeOnly
+    ? 0.75 + amount * 0.14
+    : 0.55 + amount * 0.12
+  shard.root.scale.setScalar(s)
+  shard.root.visible = true
+  applyVisual(shard, kind)
 }
 
 export function MaterialDrops({ handleRef, paused = false }: MaterialDropsProps) {
@@ -79,39 +121,55 @@ export function MaterialDrops({ handleRef, paused = false }: MaterialDropsProps)
     const clear = () => {
       for (const shard of list) {
         shard.alive = false
+        shard.scavengeOnly = false
         if (shard.root) shard.root.visible = false
       }
     }
 
+    const clearScavenge = () => {
+      for (const shard of list) {
+        if (!shard.alive || !shard.scavengeOnly) continue
+        shard.alive = false
+        shard.scavengeOnly = false
+        if (shard.root) shard.root.visible = false
+      }
+    }
+
+    const takeFree = () => {
+      for (const shard of list) {
+        if (!shard.alive && shard.root) return shard
+      }
+      return null
+    }
+
     handleRef.current = {
       spawn(x, y, z) {
-        for (const shard of list) {
-          if (shard.alive || !shard.root) continue
-          const kind = rollMaterialKind()
-          shard.alive = true
-          shard.kind = kind
-          shard.amount = rollMaterialAmount(kind)
-          shard.life = MATERIAL_LIFETIME * (0.85 + Math.random() * 0.3)
-          shard.spin = 0.6 + Math.random() * 1.2
-          shard.bob = Math.random() * Math.PI * 2
-          shard.vx = (Math.random() - 0.5) * 1.6
-          shard.vy = (Math.random() - 0.5) * 1.0
-          shard.vz = (Math.random() - 0.5) * 1.6
-          shard.root.position.set(x, y, z)
-          const s = 0.55 + shard.amount * 0.12
-          shard.root.scale.setScalar(s)
-          shard.root.visible = true
-          applyVisual(shard, kind)
-          return
+        const shard = takeFree()
+        if (!shard) return
+        const kind = rollMaterialKind()
+        activateShard(shard, kind, rollMaterialAmount(kind), x, y, z, false)
+      },
+      spawnDump(x, y, z, cargo) {
+        clearScavenge()
+        for (const kind of MATERIAL_KINDS) {
+          let left = cargo[kind]
+          while (left > 0) {
+            const shard = takeFree()
+            if (!shard) return
+            const chunk = Math.min(left, kind === 'alloy' ? 1 : 2)
+            activateShard(shard, kind, chunk, x, y, z, true)
+            left -= chunk
+          }
         }
       },
+      clearScavenge,
       collect(point, radius) {
         const reach = radius + PICKUP_PAD
         const reach2 = reach * reach
         let best: Shard | null = null
         let bestDist = Infinity
         for (const shard of list) {
-          if (!shard.alive || !shard.root) continue
+          if (!shard.alive || !shard.root || shard.scavengeOnly) continue
           const d2 = shard.root.position.distanceToSquared(point)
           if (d2 < reach2 && d2 < bestDist) {
             bestDist = d2
@@ -142,6 +200,7 @@ export function MaterialDrops({ handleRef, paused = false }: MaterialDropsProps)
       shard.life -= dt
       if (shard.life <= 0) {
         shard.alive = false
+        shard.scavengeOnly = false
         shard.root.visible = false
         continue
       }

@@ -23,11 +23,13 @@ import {
 } from '@/game/persist'
 import { STATION_NAME } from '@/game/systemConfig'
 import {
+  cargoUnits,
   emptyCargo,
   MATERIAL_PRICE,
   type CargoHold,
   type MaterialKind,
 } from '@/loot/economy'
+import type { PlayerCargoStatus } from '@/loot/cargoBait'
 import {
   ARMOR_TIERS,
   TORPEDO_MAX_AMMO,
@@ -91,16 +93,25 @@ export default function App() {
     hp: number
     maxHp?: number
   } | null>(null)
+  const [jettisonDump, setJettisonDump] = useState<{
+    seq: number
+    x: number
+    y: number
+    z: number
+    cargo: CargoHold
+  } | null>(null)
   const startedRef = useRef(saved.docked)
   const dockedRef = useRef(saved.docked)
   const lastHp = useRef<number | null>(saved.hp)
   const creditsRef = useRef(credits)
   const cargoRef = useRef(cargo)
+  const playerCargoRef = useRef<PlayerCargoStatus>({ units: 0 })
   const torpedoOwnedRef = useRef(torpedoOwned)
   const torpedoAmmoRef = useRef(torpedoAmmo)
   const armorTierRef = useRef(armorTier)
   const telemetryRef = useRef<OrbitalTelemetry | null>(null)
   const healSeq = useRef(0)
+  const jettisonSeq = useRef(0)
   const shipMaxHp = maxHpForArmorTier(armorTier)
   /** Skip the keyup from the Esc that opened the pause menu */
   const ignoreEscResume = useRef(false)
@@ -111,6 +122,7 @@ export default function App() {
   dockedRef.current = docked
   creditsRef.current = credits
   cargoRef.current = cargo
+  playerCargoRef.current.units = cargoUnits(cargo)
   torpedoOwnedRef.current = torpedoOwned
   torpedoAmmoRef.current = torpedoAmmo
   armorTierRef.current = armorTier
@@ -250,6 +262,23 @@ export default function App() {
     const next = clampTorpedoAmmo(ammo)
     torpedoAmmoRef.current = next
     setTorpedoAmmo(next)
+  }, [])
+
+  const onJettisonCargo = useCallback((x: number, y: number, z: number) => {
+    if (dockedRef.current) return
+    const dump = { ...cargoRef.current }
+    if (cargoUnits(dump) <= 0) return
+    cargoRef.current = emptyCargo()
+    playerCargoRef.current.units = 0
+    setCargo(emptyCargo())
+    jettisonSeq.current += 1
+    setJettisonDump({
+      seq: jettisonSeq.current,
+      x,
+      y,
+      z,
+      cargo: dump,
+    })
   }, [])
 
   const buyShopItem = useCallback((id: string) => {
@@ -406,6 +435,9 @@ export default function App() {
         torpedoOwned={torpedoOwned}
         torpedoAmmo={torpedoAmmo}
         onTorpedoAmmoChange={onTorpedoAmmoChange}
+        playerCargoRef={playerCargoRef}
+        jettisonDump={jettisonDump}
+        onJettisonCargo={onJettisonCargo}
       />
       {inFlight && (
         <>
@@ -420,7 +452,12 @@ export default function App() {
           />
           <CombatChevron hudRef={combatHudRef} active={inFlight} />
           <DamageFlash flashKey={damageFlash} active={inFlight} />
-          <Hud telemetry={telemetry} credits={credits} cargo={cargo} />
+          <Hud
+            telemetry={telemetry}
+            credits={credits}
+            cargo={cargo}
+            armorTier={armorTier}
+          />
           {dockAvailable && !(telemetry && telemetry.hp <= 0) && (
             <Suspense fallback={null}>
               <DockPrompt stationName={STATION_NAME} onDock={dockAtStation} />
@@ -459,7 +496,26 @@ export default function App() {
       )}
       {showMenu && (
         <Suspense fallback={null}>
-          <PauseMenu mode={menuMode} onResume={resumeFlight} />
+          <PauseMenu
+            mode={menuMode}
+            onResume={resumeFlight}
+            ship={{
+              hp:
+                telemetry?.hp ??
+                lastHp.current ??
+                saved.hp,
+              maxHp: telemetry?.maxHp ?? shipMaxHp,
+              armorTier,
+              credits,
+              cargo,
+              torpedoOwned,
+              torpedoAmmo,
+              heat: telemetry?.heat ?? saved.heat,
+              overheated: telemetry?.overheated ?? saved.overheated,
+              speed: telemetry?.speed ?? 0,
+              altitude: telemetry?.altitude ?? 0,
+            }}
+          />
         </Suspense>
       )}
       {booting && <LoadingScreen onFinished={onBootFinished} />}

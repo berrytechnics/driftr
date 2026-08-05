@@ -1,4 +1,5 @@
 import { Environment, Lightformer } from '@react-three/drei'
+import { useFrame } from '@react-three/fiber'
 import { Bloom, EffectComposer } from '@react-three/postprocessing'
 import { useControls } from 'leva'
 import {
@@ -6,9 +7,11 @@ import {
   memo,
   Suspense,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
+  type MutableRefObject,
   type RefObject,
 } from 'react'
 import { Group, Vector3, type Mesh } from 'three'
@@ -22,6 +25,14 @@ import martian from '@/assets/textures/planets/Martian.webp'
 import tropical from '@/assets/textures/planets/Tropical.webp'
 import volcanic from '@/assets/textures/planets/Volcanic.webp'
 import { BuffDrops, type BuffDropsHandle } from '@/loot/BuffDrops'
+import {
+  clearCargoBait,
+  createEmptyCargoBait,
+  writeCargoBait,
+  type CargoBait,
+  type PlayerCargoStatus,
+} from '@/loot/cargoBait'
+import type { CargoHold } from '@/loot/economy'
 import {
   MaterialDrops,
   type MaterialDropsHandle,
@@ -74,6 +85,29 @@ const SpaceStation = lazy(() =>
   import('@/world/SpaceStation').then((m) => ({ default: m.SpaceStation })),
 )
 
+/** Expire jettison bait if scavengers never claim it. */
+function CargoBaitClock({
+  baitRef,
+  materialDrops,
+  paused,
+}: {
+  baitRef: MutableRefObject<CargoBait>
+  materialDrops: RefObject<MaterialDropsHandle | null>
+  paused: boolean
+}) {
+  useFrame((_, delta) => {
+    if (paused) return
+    const bait = baitRef.current
+    if (!bait.active) return
+    bait.life -= Math.min(delta, 0.05)
+    if (bait.life <= 0) {
+      clearCargoBait(bait)
+      materialDrops.current?.clearScavenge()
+    }
+  })
+  return null
+}
+
 export const Space = memo(function Space({
   started,
   paused,
@@ -91,6 +125,9 @@ export const Space = memo(function Space({
   torpedoOwned = false,
   torpedoAmmo = 0,
   onTorpedoAmmoChange,
+  playerCargoRef,
+  jettisonDump,
+  onJettisonCargo,
 }: {
   started: boolean
   paused: boolean
@@ -108,6 +145,15 @@ export const Space = memo(function Space({
   torpedoOwned?: boolean
   torpedoAmmo?: number
   onTorpedoAmmoChange?: (ammo: number) => void
+  playerCargoRef: RefObject<PlayerCargoStatus>
+  jettisonDump: {
+    seq: number
+    x: number
+    y: number
+    z: number
+    cargo: CargoHold
+  } | null
+  onJettisonCargo: (x: number, y: number, z: number) => void
 }) {
   const sunMesh = useRef<Mesh>(null!)
   const mercuryPlanet = useRef<Group>(null)
@@ -128,6 +174,8 @@ export const Space = memo(function Space({
   const asteroidHazards = useRef<HazardField | null>(null)
   const buffDrops = useRef<BuffDropsHandle | null>(null)
   const materialDrops = useRef<MaterialDropsHandle | null>(null)
+  const cargoBaitRef = useRef<CargoBait>(createEmptyCargoBait())
+  const lastJettisonSeq = useRef(0)
   const playerLaserHitRef = useRef<LaserTarget | null>(null)
   const banditLaserHitRef = useRef<LaserTarget | null>(null)
   const banditHostileRef = useRef<CollisionHazard | null>(null)
@@ -175,6 +223,30 @@ export const Space = memo(function Space({
     const buffed = buffDrops.current?.maybeSpawn(x, y, z) ?? false
     if (!buffed) materialDrops.current?.spawn(x, y, z)
   }, [])
+
+  const onBaitClaimed = useCallback(() => {
+    materialDrops.current?.clearScavenge()
+  }, [])
+
+  useEffect(() => {
+    if (!jettisonDump || jettisonDump.seq === lastJettisonSeq.current) return
+    lastJettisonSeq.current = jettisonDump.seq
+    writeCargoBait(
+      cargoBaitRef.current,
+      jettisonDump.seq,
+      jettisonDump.x,
+      jettisonDump.y,
+      jettisonDump.z,
+      jettisonDump.cargo,
+    )
+    materialDrops.current?.spawnDump(
+      jettisonDump.x,
+      jettisonDump.y,
+      jettisonDump.z,
+      jettisonDump.cargo,
+    )
+  }, [jettisonDump])
+
   const [sunReady, setSunReady] = useState(false)
   const onSunReady = useCallback((mesh: Mesh | null) => {
     setSunReady(!!mesh)
@@ -700,6 +772,11 @@ export const Space = memo(function Space({
         />
         <BuffDrops handleRef={buffDrops} paused={paused} />
         <MaterialDrops handleRef={materialDrops} paused={paused} />
+        <CargoBaitClock
+          baitRef={cargoBaitRef}
+          materialDrops={materialDrops}
+          paused={paused}
+        />
         <PlayerShip
           scale={scale}
           metalness={metalness}
@@ -732,6 +809,8 @@ export const Space = memo(function Space({
           torpedoAmmo={torpedoAmmo}
           torpedoSeekTargets={torpedoSeekTargets}
           onTorpedoAmmoChange={onTorpedoAmmoChange}
+          hasCargoRef={playerCargoRef}
+          onJettisonCargo={onJettisonCargo}
         />
         <BanditShip
           scale={scale}
@@ -755,6 +834,9 @@ export const Space = memo(function Space({
           allyRefs={bandit1Allies}
           rivalRefs={patrolRivalRefs}
           rivalLaserHitRefs={patrolRivalLaserRefs}
+          playerCargoRef={playerCargoRef}
+          cargoBaitRef={cargoBaitRef}
+          onBaitClaimed={onBaitClaimed}
         />
         <BanditShip
           scale={scale}
@@ -778,6 +860,9 @@ export const Space = memo(function Space({
           allyRefs={bandit2Allies}
           rivalRefs={patrolRivalRefs}
           rivalLaserHitRefs={patrolRivalLaserRefs}
+          playerCargoRef={playerCargoRef}
+          cargoBaitRef={cargoBaitRef}
+          onBaitClaimed={onBaitClaimed}
         />
         <PatrolShip
           scale={scale}

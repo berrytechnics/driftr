@@ -3,6 +3,8 @@ import { memo, type RefObject } from 'react'
 import type { Group } from 'three'
 import type { CombatHudState } from '@/combat/combatHud'
 import type { HullSnapshot } from '@/game/persist'
+import type { PlayerCargoStatus } from '@/loot/cargoBait'
+import type { CargoHold } from '@/loot/economy'
 import type { MaterialPickup } from '@/loot/MaterialDrops'
 import type { MapSnapshot } from '@/map/systemMap'
 import type { OrbitalTelemetry } from '@/ship/PlayerShip'
@@ -27,6 +29,9 @@ export const GameCanvas = memo(function GameCanvas({
   torpedoOwned,
   torpedoAmmo,
   onTorpedoAmmoChange,
+  playerCargoRef,
+  jettisonDump,
+  onJettisonCargo,
 }: {
   /** Lazy-load heavy station assets after launch (or docked save). */
   started: boolean
@@ -47,6 +52,15 @@ export const GameCanvas = memo(function GameCanvas({
   torpedoOwned?: boolean
   torpedoAmmo?: number
   onTorpedoAmmoChange?: (ammo: number) => void
+  playerCargoRef: RefObject<PlayerCargoStatus>
+  jettisonDump: {
+    seq: number
+    x: number
+    y: number
+    z: number
+    cargo: CargoHold
+  } | null
+  onJettisonCargo: (x: number, y: number, z: number) => void
 }) {
   return (
     <Canvas
@@ -78,6 +92,9 @@ export const GameCanvas = memo(function GameCanvas({
         torpedoOwned={torpedoOwned}
         torpedoAmmo={torpedoAmmo}
         onTorpedoAmmoChange={onTorpedoAmmoChange}
+        playerCargoRef={playerCargoRef}
+        jettisonDump={jettisonDump}
+        onJettisonCargo={onJettisonCargo}
       />
     </Canvas>
   )

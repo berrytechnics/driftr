@@ -219,6 +219,10 @@ type PlayerShipProps = {
   torpedoSeekTargets?: TorpedoSeekTarget[]
   /** Called when a tube is spent in flight. */
   onTorpedoAmmoChange?: (ammo: number) => void
+  /** True while the hold has anything to dump (App-owned cargo). */
+  hasCargoRef?: RefObject<{ units: number }>
+  /** Dump the hold at the ship — bandits peel off to scavenge. */
+  onJettisonCargo?: (x: number, y: number, z: number) => void
 }
 
 /** Approach radius for the dock offer (world units from station center). */
@@ -354,6 +358,8 @@ export function PlayerShip({
   torpedoAmmo = 0,
   torpedoSeekTargets,
   onTorpedoAmmoChange,
+  hasCargoRef,
+  onJettisonCargo,
 }: PlayerShipProps) {
   const ship = useRef<Group>(null!)
   const velocity = useRef(new Vector3())
@@ -400,8 +406,11 @@ export function PlayerShip({
   const torpedoCooldown = useRef(0)
   const torpedoLockGrace = useRef(0)
   const torpedoKeyWasDown = useRef(false)
+  const jettisonKeyWasDown = useRef(false)
   const onTorpedoAmmoChangeRef = useRef(onTorpedoAmmoChange)
   onTorpedoAmmoChangeRef.current = onTorpedoAmmoChange
+  const onJettisonCargoRef = useRef(onJettisonCargo)
+  onJettisonCargoRef.current = onJettisonCargo
   torpedoOwnedRef.current = torpedoOwned
   torpedoAmmoRef.current = clampTorpedoAmmo(torpedoAmmo)
   const keys = useKeyboard()
@@ -1336,6 +1345,23 @@ export function PlayerShip({
       }
     }
     torpedoKeyWasDown.current = tDown
+
+    // Jettison haul — bribe chasing pirates off your tail
+    const jDown = !!input.KeyJ
+    if (
+      jDown &&
+      !jettisonKeyWasDown.current &&
+      respawnTimer.current < 0 &&
+      !docked &&
+      (hasCargoRef?.current?.units ?? 0) > 0
+    ) {
+      onJettisonCargoRef.current?.(
+        group.position.x,
+        group.position.y,
+        group.position.z,
+      )
+    }
+    jettisonKeyWasDown.current = jDown
 
     // Telemetry (throttled — avoid React renders every frame)
     telemetryAge.current += dt

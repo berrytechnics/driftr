@@ -185,13 +185,21 @@ export function StationMenu({
           display: grid;
           grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
           gap: clamp(24px, 4vw, 56px);
-          align-items: start;
+          align-items: stretch;
           flex: 1;
           min-height: 0;
+          overflow: hidden;
+        }
+        .station-desk-scroll {
+          flex: 1;
+          min-height: 0;
+          overflow: auto;
+          padding-right: 12px;
         }
         @media (max-width: 820px) {
           .station-mfd-grid {
             grid-template-columns: 1fr;
+            overflow: auto;
           }
         }
       `}</style>
@@ -215,7 +223,7 @@ export function StationMenu({
           width: 'calc(100vw - 40px)',
           height: 'calc(100vh - 40px)',
           maxWidth: 1400,
-          overflow: 'auto',
+          overflow: 'hidden',
           borderRadius: 6,
           border: '3px solid #152028',
           boxShadow: `
@@ -286,6 +294,7 @@ export function StationMenu({
               justifyContent: 'space-between',
               alignItems: 'center',
               gap: 12,
+              flexShrink: 0,
               marginBottom: 18,
               paddingBottom: 12,
               borderBottom: '1px solid rgba(120, 190, 230, 0.2)',
@@ -439,10 +448,12 @@ export function StationMenu({
                 border: '1px solid rgba(120, 190, 230, 0.22)',
                 background: 'rgba(0, 8, 14, 0.45)',
                 padding: '16px 18px 14px',
+                minHeight: 0,
                 height: '100%',
                 boxSizing: 'border-box',
                 display: 'flex',
                 flexDirection: 'column',
+                overflow: 'hidden',
               }}
             >
               <div
@@ -483,7 +494,7 @@ export function StationMenu({
                     <span>{units} UNITS</span>
                   </div>
 
-                  <div style={{ flex: 1 }}>
+                  <div className="station-desk-scroll">
                     {MATERIAL_KINDS.map((kind) => {
                       const qty = cargo[kind]
                       const unitPrice = MATERIAL_PRICE[kind]
@@ -584,7 +595,7 @@ export function StationMenu({
                     <span>BAY 03</span>
                   </div>
 
-                  <div style={{ flex: 1 }}>
+                  <div className="station-desk-scroll">
                     <div
                       style={{
                         padding: '14px 0',
@@ -904,7 +915,9 @@ export function StationMenu({
 
           <div
             style={{
-              marginTop: 18,
+              marginTop: 'auto',
+              paddingTop: 18,
+              flexShrink: 0,
               display: 'flex',
               justifyContent: 'space-between',
               fontSize: 11,

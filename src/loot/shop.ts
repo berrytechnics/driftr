@@ -67,6 +67,13 @@ export function clampArmorTier(tier: number) {
   return Math.max(0, Math.min(ARMOR_MAX_TIER, Math.floor(tier)))
 }
 
+/** Short plating name for HUD / pause readouts. */
+export function armorTierLabel(tier: number) {
+  const t = clampArmorTier(tier)
+  if (t <= 0) return 'Stock hull'
+  return ARMOR_TIERS[t - 1]?.label ?? 'Stock hull'
+}
+
 /** Max hull for an installed armor tier (0 = stock). */
 export function maxHpForArmorTier(tier: number) {
   const t = clampArmorTier(tier)

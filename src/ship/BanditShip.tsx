@@ -24,6 +24,8 @@ import {
   MERCURY_ORBIT,
   MERCURY_SIZE,
 } from '@/game/systemConfig'
+import type { CargoBait, PlayerCargoStatus } from '@/loot/cargoBait'
+import { clearCargoBait } from '@/loot/cargoBait'
 import { HitSpark } from '@/ship/HitSpark'
 import { ShipExplosion } from '@/ship/ShipExplosion'
 import { ShipHealthBar } from '@/ship/ShipHealthBar'
@@ -47,7 +49,7 @@ import {
   type CollisionHazard,
 } from '@/ship/PlayerShip'
 
-type BanditMode = 'patrol' | 'chase' | 'search'
+type BanditMode = 'patrol' | 'chase' | 'search' | 'scavenge'
 
 type BanditShipProps = {
   scale?: number
@@ -84,6 +86,12 @@ type BanditShipProps = {
   /** Friendly patrols — brief return fire / evade, never primary prey */
   rivalRefs?: RefObject<Object3D | null>[]
   rivalLaserHitRefs?: MutableRefObject<LaserTarget | null>[]
+  /** Player haul — chase only when units > 0 (or after being shot). */
+  playerCargoRef?: RefObject<PlayerCargoStatus>
+  /** Jettisoned cargo pile — peel off chase to scavenge. */
+  cargoBaitRef?: MutableRefObject<CargoBait>
+  /** Clear bait visuals after a scavenger claims the dump. */
+  onBaitClaimed?: () => void
 }
 
 type BanditPersona = {
@@ -120,6 +128,8 @@ const SEARCH_TIME = 8
 /** Keep chase briefly through a flicker of occlusion, then investigate last seen */
 const LOS_GRACE = 0.45
 const SEARCH_CRUISE = 22
+const SCAVENGE_CRUISE = 26
+const SCAVENGE_ARRIVE = 5.5
 const COMBAT_ORBIT_BLEND = 8
 const BANDIT_SCALE_MUL = 1.45
 /** Soft NPC-vs-NPC hits (peacekeeper skirmish, not a deathmatch) */
@@ -320,6 +330,9 @@ export function BanditShip({
   allyRefs = [],
   rivalRefs = [],
   rivalLaserHitRefs = [],
+  playerCargoRef,
+  cargoBaitRef,
+  onBaitClaimed,
 }: BanditShipProps) {
   const persona = personaFor(variant)
   const root = useRef<Group>(null!)
@@ -328,6 +341,8 @@ export function BanditShip({
   const searchTimer = useRef(0)
   const losGrace = useRef(0)
   const lastSeen = useRef(new Vector3())
+  const onBaitClaimedRef = useRef(onBaitClaimed)
+  onBaitClaimedRef.current = onBaitClaimed
   const hp = useRef(BANDIT_HP)
   const pendingDamage = useRef(0)
   const hurtMemory = useRef(0)
@@ -606,17 +621,45 @@ export function BanditShip({
       returnFire.current = Math.max(returnFire.current, RETURN_FIRE_TIME)
     }
 
-    // Spot → chase. Without LOS, freeze on last seen (never track live prey).
-    // Brief grace so one occluded frame doesn't dump chase → search.
-    if (dockSafe && (mode.current === 'chase' || mode.current === 'search')) {
+    const bait = cargoBaitRef?.current
+    const baitLive = !!bait && bait.active && bait.remaining > 0
+    if (baitLive && bait) {
+      _aim.set(bait.x, bait.y, bait.z)
+    }
+    const baitDist = baitLive ? group.position.distanceTo(_aim) : Infinity
+    const haulUnits = playerCargoRef?.current?.units ?? 0
+    // Pirates hunt hauls — empty holds aren't worth it unless you shot them
+    const worthChasing = haulUnits > 0 || hurtMemory.current > 0
+
+    // Spot → chase. Dumped cargo pulls hunters into scavenge instead.
+    if (
+      dockSafe &&
+      (mode.current === 'chase' ||
+        mode.current === 'search' ||
+        mode.current === 'scavenge')
+    ) {
       mode.current = 'patrol'
       searchTimer.current = 0
       losGrace.current = 0
-    } else if (spotted) {
+    } else if (
+      baitLive &&
+      (mode.current === 'chase' ||
+        mode.current === 'search' ||
+        mode.current === 'scavenge' ||
+        (mode.current === 'patrol' && baitDist < DETECT_RANGE))
+    ) {
+      mode.current = 'scavenge'
+      searchTimer.current = 0
+      losGrace.current = 0
+    } else if (spotted && worthChasing) {
       mode.current = 'chase'
       lastSeen.current.copy(_target)
       searchTimer.current = SEARCH_TIME
       losGrace.current = LOS_GRACE
+    } else if (mode.current === 'chase' && !worthChasing) {
+      mode.current = 'patrol'
+      searchTimer.current = 0
+      losGrace.current = 0
     } else if (mode.current === 'chase') {
       if (preyDist > LOSE_RANGE) {
         mode.current = 'search'
@@ -633,25 +676,37 @@ export function BanditShip({
       if (searchTimer.current <= 0 || preyDist > LOSE_RANGE) {
         mode.current = 'patrol'
       }
+    } else if (mode.current === 'scavenge' && !baitLive) {
+      mode.current = 'patrol'
     }
 
     const chasing = mode.current === 'chase'
+    const scavenging = mode.current === 'scavenge'
     const patrolling = mode.current === 'patrol'
     const skirmishing =
-      !chasing && returnFire.current > 0 && !!rivalLive && rivalDist < FIRE_RANGE * 1.8
+      !chasing &&
+      !scavenging &&
+      returnFire.current > 0 &&
+      !!rivalLive &&
+      rivalDist < FIRE_RANGE * 1.8
     showHealth.current = chasing || skirmishing
     writeCombatState(chasing, true)
 
     let patrolRadialW = 0
     let combatSep = preyDist
-    // Live track only while actually spotted; otherwise chase grace uses last seen
     const trackLive = chasing && spotted
     const seen = lastSeen.current
-
     const combatOrbit = persona.combatOrbit
 
-    // Chase: orbit at standoff (do NOT fly into the player — that one-shot rams)
-    if (chasing && prey) {
+    if (scavenging && baitLive && bait) {
+      _aim.set(bait.x, bait.y, bait.z)
+      dirToward(group.position, _aim, _dir)
+      if (baitDist < SCAVENGE_ARRIVE) {
+        clearCargoBait(bait)
+        onBaitClaimedRef.current?.()
+        mode.current = 'patrol'
+      }
+    } else if (chasing && prey) {
       combatSep = steerCombatOrbit(
         group.position,
         trackLive ? _target : seen,
@@ -660,7 +715,6 @@ export function BanditShip({
         persona.orbitSign,
       )
     } else if (skirmishing && rivalLive) {
-      // Brief return-fire orbit, then break — don't deathmatch the patrol
       rivalLive.getWorldPosition(_aim)
       combatSep = steerCombatOrbit(
         group.position,
@@ -675,7 +729,6 @@ export function BanditShip({
         mode.current = 'patrol'
       }
     } else {
-      // Belt cruise only — no live sector hunt (that cheats LOS across the ring).
       const patrol = steerBeltPatrol(
         group.position,
         _sun,
@@ -685,7 +738,6 @@ export function BanditShip({
         persona.patrolSign,
       )
       patrolRadialW = patrol.radialW
-      // Drift away from a nearby peacekeeper instead of lingering
       if (rivalLive && rivalDist < RIVAL_EVADE_RANGE) {
         rivalLive.getWorldPosition(_aim)
         _avoid.copy(group.position).sub(_aim)
@@ -697,16 +749,15 @@ export function BanditShip({
       }
     }
 
-    // Split off from wingmates — stronger while fighting so they don't stack-fire
     allySeparation(group.position, allyRefs, _avoid)
     if (_avoid.lengthSq() > 1e-6) {
-      const weight = chasing || skirmishing ? ALLY_SEPARATION_WEIGHT : 0.75
+      const weight =
+        chasing || skirmishing || scavenging ? ALLY_SEPARATION_WEIGHT : 0.75
       steerWithAvoidance(_dir, _avoid, weight, _steer)
       _dir.copy(_steer)
     }
 
-    // Thalassa keep-out only while not chasing
-    if (planet && !chasing && !skirmishing) {
+    if (planet && !chasing && !skirmishing && !scavenging) {
       avoidSphere(group.position, _thalassa, THALASSA_KEEP_OUT, _avoid)
       if (_avoid.lengthSq() > 1e-6) {
         steerWithAvoidance(_dir, _avoid, 0.85, _steer)
@@ -714,16 +765,17 @@ export function BanditShip({
       }
     }
 
-    // Move along steer dir first; aim/face after final position
-    const cruise = chasing
-      ? combatSep > combatOrbit * 2.2
-        ? persona.approachCruise
-        : persona.orbitCruise
-      : skirmishing
-        ? persona.orbitCruise
-        : patrolling
-          ? persona.patrolCruise
-          : SEARCH_CRUISE
+    const cruise = scavenging
+      ? SCAVENGE_CRUISE
+      : chasing
+        ? combatSep > combatOrbit * 2.2
+          ? persona.approachCruise
+          : persona.orbitCruise
+        : skirmishing
+          ? persona.orbitCruise
+          : patrolling
+            ? persona.patrolCruise
+            : SEARCH_CRUISE
     _wish.copy(_dir).multiplyScalar(cruise)
     velocity.current.lerp(_wish, 1 - Math.exp(-5.5 * dt))
     group.position.addScaledVector(velocity.current, dt)
@@ -808,7 +860,11 @@ export function BanditShip({
     _up.set(0, 1, 0).applyQuaternion(group.quaternion)
 
     thrustGlow.current +=
-      ((chasing || skirmishing ? 0.95 : patrolling ? 0.55 : 0.35) -
+      ((chasing || skirmishing || scavenging
+        ? 0.95
+        : patrolling
+          ? 0.55
+          : 0.35) -
         thrustGlow.current) *
       (1 - Math.exp(-8 * dt))
 
