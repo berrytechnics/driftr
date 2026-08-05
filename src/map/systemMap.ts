@@ -1,0 +1,42 @@
+export type MapBodyKind = 'planet' | 'moon'
+
+export type MapBodySnapshot = {
+  name: string
+  /** Position relative to the star in the XZ plane */
+  x: number
+  z: number
+  /** World radius — mapped to a readable pip size */
+  size: number
+  color: string
+  kind: MapBodyKind
+}
+
+export type MapSnapshot = {
+  starName: string
+  starSize: number
+  starColor: string
+  beltInner: number
+  beltOuter: number
+  bodies: MapBodySnapshot[]
+  ship: {
+    x: number
+    z: number
+    /** Heading in degrees; 0 = facing world −Z (up on the map) */
+    heading: number
+  } | null
+  /** Bandit pip (sun-relative XZ) */
+  bandit: { x: number; z: number } | null
+}
+
+export function createEmptyMapSnapshot(): MapSnapshot {
+  return {
+    starName: 'Sol',
+    starSize: 8,
+    starColor: '#ffcc66',
+    beltInner: 450,
+    beltOuter: 680,
+    bodies: [],
+    ship: null,
+    bandit: null,
+  }
+}
