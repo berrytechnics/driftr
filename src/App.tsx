@@ -237,7 +237,8 @@ export default function App() {
 
   return (
     <>
-      <Leva collapsed />
+      {/* Debug panel — hidden in production builds (GitHub Pages, etc.) */}
+      <Leva collapsed hidden={import.meta.env.PROD} />
       <ThemeMusic
         playing={started && !paused && !docked}
         docked={docked}

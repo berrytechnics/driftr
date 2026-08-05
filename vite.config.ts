@@ -7,7 +7,9 @@ import { VitePWA } from 'vite-plugin-pwa'
 const rootDir = path.dirname(fileURLToPath(import.meta.url))
 
 // https://vite.dev/config/
-export default defineConfig({
+// Production builds use /driftr/ for GitHub Pages; `vite`/preview locally stay at /.
+export default defineConfig(({ command }) => ({
+  base: command === 'build' ? '/driftr/' : '/',
   resolve: {
     alias: {
       '@': path.resolve(rootDir, 'src'),
@@ -49,8 +51,9 @@ export default defineConfig({
         background_color: '#000008',
         display: 'standalone',
         orientation: 'any',
-        start_url: '/',
-        scope: '/',
+        // Relative so GitHub Pages subdirectory (/driftr/) resolves correctly
+        start_url: './',
+        scope: './',
         categories: ['games', 'entertainment'],
         icons: [
           {
@@ -112,4 +115,4 @@ export default defineConfig({
       },
     }),
   ],
-})
+}))

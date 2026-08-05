@@ -4,7 +4,13 @@ A browser space-flight game. Pilot a ship through a solar system — mine the as
 
 Built with React, Three.js, and React Three Fiber.
 
-## Play
+## Play online
+
+**https://berrytechnics.github.io/driftr/**
+
+Pushes to `main` deploy automatically via GitHub Pages.
+
+## Play locally
 
 ```bash
 npm install
@@ -14,7 +20,7 @@ npm run dev
 Open the URL Vite prints (usually `http://localhost:5173`), then click **Engage / Launch** to capture the pointer and fly.
 
 ```bash
-npm run build    # production build → dist/
+npm run build    # production build → dist/ (base path /driftr/)
 npm run preview  # serve the build locally
 ```
 
@@ -40,7 +46,7 @@ npm run preview  # serve the build locally
 - **Combat** — bandit encounters with hull HP, hit feedback, and off-screen chevrons
 - **Progress** — credits, cargo, and hull state save to `localStorage`
 
-Dev tuning (sun, belt density, flight feel, etc.) lives in the Leva panel — those settings are **not** persisted.
+Dev tuning (sun, belt density, flight feel, etc.) lives in the Leva panel during local development. The panel is hidden in production builds.
 
 ## Stack
 
