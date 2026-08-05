@@ -65,7 +65,7 @@ export const GameCanvas = memo(function GameCanvas({
   return (
     <Canvas
       frameloop={suspendRender ? 'never' : 'always'}
-      camera={{ position: [0, 3, 12], fov: 60, near: 0.1, far: 5000 }}
+      camera={{ position: [0, 3, 12], fov: 60, near: 0.1, far: 16000 }}
       style={{ width: '100vw', height: '100vh' }}
       gl={{
         antialias: false,

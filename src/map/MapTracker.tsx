@@ -9,6 +9,14 @@ export type TrackedBody = {
   size: number
   color: string
   kind?: MapBodyKind
+  /**
+   * Stable dashed-orbit radius on the map (e.g. semi-major axis).
+   * When omitted, the guide uses the body's current sun distance.
+   */
+  guideOrbit?: number
+  eccentricity?: number
+  /** Periapsis angle in the map XZ plane (radians) */
+  periapsisPhase?: number
 }
 
 type MapTrackerProps = {
@@ -74,6 +82,9 @@ export function MapTracker({
       dst.size = src.size
       dst.color = src.color
       dst.kind = kind
+      dst.guideOrbit = src.guideOrbit
+      dst.eccentricity = src.eccentricity
+      dst.periapsisPhase = src.periapsisPhase
       if (obj) {
         obj.getWorldPosition(_pos)
         dst.x = _pos.x - _sun.x

@@ -74,6 +74,9 @@ import {
   MID_ORBIT,
   MID_PLANET_SIZE,
   MOON_NAMES,
+  OUTER_DWARF_ECC,
+  OUTER_DWARF_ORBIT,
+  OUTER_DWARF_SIZE,
   OUTER_GAS_ORBIT,
   OUTER_GAS_SIZE,
   PLANET_NAMES,
@@ -162,6 +165,7 @@ export const Space = memo(function Space({
   const beltPlanet = useRef<Group>(null)
   const gasGiant = useRef<Group>(null)
   const outerGasGiant = useRef<Group>(null)
+  const outerDwarf = useRef<Group>(null)
   const thalassaStation = useRef<Group>(null)
   const aresMoon = useRef<Group>(null)
   const boreasMoon = useRef<Group>(null)
@@ -260,6 +264,7 @@ export const Space = memo(function Space({
       { object: beltPlanet, radius: BELT_PLANET_SIZE },
       { object: gasGiant, radius: GAS_GIANT_SIZE },
       { object: outerGasGiant, radius: OUTER_GAS_SIZE },
+      { object: outerDwarf, radius: OUTER_DWARF_SIZE },
       // Station is dockable (non-lethal) — see PlayerShip dock offer
       // Moons
       { object: aresMoon, radius: 0.38 },
@@ -311,6 +316,15 @@ export const Space = memo(function Space({
         object: outerGasGiant,
         size: OUTER_GAS_SIZE,
         color: '#6b8cae',
+      },
+      {
+        name: PLANET_NAMES.outerDwarf,
+        object: outerDwarf,
+        size: OUTER_DWARF_SIZE,
+        color: '#7a6b8a',
+        guideOrbit: OUTER_DWARF_ORBIT,
+        eccentricity: OUTER_DWARF_ECC,
+        periapsisPhase: 5.6,
       },
       {
         name: MOON_NAMES.ares,
@@ -450,7 +464,7 @@ export const Space = memo(function Space({
   const { beltCount, beltThickness, beltInclination } = useControls(
     'Asteroid belt',
     {
-      beltCount: { value: 3500, min: 200, max: 4000, step: 50, label: 'Count' },
+      beltCount: { value: 6000, min: 200, max: 8000, step: 50, label: 'Count' },
       beltThickness: {
         value: 51,
         min: 2,
@@ -467,6 +481,102 @@ export const Space = memo(function Space({
       },
     },
   )
+
+  const {
+    meshDetail,
+    largeLumps,
+    mediumLumps,
+    fineLumps,
+  } = useControls('Asteroid shape', {
+    meshDetail: {
+      value: 3,
+      min: 2,
+      max: 7,
+      step: 1,
+      label: 'Mesh detail',
+    },
+    largeLumps: {
+      value: 0.37,
+      min: 0,
+      max: 0.55,
+      step: 0.01,
+      label: 'Large lumps',
+    },
+    mediumLumps: {
+      value: 0.12,
+      min: 0,
+      max: 0.4,
+      step: 0.01,
+      label: 'Medium lumps',
+    },
+    fineLumps: {
+      value: 0.06,
+      min: 0,
+      max: 0.25,
+      step: 0.005,
+      label: 'Fine lumps',
+    },
+  })
+
+  const {
+    rockFreq,
+    rockBump,
+    rockContrast,
+    rockRoughness,
+    rockMetalness,
+  } = useControls('Asteroid texture', {
+    rockFreq: {
+      value: 4.55,
+      min: 0.2,
+      max: 6,
+      step: 0.05,
+      label: 'Noise scale',
+    },
+    rockBump: {
+      value: 1.65,
+      min: 0,
+      max: 3,
+      step: 0.05,
+      label: 'Bump',
+    },
+    rockContrast: {
+      value: 0.3,
+      min: 0,
+      max: 0.9,
+      step: 0.01,
+      label: 'Contrast',
+    },
+    rockRoughness: {
+      value: 0.73,
+      min: 0.4,
+      max: 1,
+      step: 0.01,
+      label: 'Roughness',
+    },
+    rockMetalness: {
+      value: 0.26,
+      min: 0,
+      max: 0.5,
+      step: 0.01,
+      label: 'Metalness',
+    },
+  })
+
+  const asteroidShape = useMemo(
+    () => ({ meshDetail, largeLumps, mediumLumps, fineLumps }),
+    [meshDetail, largeLumps, mediumLumps, fineLumps],
+  )
+  const asteroidTexture = useMemo(
+    () => ({
+      rockFreq,
+      rockBump,
+      rockContrast,
+      roughness: rockRoughness,
+      metalness: rockMetalness,
+    }),
+    [rockFreq, rockBump, rockContrast, rockRoughness, rockMetalness],
+  )
+
   const beltInner = BELT_INNER
   const beltOuter = BELT_OUTER
 
@@ -665,6 +775,8 @@ export const Space = memo(function Space({
           count={beltCount}
           thickness={beltThickness}
           inclination={beltInclination}
+          shape={asteroidShape}
+          texture={asteroidTexture}
           paused={paused}
           hazardRef={asteroidHazards}
           onRockDestroyed={onRockDestroyed}
@@ -769,6 +881,23 @@ export const Space = memo(function Space({
               moonRef: ouranosMoonB,
             },
           ]}
+        />
+        {/* Distant dwarf on a stretched ellipse beyond Ouranos */}
+        <Planet
+          planetRef={outerDwarf}
+          sunPosition={sunPosition}
+          sunSize={sunSize}
+          orbitRadius={OUTER_DWARF_ORBIT}
+          eccentricity={OUTER_DWARF_ECC}
+          mu={mu}
+          orbitSpeedScale={0.1}
+          map={icy}
+          size={OUTER_DWARF_SIZE}
+          color="#c8b8d4"
+          phase={5.6}
+          inclination={0.22}
+          spin={0.03}
+          paused={paused}
         />
         <BuffDrops handleRef={buffDrops} paused={paused} />
         <MaterialDrops handleRef={materialDrops} paused={paused} />

@@ -20,6 +20,16 @@ export function circularOrbitSpeed(mu: number, radius: number) {
 }
 
 /**
+ * Vis-viva speed at radius `r` on an orbit with semi-major axis `a`.
+ * For circular orbits, a === r and this matches circularOrbitSpeed.
+ */
+export function orbitalSpeed(mu: number, radius: number, semiMajor: number) {
+  const r = Math.max(radius, 1e-4)
+  const a = Math.max(semiMajor, 1e-4)
+  return Math.sqrt(Math.max(0, mu * (2 / r - 1 / a)))
+}
+
+/**
  * Tangential unit direction for a circular orbit.
  * Uses world up, falling back to world X if nearly aligned with the radius.
  */

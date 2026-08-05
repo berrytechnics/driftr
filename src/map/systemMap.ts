@@ -9,6 +9,12 @@ export type MapBodySnapshot = {
   size: number
   color: string
   kind: MapBodyKind
+  /** Semi-major axis for orbit guide (defaults to current sun distance) */
+  guideOrbit?: number
+  /** When > 0, map draws an ellipse instead of a circle */
+  eccentricity?: number
+  /** Argument of periapsis (radians) for elliptical guides */
+  periapsisPhase?: number
 }
 
 export type MapSnapshot = {
@@ -35,8 +41,8 @@ export function createEmptyMapSnapshot(): MapSnapshot {
     starName: 'Sol',
     starSize: 8,
     starColor: '#ffcc66',
-    beltInner: 450,
-    beltOuter: 680,
+    beltInner: 1727,
+    beltOuter: 2273,
     bodies: [],
     ship: null,
     bandits: [],

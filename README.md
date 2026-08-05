@@ -49,7 +49,7 @@ Music and SFX volume live in the start / pause menu and persist across sessions.
 
 ## The system
 
-Named bodies orbit Sol: Hermes, Ares, Boreas, Thalassa, Kronos, and Ouranos, plus moons. The dense asteroid belt sits outside Thalassa. Hold `M` for a live system map with your ship, the station, and contacts.
+Named bodies orbit Sol: Hermes, Ares, Boreas, Thalassa, Kronos, Ouranos, and the distant elliptical dwarf **Nyx**, plus moons. The dense asteroid belt sits outside Thalassa (~2000 from Sol). Hold `M` for a live system map with your ship, the station, contacts, and Nyx’s stretched orbit.
 
 ## Loop
 
@@ -62,7 +62,7 @@ Named bodies orbit Sol: Hermes, Ares, Boreas, Thalassa, Kronos, and Ouranos, plu
 
 - Boot splash that tracks asset load before the start menu
 - Flight model with thrusters, boost, mouse aiming, and roll
-- Procedural asteroid belt with mining and loot
+- Procedural asteroid belt (shader rock detail, mining, and loot)
 - Bandit AI, seeking torpedoes, and combat HUD
 - Cargo jettison bait that pulls bandits off your trail
 - Station economy, repair, armor, and ordnance at Thalassa

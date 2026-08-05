@@ -40,7 +40,13 @@ function strokeFillText(
 function drawMap(ctx: CanvasRenderingContext2D, snapshot: MapSnapshot) {
   const planets = snapshot.bodies.filter((b) => b.kind !== 'moon')
   const moons = snapshot.bodies.filter((b) => b.kind === 'moon')
-  const planetOrbits = planets.map((b) => Math.hypot(b.x, b.z))
+  const planetOrbits = planets.map((b) => {
+    const current = Math.hypot(b.x, b.z)
+    const a = b.guideOrbit ?? current
+    const e = b.eccentricity ?? 0
+    // Frame the map to apoapsis so eccentric bodies stay on-screen
+    return e > 0 ? a * (1 + e) : a
+  })
   const maxOrbit = Math.max(
     snapshot.beltOuter * 1.08,
     ...planetOrbits.map((r) => r * 1.12),
@@ -80,13 +86,33 @@ function drawMap(ctx: CanvasRenderingContext2D, snapshot: MapSnapshot) {
   ctx.arc(cx, cy, innerR, 0, Math.PI * 2)
   ctx.stroke()
 
-  // Planet orbit guides
+  // Planet orbit guides (circle, or Kepler ellipse when eccentricity is set)
   ctx.setLineDash([3, 5])
   ctx.strokeStyle = 'rgba(140, 170, 210, 0.22)'
-  for (const r of planetOrbits) {
-    ctx.beginPath()
-    ctx.arc(cx, cy, Math.max(r, 1) * scale, 0, Math.PI * 2)
-    ctx.stroke()
+  for (let i = 0; i < planets.length; i++) {
+    const body = planets[i]
+    const e = body.eccentricity ?? 0
+    const a = body.guideOrbit ?? planetOrbits[i]
+    if (e > 0.02 && a > 0) {
+      const peri = body.periapsisPhase ?? 0
+      const ecc2 = 1 - e * e
+      ctx.beginPath()
+      for (let s = 0; s <= 72; s++) {
+        const nu = (s / 72) * Math.PI * 2
+        const r = (a * ecc2) / (1 + e * Math.cos(nu))
+        const ang = peri + nu
+        const px = toX(Math.cos(ang) * r)
+        const py = toY(Math.sin(ang) * r)
+        if (s === 0) ctx.moveTo(px, py)
+        else ctx.lineTo(px, py)
+      }
+      ctx.closePath()
+      ctx.stroke()
+    } else {
+      ctx.beginPath()
+      ctx.arc(cx, cy, Math.max(a, 1) * scale, 0, Math.PI * 2)
+      ctx.stroke()
+    }
   }
   ctx.setLineDash([])
 

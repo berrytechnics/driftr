@@ -3,16 +3,24 @@ import { useFrame } from '@react-three/fiber'
 import { useLayoutEffect, useRef, type RefObject } from 'react'
 import { Group, SRGBColorSpace, Vector3 } from 'three'
 import {
-  circularOrbitSpeed,
   circularOrbitTangent,
   gravityAcceleration,
+  orbitalSpeed,
 } from '@/world/gravity'
 
 type PlanetProps = {
   sunPosition: [number, number, number]
   sunSize: number
-  /** Orbital radius from sun center */
+  /**
+   * Semi-major axis from sun center.
+   * When eccentricity is 0 this is also the circular orbital radius.
+   */
   orbitRadius: number
+  /**
+   * Orbital eccentricity (0 = circle). Planet starts at periapsis with
+   * the matching vis-viva speed so gravity keeps a closed ellipse.
+   */
+  eccentricity?: number
   mu: number
   /**
    * Scales circular-orbit speed (and matching gravity).
@@ -24,7 +32,7 @@ type PlanetProps = {
   size?: number
   /** Surface color multiply */
   color?: string
-  /** Starting angle around the sun (radians) */
+  /** Starting angle around the sun (radians) — periapsis argument when e > 0 */
   phase?: number
   /** Orbital plane tilt (radians) */
   inclination?: number
@@ -45,12 +53,16 @@ function placeInOrbit(
   group: Group,
   velocity: Vector3,
   body: Vector3,
-  orbitRadius: number,
+  semiMajor: number,
+  eccentricity: number,
   effectiveMu: number,
   phase: number,
   inclination: number,
 ) {
-  // Start in the XZ plane, then tilt around X
+  const e = Math.min(Math.max(eccentricity, 0), 0.95)
+  const periapsis = semiMajor * (1 - e)
+
+  // Start in the XZ plane at periapsis, then tilt around X
   _radial.set(Math.cos(phase), 0, Math.sin(phase))
   if (inclination !== 0) {
     _tilt.set(1, 0, 0)
@@ -58,8 +70,8 @@ function placeInOrbit(
   }
   _radial.normalize()
 
-  group.position.copy(body).addScaledVector(_radial, orbitRadius)
-  const speed = circularOrbitSpeed(effectiveMu, orbitRadius)
+  group.position.copy(body).addScaledVector(_radial, periapsis)
+  const speed = orbitalSpeed(effectiveMu, periapsis, semiMajor)
   circularOrbitTangent(_radial, _tangent)
   velocity.copy(_tangent).multiplyScalar(speed)
 }
@@ -68,6 +80,7 @@ export function Planet({
   sunPosition,
   sunSize,
   orbitRadius,
+  eccentricity = 0,
   mu,
   orbitSpeedScale = 0.12,
   map,
@@ -93,7 +106,7 @@ export function Planet({
     texture.needsUpdate = true
   }, [texture])
 
-  // Re-seed circular orbit when sun / μ / radius change via Leva
+  // Re-seed orbit when sun / μ / elements change via Leva
   useLayoutEffect(() => {
     _body.set(...sunPosition)
     placeInOrbit(
@@ -101,11 +114,12 @@ export function Planet({
       velocity.current,
       _body,
       orbitRadius,
+      eccentricity,
       effectiveMu,
       phase,
       inclination,
     )
-  }, [sunPosition, orbitRadius, effectiveMu, phase, inclination])
+  }, [sunPosition, orbitRadius, eccentricity, effectiveMu, phase, inclination])
 
   useFrame((_, delta) => {
     if (paused) return

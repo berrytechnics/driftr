@@ -75,7 +75,7 @@ function applyVisual(shard: Shard, kind: MaterialKind) {
   mat.color.set(MATERIAL_COLOR[kind])
   mat.emissive.set(MATERIAL_COLOR[kind])
   mat.emissiveIntensity = kind === 'alloy' ? 0.35 : kind === 'ice' ? 0.22 : 0.08
-  mat.needsUpdate = true
+  // Don't set material.needsUpdate — that forces a shader recompile hitch
 }
 
 function activateShard(
