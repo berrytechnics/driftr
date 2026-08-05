@@ -4,8 +4,8 @@ import { Vector3, type Group } from 'three'
 import type { BanditCombatState, CombatHudState } from '@/combat/combatHud'
 
 type CombatTrackerProps = {
-  banditRef: RefObject<Group | null>
-  banditCombatRef: RefObject<BanditCombatState>
+  banditRefs: RefObject<Group | null>[]
+  banditCombatRefs: RefObject<BanditCombatState>[]
   hudRef: RefObject<CombatHudState>
   /** Hide while paused / docked / menus */
   active: boolean
@@ -18,12 +18,12 @@ const ON_SCREEN = 0.82
 const EDGE_INSET_PX = 22
 
 /**
- * Projects the engaged bandit to screen space and writes edge-chevron coords
- * for the DOM CombatChevron overlay.
+ * Projects the nearest engaged bandit to screen space and writes edge-chevron
+ * coords for the DOM CombatChevron overlay.
  */
 export function CombatTracker({
-  banditRef,
-  banditCombatRef,
+  banditRefs,
+  banditCombatRefs,
   hudRef,
   active,
 }: CombatTrackerProps) {
@@ -31,14 +31,35 @@ export function CombatTracker({
 
   useFrame(() => {
     const hud = hudRef.current
-    const combat = banditCombatRef.current
-    const bandit = banditRef.current
 
-    if (!active || !combat.alive || !combat.engaged || !bandit) {
+    if (!active) {
       hud.engaged = false
       hud.showChevron = false
       return
     }
+
+    let bestIndex = -1
+    let bestDistSq = Infinity
+    for (let i = 0; i < banditCombatRefs.length; i++) {
+      const combat = banditCombatRefs[i]?.current
+      const bandit = banditRefs[i]?.current
+      if (!combat?.alive || !combat.engaged || !bandit) continue
+      bandit.getWorldPosition(_pos)
+      const distSq = camera.position.distanceToSquared(_pos)
+      if (distSq < bestDistSq) {
+        bestDistSq = distSq
+        bestIndex = i
+      }
+    }
+
+    if (bestIndex < 0) {
+      hud.engaged = false
+      hud.showChevron = false
+      return
+    }
+
+    const combat = banditCombatRefs[bestIndex].current
+    const bandit = banditRefs[bestIndex].current!
 
     hud.engaged = true
     hud.hp = combat.hp

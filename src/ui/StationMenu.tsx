@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   MATERIAL_KINDS,
   MATERIAL_LABEL,
@@ -8,17 +9,43 @@ import {
   type CargoHold,
   type MaterialKind,
 } from '@/loot/economy'
+import {
+  ARMOR_MAX_TIER,
+  ARMOR_TIERS,
+  TORPEDO_MAX_AMMO,
+  TORPEDO_RELOAD_ID,
+  TORPEDO_WEAPON_ID,
+  WEAPON_SHOP,
+  canBuyTorpedoReload,
+  canBuyTorpedoUnlock,
+  missingHp,
+  repairCost,
+  torpedoReloadSlots,
+  type StationDesk,
+} from '@/loot/shop'
 
 type StationMenuProps = {
   stationName?: string
   credits: number
   cargo: CargoHold
+  hp: number
+  maxHp: number
+  armorTier: number
+  torpedoOwned: boolean
+  torpedoAmmo: number
   onSell: (kind: MaterialKind) => void
   onSellAll: () => void
+  onRepair: () => void
+  onBuy: (id: string) => void
   onUndock: () => void
 }
 
 const font = "'Share Tech Mono', ui-monospace, monospace"
+
+const DESKS: { id: StationDesk; label: string }[] = [
+  { id: 'cargo', label: 'Cargo' },
+  { id: 'services', label: 'Services' },
+]
 
 function Corner({
   top,
@@ -55,12 +82,25 @@ export function StationMenu({
   stationName = 'Thalassa Station',
   credits,
   cargo,
+  hp,
+  maxHp,
+  armorTier,
+  torpedoOwned,
+  torpedoAmmo,
   onSell,
   onSellAll,
+  onRepair,
+  onBuy,
   onUndock,
 }: StationMenuProps) {
+  const [desk, setDesk] = useState<StationDesk>('cargo')
   const units = cargoUnits(cargo)
   const holdValue = cargoValue(cargo)
+  const damage = missingHp(hp, maxHp)
+  const cost = repairCost(hp, maxHp)
+  const hullPct = maxHp > 0 ? Math.round((hp / maxHp) * 100) : 0
+  const canRepair = damage > 0 && credits >= cost
+  const reloadSlots = torpedoReloadSlots(torpedoAmmo)
 
   return (
     <div
@@ -87,8 +127,8 @@ export function StationMenu({
           100% { opacity: 1; }
         }
         @keyframes stationScan {
-          0% { transform: translateY(-100%); }
-          100% { transform: translateY(100%); }
+          0% { top: -35%; }
+          100% { top: 100%; }
         }
         .station-btn:hover {
           background: rgba(120, 210, 255, 0.22) !important;
@@ -107,6 +147,39 @@ export function StationMenu({
         .sell-btn:hover:not(:disabled) {
           background: rgba(255, 196, 92, 0.22) !important;
           box-shadow: inset 0 0 0 1px rgba(255, 196, 92, 0.7);
+        }
+        .repair-btn:hover:not(:disabled) {
+          background: rgba(120, 255, 180, 0.2) !important;
+          box-shadow: inset 0 0 0 1px rgba(120, 255, 180, 0.65);
+        }
+        .weapon-btn:hover:not(:disabled) {
+          background: rgba(90, 208, 255, 0.2) !important;
+          box-shadow: inset 0 0 0 1px rgba(90, 208, 255, 0.65);
+        }
+        .armor-btn:hover:not(:disabled) {
+          background: rgba(200, 170, 120, 0.22) !important;
+          box-shadow: inset 0 0 0 1px rgba(220, 190, 140, 0.65);
+        }
+        .station-desk-tab {
+          appearance: none;
+          border: 1px solid rgba(120, 190, 230, 0.22);
+          background: rgba(0, 0, 0, 0.2);
+          color: rgba(160, 200, 230, 0.55);
+          padding: 8px 14px;
+          font-size: 11px;
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+          font-family: ${font};
+          cursor: pointer;
+        }
+        .station-desk-tab[data-active="true"] {
+          color: #b8e0ff;
+          border-color: rgba(120, 210, 255, 0.55);
+          background: rgba(120, 210, 255, 0.12);
+        }
+        .station-desk-tab:hover:not([data-active="true"]) {
+          color: rgba(200, 230, 255, 0.85);
+          border-color: rgba(120, 210, 255, 0.4);
         }
         .station-mfd-grid {
           display: grid;
@@ -267,7 +340,8 @@ export function StationMenu({
                   maxWidth: 440,
                 }}
               >
-                Sell belt haulage at the commodity desk, then undock when ready.
+                Sell haulage, repair the hull, outfit weapons, then undock when
+                ready.
               </p>
 
               <div
@@ -314,10 +388,15 @@ export function StationMenu({
                       marginBottom: 6,
                     }}
                   >
-                    HOLD VALUE
+                    HULL
                   </div>
-                  <div style={{ fontSize: 22, color: '#9ed8ff' }}>
-                    ₡ {formatCredits(holdValue)}
+                  <div
+                    style={{
+                      fontSize: 22,
+                      color: hullPct < 35 ? '#ff8a8a' : '#9ef0c8',
+                    }}
+                  >
+                    {Math.round(hp)} / {Math.round(maxHp)}
                   </div>
                 </div>
               </div>
@@ -369,101 +448,457 @@ export function StationMenu({
               <div
                 style={{
                   display: 'flex',
-                  justifyContent: 'space-between',
-                  fontSize: 11,
-                  letterSpacing: '0.18em',
-                  color: 'rgba(160, 200, 230, 0.55)',
-                  marginBottom: 12,
-                  paddingBottom: 10,
-                  borderBottom: '1px dashed rgba(120, 190, 230, 0.2)',
+                  gap: 8,
+                  marginBottom: 14,
                 }}
               >
-                <span>CARGO EXCHANGE</span>
-                <span>{units} UNITS</span>
+                {DESKS.map((d) => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    className="station-desk-tab"
+                    data-active={desk === d.id}
+                    onClick={() => setDesk(d.id)}
+                  >
+                    {d.label}
+                  </button>
+                ))}
               </div>
 
-              <div style={{ flex: 1 }}>
-                {MATERIAL_KINDS.map((kind) => {
-                  const qty = cargo[kind]
-                  const unitPrice = MATERIAL_PRICE[kind]
-                  const line = qty * unitPrice
-                  return (
-                    <div
-                      key={kind}
-                      style={{
-                        display: 'grid',
-                        gridTemplateColumns: '1fr auto auto',
-                        gap: 12,
-                        alignItems: 'center',
-                        padding: '10px 0',
-                        borderBottom: '1px solid rgba(120, 190, 230, 0.08)',
-                        fontSize: 'clamp(13px, 1.2vw, 15px)',
-                      }}
-                    >
-                      <div>
-                        <div style={{ color: '#c8e8ff' }}>
-                          {MATERIAL_LABEL[kind]}
-                        </div>
+              {desk === 'cargo' ? (
+                <>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      fontSize: 11,
+                      letterSpacing: '0.18em',
+                      color: 'rgba(160, 200, 230, 0.55)',
+                      marginBottom: 12,
+                      paddingBottom: 10,
+                      borderBottom: '1px dashed rgba(120, 190, 230, 0.2)',
+                    }}
+                  >
+                    <span>CARGO EXCHANGE</span>
+                    <span>{units} UNITS</span>
+                  </div>
+
+                  <div style={{ flex: 1 }}>
+                    {MATERIAL_KINDS.map((kind) => {
+                      const qty = cargo[kind]
+                      const unitPrice = MATERIAL_PRICE[kind]
+                      const line = qty * unitPrice
+                      return (
                         <div
+                          key={kind}
                           style={{
-                            fontSize: 12,
-                            color: 'rgba(160, 200, 230, 0.5)',
-                            marginTop: 2,
+                            display: 'grid',
+                            gridTemplateColumns: '1fr auto auto',
+                            gap: 12,
+                            alignItems: 'center',
+                            padding: '10px 0',
+                            borderBottom: '1px solid rgba(120, 190, 230, 0.08)',
+                            fontSize: 'clamp(13px, 1.2vw, 15px)',
                           }}
                         >
-                          ×{qty} · ₡{unitPrice}/u
+                          <div>
+                            <div style={{ color: '#c8e8ff' }}>
+                              {MATERIAL_LABEL[kind]}
+                            </div>
+                            <div
+                              style={{
+                                fontSize: 12,
+                                color: 'rgba(160, 200, 230, 0.5)',
+                                marginTop: 2,
+                              }}
+                            >
+                              ×{qty} · ₡{unitPrice}/u
+                            </div>
+                          </div>
+                          <div style={{ color: '#ffd78a', minWidth: 64 }}>
+                            ₡ {formatCredits(line)}
+                          </div>
+                          <button
+                            type="button"
+                            className="station-btn sell-btn"
+                            disabled={qty <= 0}
+                            onClick={() => onSell(kind)}
+                            style={{
+                              appearance: 'none',
+                              border: '1px solid rgba(255, 196, 92, 0.55)',
+                              background: 'rgba(255, 196, 92, 0.08)',
+                              color: '#ffd78a',
+                              padding: '8px 12px',
+                              fontSize: 12,
+                              letterSpacing: '0.12em',
+                              textTransform: 'uppercase',
+                              fontFamily: font,
+                              cursor: qty > 0 ? 'pointer' : 'default',
+                            }}
+                          >
+                            Sell
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+
+                  <button
+                    type="button"
+                    className="station-btn sell-btn"
+                    disabled={units <= 0}
+                    onClick={onSellAll}
+                    style={{
+                      appearance: 'none',
+                      width: '100%',
+                      marginTop: 16,
+                      border: '1px solid rgba(255, 196, 92, 0.7)',
+                      background: 'rgba(255, 196, 92, 0.12)',
+                      color: '#ffd78a',
+                      padding: '14px 18px',
+                      fontSize: 14,
+                      letterSpacing: '0.16em',
+                      textTransform: 'uppercase',
+                      fontFamily: font,
+                      cursor: units > 0 ? 'pointer' : 'default',
+                    }}
+                  >
+                    Sell all · ₡ {formatCredits(holdValue)}
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      fontSize: 11,
+                      letterSpacing: '0.18em',
+                      color: 'rgba(160, 200, 230, 0.55)',
+                      marginBottom: 12,
+                      paddingBottom: 10,
+                      borderBottom: '1px dashed rgba(120, 190, 230, 0.2)',
+                    }}
+                  >
+                    <span>STATION SERVICES</span>
+                    <span>BAY 03</span>
+                  </div>
+
+                  <div style={{ flex: 1 }}>
+                    <div
+                      style={{
+                        padding: '14px 0',
+                        borderBottom: '1px solid rgba(120, 190, 230, 0.08)',
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          gap: 12,
+                          alignItems: 'baseline',
+                          marginBottom: 8,
+                        }}
+                      >
+                        <div style={{ color: '#c8e8ff', fontSize: 16 }}>
+                          Hull repair
+                        </div>
+                        <div style={{ color: '#ffd78a', fontSize: 15 }}>
+                          {damage > 0
+                            ? `₡ ${formatCredits(cost)}`
+                            : 'NO CHARGE'}
                         </div>
                       </div>
-                      <div style={{ color: '#ffd78a', minWidth: 64 }}>
-                        ₡ {formatCredits(line)}
+                      <p
+                        style={{
+                          margin: '0 0 12px',
+                          fontSize: 13,
+                          lineHeight: 1.45,
+                          color: 'rgba(160, 200, 230, 0.55)',
+                          letterSpacing: '0.03em',
+                        }}
+                      >
+                        {damage > 0
+                          ? `Restore ${damage} integrity · ${hullPct}% hull remaining`
+                          : 'Hull plates are nominal — no bay work required.'}
+                      </p>
+                      <div
+                        aria-hidden
+                        style={{
+                          height: 6,
+                          marginBottom: 14,
+                          background: 'rgba(0, 0, 0, 0.45)',
+                          border: '1px solid rgba(120, 190, 230, 0.2)',
+                        }}
+                      >
+                        <div
+                          style={{
+                            height: '100%',
+                            width: `${Math.max(0, Math.min(100, hullPct))}%`,
+                            background:
+                              hullPct < 35
+                                ? 'linear-gradient(90deg, #c04040, #ff8a8a)'
+                                : 'linear-gradient(90deg, #2a8a5a, #9ef0c8)',
+                          }}
+                        />
                       </div>
                       <button
                         type="button"
-                        className="station-btn sell-btn"
-                        disabled={qty <= 0}
-                        onClick={() => onSell(kind)}
+                        className="station-btn repair-btn"
+                        disabled={!canRepair}
+                        onClick={onRepair}
                         style={{
                           appearance: 'none',
-                          border: '1px solid rgba(255, 196, 92, 0.55)',
-                          background: 'rgba(255, 196, 92, 0.08)',
-                          color: '#ffd78a',
-                          padding: '8px 12px',
-                          fontSize: 12,
-                          letterSpacing: '0.12em',
+                          width: '100%',
+                          border: '1px solid rgba(120, 255, 180, 0.55)',
+                          background: 'rgba(120, 255, 180, 0.1)',
+                          color: '#9ef0c8',
+                          padding: '12px 16px',
+                          fontSize: 13,
+                          letterSpacing: '0.14em',
                           textTransform: 'uppercase',
                           fontFamily: font,
-                          cursor: qty > 0 ? 'pointer' : 'default',
+                          cursor: canRepair ? 'pointer' : 'default',
                         }}
                       >
-                        Sell
+                        {damage <= 0
+                          ? 'Hull intact'
+                          : credits < cost
+                            ? 'Insufficient credits'
+                            : `Repair hull · ₡ ${formatCredits(cost)}`}
                       </button>
                     </div>
-                  )
-                })}
-              </div>
 
-              <button
-                type="button"
-                className="station-btn sell-btn"
-                disabled={units <= 0}
-                onClick={onSellAll}
-                style={{
-                  appearance: 'none',
-                  width: '100%',
-                  marginTop: 16,
-                  border: '1px solid rgba(255, 196, 92, 0.7)',
-                  background: 'rgba(255, 196, 92, 0.12)',
-                  color: '#ffd78a',
-                  padding: '14px 18px',
-                  fontSize: 14,
-                  letterSpacing: '0.16em',
-                  textTransform: 'uppercase',
-                  fontFamily: font,
-                  cursor: units > 0 ? 'pointer' : 'default',
-                }}
-              >
-                Sell all · ₡ {formatCredits(holdValue)}
-              </button>
+                    <div
+                      style={{
+                        marginTop: 16,
+                        paddingTop: 14,
+                        borderTop: '1px dashed rgba(120, 190, 230, 0.2)',
+                        fontSize: 11,
+                        letterSpacing: '0.18em',
+                        color: 'rgba(160, 200, 230, 0.55)',
+                        marginBottom: 8,
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <span>ARMOR</span>
+                      <span>
+                        {armorTier >= ARMOR_MAX_TIER
+                          ? 'MAX PLATING'
+                          : `TIER ${armorTier}/${ARMOR_MAX_TIER}`}
+                      </span>
+                    </div>
+
+                    {ARMOR_TIERS.map((tier) => {
+                      const owned = armorTier >= tier.tier
+                      const isNext = armorTier + 1 === tier.tier
+                      const canBuy =
+                        isNext && credits >= tier.cost
+                      let status = `₡ ${formatCredits(tier.cost)}`
+                      let buttonLabel = `Install · ₡ ${formatCredits(tier.cost)}`
+                      if (owned) {
+                        status = `${tier.maxHp} HP`
+                        buttonLabel = 'Installed'
+                      } else if (!isNext) {
+                        status = 'LOCKED'
+                        buttonLabel = 'Requires prior tier'
+                      } else if (credits < tier.cost) {
+                        buttonLabel = 'Insufficient credits'
+                      }
+
+                      return (
+                        <div
+                          key={tier.id}
+                          style={{
+                            padding: '14px 0',
+                            borderBottom:
+                              '1px solid rgba(120, 190, 230, 0.08)',
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              gap: 12,
+                              alignItems: 'baseline',
+                              marginBottom: 8,
+                            }}
+                          >
+                            <div style={{ color: '#c8e8ff', fontSize: 16 }}>
+                              {tier.label}
+                            </div>
+                            <div
+                              style={{
+                                color: owned ? '#9ef0c8' : '#ffd78a',
+                                fontSize: 15,
+                              }}
+                            >
+                              {status}
+                            </div>
+                          </div>
+                          <p
+                            style={{
+                              margin: '0 0 12px',
+                              fontSize: 13,
+                              lineHeight: 1.45,
+                              color: 'rgba(160, 200, 230, 0.55)',
+                              letterSpacing: '0.03em',
+                            }}
+                          >
+                            {tier.blurb}
+                            {isNext
+                              ? ' Bonus integrity is applied on install.'
+                              : ''}
+                          </p>
+                          <button
+                            type="button"
+                            className="station-btn armor-btn"
+                            disabled={!canBuy}
+                            onClick={() => onBuy(tier.id)}
+                            style={{
+                              appearance: 'none',
+                              width: '100%',
+                              border: '1px solid rgba(220, 190, 140, 0.55)',
+                              background: 'rgba(200, 170, 120, 0.1)',
+                              color: '#e8d0a8',
+                              padding: '12px 16px',
+                              fontSize: 13,
+                              letterSpacing: '0.14em',
+                              textTransform: 'uppercase',
+                              fontFamily: font,
+                              cursor: canBuy ? 'pointer' : 'default',
+                            }}
+                          >
+                            {buttonLabel}
+                          </button>
+                        </div>
+                      )
+                    })}
+
+                    <div
+                      style={{
+                        marginTop: 16,
+                        paddingTop: 14,
+                        borderTop: '1px dashed rgba(120, 190, 230, 0.2)',
+                        fontSize: 11,
+                        letterSpacing: '0.18em',
+                        color: 'rgba(160, 200, 230, 0.55)',
+                        marginBottom: 8,
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <span>ORDNANCE</span>
+                      <span>
+                        {torpedoOwned
+                          ? `${torpedoAmmo}/${TORPEDO_MAX_AMMO} TUBES`
+                          : 'NO LAUNCHER'}
+                      </span>
+                    </div>
+
+                    {WEAPON_SHOP.map((item) => {
+                      const isUnlock = item.id === TORPEDO_WEAPON_ID
+                      const isReload = item.id === TORPEDO_RELOAD_ID
+                      const ownedUnlock = isUnlock && torpedoOwned
+                      const canBuy = isUnlock
+                        ? canBuyTorpedoUnlock(credits, torpedoOwned)
+                        : isReload
+                          ? canBuyTorpedoReload(
+                              credits,
+                              torpedoOwned,
+                              torpedoAmmo,
+                            )
+                          : false
+                      let status = `₡ ${formatCredits(item.cost ?? 0)}`
+                      let buttonLabel = 'Purchase'
+                      if (ownedUnlock) {
+                        status = 'INSTALLED'
+                        buttonLabel = 'Owned'
+                      } else if (isReload && !torpedoOwned) {
+                        status = 'REQUIRES LAUNCHER'
+                        buttonLabel = 'Locked'
+                      } else if (isReload && reloadSlots <= 0) {
+                        status = 'MAGAZINES FULL'
+                        buttonLabel = 'Full'
+                      } else if (!canBuy && (item.cost ?? 0) > credits) {
+                        buttonLabel = 'Insufficient credits'
+                      } else if (isReload) {
+                        buttonLabel = `Reload +1 · ₡ ${formatCredits(item.cost ?? 0)}`
+                      } else if (isUnlock) {
+                        buttonLabel = `Install · ₡ ${formatCredits(item.cost ?? 0)}`
+                      }
+
+                      return (
+                        <div
+                          key={item.id}
+                          style={{
+                            padding: '14px 0',
+                            borderBottom: '1px solid rgba(120, 190, 230, 0.08)',
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              gap: 12,
+                              alignItems: 'baseline',
+                              marginBottom: 8,
+                            }}
+                          >
+                            <div style={{ color: '#c8e8ff', fontSize: 16 }}>
+                              {item.label}
+                            </div>
+                            <div
+                              style={{
+                                color: ownedUnlock ? '#9ef0c8' : '#ffd78a',
+                                fontSize: 15,
+                              }}
+                            >
+                              {status}
+                            </div>
+                          </div>
+                          <p
+                            style={{
+                              margin: '0 0 12px',
+                              fontSize: 13,
+                              lineHeight: 1.45,
+                              color: 'rgba(160, 200, 230, 0.55)',
+                              letterSpacing: '0.03em',
+                            }}
+                          >
+                            {item.blurb}
+                            {isUnlock && !torpedoOwned
+                              ? ' Includes a full magazine.'
+                              : ''}
+                          </p>
+                          <button
+                            type="button"
+                            className="station-btn weapon-btn"
+                            disabled={!canBuy}
+                            onClick={() => onBuy(item.id)}
+                            style={{
+                              appearance: 'none',
+                              width: '100%',
+                              border: '1px solid rgba(90, 208, 255, 0.55)',
+                              background: 'rgba(90, 208, 255, 0.1)',
+                              color: '#9ad8ff',
+                              padding: '12px 16px',
+                              fontSize: 13,
+                              letterSpacing: '0.14em',
+                              textTransform: 'uppercase',
+                              fontFamily: font,
+                              cursor: canBuy ? 'pointer' : 'default',
+                            }}
+                          >
+                            {buttonLabel}
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
+              )}
             </div>
           </div>
 

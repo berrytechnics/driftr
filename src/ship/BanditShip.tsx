@@ -25,7 +25,7 @@ import {
   MERCURY_SIZE,
 } from '@/game/systemConfig'
 import { HitSpark } from '@/ship/HitSpark'
-import { EXPLOSION_LIFETIME, ShipExplosion } from '@/ship/ShipExplosion'
+import { ShipExplosion } from '@/ship/ShipExplosion'
 import { ShipHealthBar } from '@/ship/ShipHealthBar'
 import { ShipThrusters } from '@/ship/ShipThrusters'
 import {
@@ -69,11 +69,39 @@ type BanditShipProps = {
   /** Live engagement / HP for combat HUD */
   combatStateRef?: MutableRefObject<BanditCombatState>
   paused?: boolean
+  /**
+   * Hermes spawn offset: +1 = orbital right, −1 = orbital left.
+   * Use opposite signs so multiple bandits don't stack.
+   */
+  spawnSide?: number
+  /**
+   * Behavior slot (0, 1, …) — picks orbit direction, fire cadence, belt lane.
+   * Keep unique per live bandit so they don't clone each other.
+   */
+  variant?: number
+  /** Other bandits — soft separation so they split instead of stacking */
+  allyRefs?: RefObject<Object3D | null>[]
+  /** Friendly patrols — brief return fire / evade, never primary prey */
+  rivalRefs?: RefObject<Object3D | null>[]
+  rivalLaserHitRefs?: MutableRefObject<LaserTarget | null>[]
+}
+
+type BanditPersona = {
+  orbitSign: number
+  patrolSign: number
+  combatOrbit: number
+  patrolOrbit: number
+  fireInterval: number
+  firePhase: number
+  approachCruise: number
+  orbitCruise: number
+  patrolCruise: number
 }
 
 const BANDIT_HP = 70
 const BANDIT_DAMAGE_FLASH = 0.12
-const RESPAWN_DELAY = EXPLOSION_LIFETIME + 4.5
+/** Dead airtime before the bandit returns to the fight. */
+const RESPAWN_DELAY = 60
 const THALASSA_KEEP_OUT = BELT_PLANET_SIZE + 5.5
 /** Clearance beyond Hermes' surface */
 const HERMES_CLEARANCE = 6
@@ -91,16 +119,42 @@ const FIRE_COS = Math.cos((55 * Math.PI) / 180)
 const SEARCH_TIME = 8
 /** Keep chase briefly through a flicker of occlusion, then investigate last seen */
 const LOS_GRACE = 0.45
-const PATROL_CRUISE = 16
-/** Close the gap from long range */
-const CHASE_APPROACH_CRUISE = 20
-/** Strafe speed once in gunfight — must stay trackable vs player thrust (~24) */
-const CHASE_ORBIT_CRUISE = 10
 const SEARCH_CRUISE = 22
-/** Hold this distance while attacking — never ram the player */
-const COMBAT_ORBIT = 18
 const COMBAT_ORBIT_BLEND = 8
 const BANDIT_SCALE_MUL = 1.45
+/** Soft NPC-vs-NPC hits (peacekeeper skirmish, not a deathmatch) */
+const RIVAL_BOLT_DAMAGE = 10
+const RETURN_FIRE_TIME = 3.2
+const RIVAL_EVADE_RANGE = 85
+const HURT_MEMORY = 2.4
+/** Soft push so bandits don't occupy the same pocket */
+const ALLY_SEPARATION = 32
+const ALLY_SEPARATION_WEIGHT = 1.15
+
+const PERSONAS: BanditPersona[] = [
+  {
+    orbitSign: 1,
+    patrolSign: 1,
+    combatOrbit: 16,
+    patrolOrbit: PATROL_ORBIT - 55,
+    fireInterval: 0.38,
+    firePhase: 0.05,
+    approachCruise: 21,
+    orbitCruise: 11,
+    patrolCruise: 15,
+  },
+  {
+    orbitSign: -1,
+    patrolSign: -1,
+    combatOrbit: 26,
+    patrolOrbit: PATROL_ORBIT + 70,
+    fireInterval: 0.52,
+    firePhase: 0.28,
+    approachCruise: 17,
+    orbitCruise: 9,
+    patrolCruise: 13.5,
+  },
+]
 
 const _sun = new Vector3()
 const _thalassa = new Vector3()
@@ -116,13 +170,18 @@ const _steer = new Vector3()
 const _radial = new Vector3()
 const _tangent = new Vector3()
 const _aim = new Vector3()
-const _lastSeen = new Vector3()
+const _ally = new Vector3()
 const _station = new Vector3()
 const _worldUp = new Vector3(0, 1, 0)
 const _zeroVel = new Vector3()
 const _q = new Quaternion()
 const _qFrom = new Quaternion()
 const _occluders: Occluder[] = []
+
+function personaFor(variant: number): BanditPersona {
+  const i = ((variant % PERSONAS.length) + PERSONAS.length) % PERSONAS.length
+  return PERSONAS[i]
+}
 
 /**
  * Steer onto a sun-centered belt ring: outward/inward by radius error, plus tangent.
@@ -133,6 +192,8 @@ function steerBeltPatrol(
   sun: Vector3,
   out: Vector3,
   prey: Vector3 | null,
+  patrolOrbit: number,
+  patrolSign: number,
 ): { r: number; radialW: number } {
   _radial.copy(position).sub(sun)
   const r = _radial.length()
@@ -144,6 +205,7 @@ function steerBeltPatrol(
   _tangent.crossVectors(_worldUp, _radial)
   if (_tangent.lengthSq() < 1e-8) _tangent.set(0, 0, 1)
   _tangent.normalize()
+  if (patrolSign < 0) _tangent.multiplyScalar(-1)
 
   if (prey) {
     _wish.copy(prey).sub(sun)
@@ -151,7 +213,7 @@ function steerBeltPatrol(
     if (_wish.dot(_tangent) < 0) _tangent.multiplyScalar(-1)
   }
 
-  const radialErr = PATROL_ORBIT - r
+  const radialErr = patrolOrbit - r
   const radialW = Math.max(-1, Math.min(1, radialErr / PATROL_RADIAL_BLEND))
   const tangentW = Math.sqrt(Math.max(0.05, 1 - radialW * radialW))
   out.copy(_radial).multiplyScalar(radialW).addScaledVector(_tangent, tangentW)
@@ -160,11 +222,13 @@ function steerBeltPatrol(
   return { r, radialW }
 }
 
-/** Circle the prey at COMBAT_ORBIT — close in / back off, plus tangent strafe. */
+/** Circle the prey — close in / back off, plus tangent strafe (sign splits allies). */
 function steerCombatOrbit(
   position: Vector3,
   prey: Vector3,
   out: Vector3,
+  combatOrbit: number,
+  orbitSign: number,
 ): number {
   _radial.copy(position).sub(prey)
   const sep = _radial.length()
@@ -176,11 +240,12 @@ function steerCombatOrbit(
   _tangent.crossVectors(_worldUp, _radial)
   if (_tangent.lengthSq() < 1e-8) _tangent.set(0, 0, 1)
   _tangent.normalize()
+  if (orbitSign < 0) _tangent.multiplyScalar(-1)
 
   // +radial = away from prey. Want away when too close, toward when too far.
   const radialAwayW = Math.max(
     -1,
-    Math.min(1, (COMBAT_ORBIT - sep) / COMBAT_ORBIT_BLEND),
+    Math.min(1, (combatOrbit - sep) / COMBAT_ORBIT_BLEND),
   )
   const tangentW = Math.sqrt(Math.max(0.35, 1 - radialAwayW * radialAwayW))
   out
@@ -190,6 +255,26 @@ function steerCombatOrbit(
   if (out.lengthSq() < 1e-8) out.copy(_tangent)
   else out.normalize()
   return sep
+}
+
+/** Accumulate a separation bias away from nearby allies into out (may be zero). */
+function allySeparation(
+  position: Vector3,
+  allies: RefObject<Object3D | null>[],
+  out: Vector3,
+): Vector3 {
+  out.set(0, 0, 0)
+  for (const ref of allies) {
+    const ally = ref.current
+    if (!ally || !ally.visible) continue
+    ally.getWorldPosition(_ally)
+    _avoid.copy(position).sub(_ally)
+    const d = _avoid.length()
+    if (d < 1e-4 || d >= ALLY_SEPARATION) continue
+    const urgency = 1 - d / ALLY_SEPARATION
+    out.addScaledVector(_avoid, (urgency * urgency) / d)
+  }
+  return out
 }
 
 type Burst = { id: number; position: Vector3 }
@@ -230,17 +315,26 @@ export function BanditShip({
   mapRef,
   combatStateRef,
   paused = false,
+  spawnSide = 1,
+  variant = 0,
+  allyRefs = [],
+  rivalRefs = [],
+  rivalLaserHitRefs = [],
 }: BanditShipProps) {
+  const persona = personaFor(variant)
   const root = useRef<Group>(null!)
   const velocity = useRef(new Vector3())
   const mode = useRef<BanditMode>('patrol')
   const searchTimer = useRef(0)
   const losGrace = useRef(0)
+  const lastSeen = useRef(new Vector3())
   const hp = useRef(BANDIT_HP)
   const pendingDamage = useRef(0)
+  const hurtMemory = useRef(0)
+  const returnFire = useRef(0)
   const respawnTimer = useRef(-1)
-  const fireCooldown = useRef(0)
-  const nextGun = useRef(0)
+  const fireCooldown = useRef(persona.firePhase)
+  const nextGun = useRef(variant & 1)
   const thrustGlow = useRef(0)
   const weapons = useRef<WeaponsHandle | null>(null)
   const leftMuzzle = useRef<Object3D>(null!)
@@ -281,18 +375,19 @@ export function BanditShip({
     if (_right.lengthSq() < 1e-6) _right.set(0, 0, 1)
     _right.normalize()
 
+    const side = spawnSide >= 0 ? 1 : -1
     const pad = hermesRadius + HERMES_CLEARANCE
     group.position
       .copy(hermesWorld)
-      .addScaledVector(_right, pad)
+      .addScaledVector(_right, pad * side)
       .addScaledVector(_worldUp, hermesRadius * 0.4)
     velocity.current.set(0, 0, 0)
 
     const player = targetRef.current
     if (player) player.getWorldPosition(_target)
-    else _target.copy(group.position).add(_right)
+    else _target.copy(group.position).addScaledVector(_right, side)
     dirToward(group.position, _target, _forward)
-    if (_forward.lengthSq() < 1e-6) _forward.copy(_right)
+    if (_forward.lengthSq() < 1e-6) _forward.copy(_right).multiplyScalar(side)
     // Mesh lookAt aims +Z; nose is −Z — look behind the desired heading
     group.lookAt(
       group.position.x - _forward.x,
@@ -313,12 +408,13 @@ export function BanditShip({
 
   useLayoutEffect(() => {
     banditLaserHitRef.current = {
-      impact(point, pad) {
+      impact(point, pad, damage = 22) {
         if (respawnTimer.current >= 0 || hidden || !spawned.current) return false
         const group = root.current
         if (!group) return false
         if (group.position.distanceTo(point) > pad + shipPad) return false
-        pendingDamage.current += 22
+        pendingDamage.current += damage
+        hurtMemory.current = HURT_MEMORY
         setHurtTint(true)
         window.setTimeout(() => setHurtTint(false), BANDIT_DAMAGE_FLASH * 1000)
         const id = ++sparkId.current
@@ -358,6 +454,7 @@ export function BanditShip({
       spawned.current = true
       hp.current = BANDIT_HP
       mode.current = 'patrol'
+      fireCooldown.current = persona.firePhase
       setHidden(false)
       setReady(true)
     }
@@ -399,6 +496,7 @@ export function BanditShip({
         hp.current = BANDIT_HP
         mode.current = 'patrol'
         pendingDamage.current = 0
+        fireCooldown.current = persona.firePhase
         setHidden(false)
         hostileHazardRef.current = {
           object: root,
@@ -417,7 +515,7 @@ export function BanditShip({
       hp.current = Math.max(0, hp.current - pendingDamage.current)
       pendingDamage.current = 0
       if (hp.current <= 0) {
-        _lastSeen.copy(group.position)
+        lastSeen.current.copy(group.position)
         velocity.current.set(0, 0, 0)
         weapons.current?.clear()
         setHidden(true)
@@ -462,6 +560,9 @@ export function BanditShip({
       })
     }
 
+    hurtMemory.current = Math.max(0, hurtMemory.current - dt)
+    returnFire.current = Math.max(0, returnFire.current - dt)
+
     const prey = targetRef.current
     let spotted = false
     let preyDist = Infinity
@@ -484,6 +585,27 @@ export function BanditShip({
       }
     }
 
+    // Nearest rival (patrol) — return fire / evade only, never hunt across the belt
+    let rivalDist = Infinity
+    let rivalLive: Object3D | null = null
+    for (const ref of rivalRefs) {
+      const rival = ref.current
+      if (!rival || !rival.visible) continue
+      rival.getWorldPosition(_aim)
+      const d = group.position.distanceTo(_aim)
+      if (d < rivalDist) {
+        rivalDist = d
+        rivalLive = rival
+      }
+    }
+    if (
+      rivalLive &&
+      rivalDist < RIVAL_EVADE_RANGE &&
+      (hurtMemory.current > 0 || rivalDist < CONTACT_RANGE)
+    ) {
+      returnFire.current = Math.max(returnFire.current, RETURN_FIRE_TIME)
+    }
+
     // Spot → chase. Without LOS, freeze on last seen (never track live prey).
     // Brief grace so one occluded frame doesn't dump chase → search.
     if (dockSafe && (mode.current === 'chase' || mode.current === 'search')) {
@@ -492,7 +614,7 @@ export function BanditShip({
       losGrace.current = 0
     } else if (spotted) {
       mode.current = 'chase'
-      _lastSeen.copy(_target)
+      lastSeen.current.copy(_target)
       searchTimer.current = SEARCH_TIME
       losGrace.current = LOS_GRACE
     } else if (mode.current === 'chase') {
@@ -515,34 +637,76 @@ export function BanditShip({
 
     const chasing = mode.current === 'chase'
     const patrolling = mode.current === 'patrol'
-    showHealth.current = chasing
+    const skirmishing =
+      !chasing && returnFire.current > 0 && !!rivalLive && rivalDist < FIRE_RANGE * 1.8
+    showHealth.current = chasing || skirmishing
     writeCombatState(chasing, true)
 
     let patrolRadialW = 0
     let combatSep = preyDist
     // Live track only while actually spotted; otherwise chase grace uses last seen
     const trackLive = chasing && spotted
+    const seen = lastSeen.current
+
+    const combatOrbit = persona.combatOrbit
 
     // Chase: orbit at standoff (do NOT fly into the player — that one-shot rams)
     if (chasing && prey) {
       combatSep = steerCombatOrbit(
         group.position,
-        trackLive ? _target : _lastSeen,
+        trackLive ? _target : seen,
         _dir,
+        combatOrbit,
+        persona.orbitSign,
+      )
+    } else if (skirmishing && rivalLive) {
+      // Brief return-fire orbit, then break — don't deathmatch the patrol
+      rivalLive.getWorldPosition(_aim)
+      combatSep = steerCombatOrbit(
+        group.position,
+        _aim,
+        _dir,
+        combatOrbit,
+        persona.orbitSign,
       )
     } else if (mode.current === 'search') {
-      dirToward(group.position, _lastSeen, _dir)
-      if (group.position.distanceTo(_lastSeen) < 4) {
+      dirToward(group.position, seen, _dir)
+      if (group.position.distanceTo(seen) < 4) {
         mode.current = 'patrol'
       }
     } else {
       // Belt cruise only — no live sector hunt (that cheats LOS across the ring).
-      const patrol = steerBeltPatrol(group.position, _sun, _dir, null)
+      const patrol = steerBeltPatrol(
+        group.position,
+        _sun,
+        _dir,
+        null,
+        persona.patrolOrbit,
+        persona.patrolSign,
+      )
       patrolRadialW = patrol.radialW
+      // Drift away from a nearby peacekeeper instead of lingering
+      if (rivalLive && rivalDist < RIVAL_EVADE_RANGE) {
+        rivalLive.getWorldPosition(_aim)
+        _avoid.copy(group.position).sub(_aim)
+        if (_avoid.lengthSq() > 1e-6) {
+          _avoid.normalize()
+          steerWithAvoidance(_dir, _avoid, 0.55, _steer)
+          _dir.copy(_steer)
+        }
+      }
+    }
+
+    // Split off from wingmates — stronger while fighting so they don't stack-fire
+    allySeparation(group.position, allyRefs, _avoid)
+    if (_avoid.lengthSq() > 1e-6) {
+      const weight = chasing || skirmishing ? ALLY_SEPARATION_WEIGHT : 0.75
+      steerWithAvoidance(_dir, _avoid, weight, _steer)
+      _dir.copy(_steer)
     }
 
     // Thalassa keep-out only while not chasing
-    if (planet && !chasing) {
+    if (planet && !chasing && !skirmishing) {
       avoidSphere(group.position, _thalassa, THALASSA_KEEP_OUT, _avoid)
       if (_avoid.lengthSq() > 1e-6) {
         steerWithAvoidance(_dir, _avoid, 0.85, _steer)
@@ -552,12 +716,14 @@ export function BanditShip({
 
     // Move along steer dir first; aim/face after final position
     const cruise = chasing
-      ? combatSep > COMBAT_ORBIT * 2.2
-        ? CHASE_APPROACH_CRUISE
-        : CHASE_ORBIT_CRUISE
-      : patrolling
-        ? PATROL_CRUISE
-        : SEARCH_CRUISE
+      ? combatSep > combatOrbit * 2.2
+        ? persona.approachCruise
+        : persona.orbitCruise
+      : skirmishing
+        ? persona.orbitCruise
+        : patrolling
+          ? persona.patrolCruise
+          : SEARCH_CRUISE
     _wish.copy(_dir).multiplyScalar(cruise)
     velocity.current.lerp(_wish, 1 - Math.exp(-5.5 * dt))
     group.position.addScaledVector(velocity.current, dt)
@@ -565,16 +731,16 @@ export function BanditShip({
     // Hard floor: never overlap the live player (hostile collision = instant death)
     if (chasing && prey) {
       const liveSep = group.position.distanceTo(_target)
-      if (liveSep < COMBAT_ORBIT * 0.55) {
+      if (liveSep < combatOrbit * 0.55) {
         _radial.copy(group.position).sub(_target)
         if (_radial.lengthSq() < 1e-6) _radial.set(1, 0, 0)
         else _radial.normalize()
         group.position
           .copy(_target)
-          .addScaledVector(_radial, COMBAT_ORBIT * 0.75)
+          .addScaledVector(_radial, combatOrbit * 0.75)
         const toward = velocity.current.dot(_radial)
         if (toward < 0) velocity.current.addScaledVector(_radial, -toward + 2)
-        combatSep = COMBAT_ORBIT * 0.75
+        combatSep = combatOrbit * 0.75
       }
     }
 
@@ -609,8 +775,20 @@ export function BanditShip({
 
     // Face after move. Mesh lookAt aims +Z at the point, but ship nose is −Z
     // (same as player), so look at a point behind the desired heading.
+    const shootRival =
+      skirmishing &&
+      !!rivalLive &&
+      returnFire.current > 0 &&
+      rivalDist < FIRE_RANGE
     if (chasing && prey) {
-      dirToward(group.position, trackLive ? _target : _lastSeen, _aim)
+      dirToward(group.position, trackLive ? _target : seen, _aim)
+      if (_aim.lengthSq() > 1e-8) {
+        _steer.copy(group.position).sub(_aim)
+        group.lookAt(_steer)
+      }
+    } else if (shootRival && rivalLive) {
+      rivalLive.getWorldPosition(_aim)
+      dirToward(group.position, _aim, _aim)
       if (_aim.lengthSq() > 1e-8) {
         _steer.copy(group.position).sub(_aim)
         group.lookAt(_steer)
@@ -630,19 +808,30 @@ export function BanditShip({
     _up.set(0, 1, 0).applyQuaternion(group.quaternion)
 
     thrustGlow.current +=
-      ((chasing ? 0.95 : patrolling ? 0.55 : 0.35) - thrustGlow.current) *
+      ((chasing || skirmishing ? 0.95 : patrolling ? 0.55 : 0.35) -
+        thrustGlow.current) *
       (1 - Math.exp(-8 * dt))
 
     fireCooldown.current = Math.max(0, fireCooldown.current - dt)
+    let fireAtPlayer = false
+    let fireAtRival = false
     if (trackLive) {
       dirToward(group.position, _target, _aim)
+      fireAtPlayer = true
+    } else if (shootRival && rivalLive) {
+      rivalLive.getWorldPosition(_steer)
+      dirToward(group.position, _steer, _aim)
+      fireAtRival = true
     }
     const aimDot =
-      trackLive && _aim.lengthSq() > 1e-8 ? _forward.dot(_aim) : null
+      (fireAtPlayer || fireAtRival) && _aim.lengthSq() > 1e-8
+        ? _forward.dot(_aim)
+        : null
+    const fireDist = fireAtPlayer ? preyDist : rivalDist
     if (
-      trackLive &&
-      !dockSafe &&
-      preyDist < FIRE_RANGE &&
+      (fireAtPlayer || fireAtRival) &&
+      !(fireAtPlayer && dockSafe) &&
+      fireDist < FIRE_RANGE &&
       fireCooldown.current <= 0 &&
       _aim.lengthSq() > 1e-8 &&
       aimDot !== null &&
@@ -655,14 +844,31 @@ export function BanditShip({
         .addScaledVector(_right, side * visualScale * 0.35)
         .addScaledVector(_up, -visualScale * 0.12)
         .addScaledVector(_aim, visualScale * 0.55)
-      // No strafe inherit — bolts go at the player, not along the orbit
-      weapons.current?.fire(_wish, _aim, _zeroVel, 70, 1.6)
-      fireCooldown.current = 0.32
+      // Soft damage vs patrol; full default vs player (player ignores bolt damage arg)
+      weapons.current?.fire(
+        _wish,
+        _aim,
+        _zeroVel,
+        70,
+        1.6,
+        fireAtRival ? RIVAL_BOLT_DAMAGE : undefined,
+      )
+      // Persona cadence + jitter so wingmates don't volley in sync
+      const base = fireAtRival
+        ? persona.fireInterval * 1.25
+        : persona.fireInterval
+      fireCooldown.current = base * (0.8 + Math.random() * 0.45)
     }
   }, -1)
 
-  const playerTargets = useRef([playerLaserHitRef])
-  playerTargets.current[0] = playerLaserHitRef
+  const laserTargets = useRef<MutableRefObject<LaserTarget | null>[]>([
+    playerLaserHitRef,
+    ...rivalLaserHitRefs,
+  ])
+  laserTargets.current[0] = playerLaserHitRef
+  for (let i = 0; i < rivalLaserHitRefs.length; i++) {
+    laserTargets.current[i + 1] = rivalLaserHitRefs[i]
+  }
 
   return (
     <>
@@ -738,7 +944,7 @@ export function BanditShip({
         sunSize={sunSize}
         scale={visualScale}
         poolSize={16}
-        laserTargets={playerTargets.current}
+        laserTargets={laserTargets.current}
         boltColor={{
           glow: '#ff2244',
           mid: '#ff6688',

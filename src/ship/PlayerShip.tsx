@@ -21,11 +21,21 @@ import {
   type WeaponsHandle,
 } from '@/ship/ShipWeapons'
 import {
+  TorpedoField,
+  type TorpedoSeekTarget,
+  type TorpedoesHandle,
+} from '@/ship/ShipTorpedoes'
+import {
   BUFF_DURATION,
   FIRERATE_BUFF_MULT,
   SPEED_BUFF_MULT,
   type BuffKind,
 } from '@/loot/buffs'
+import {
+  BASE_MAX_HP,
+  TORPEDO_MAX_AMMO,
+  clampTorpedoAmmo,
+} from '@/loot/shop'
 import type { BuffDropsHandle } from '@/loot/BuffDrops'
 import type { MaterialDropsHandle, MaterialPickup } from '@/loot/MaterialDrops'
 import { playBuffPickupSound, playMaterialPickupSound } from '@/audio/gameAudio'
@@ -72,11 +82,34 @@ function segmentHitsSphere(
   return _closest.distanceToSquared(center) < r2
 }
 
-const MAX_HP = 100
 /** Damage taken from a pirate laser bolt (~8 hits to hull break) */
 const LASER_HIT_DAMAGE = 12
 /** Hold on the blast a beat past the particle lifetime, then respawn. */
 const RESPAWN_DELAY = EXPLOSION_LIFETIME + 0.55
+/** Seeking torpedo — one-shots a bandit hull. */
+const TORPEDO_DAMAGE = 70
+const TORPEDO_SPEED = 42
+const TORPEDO_LIFE = 9
+const TORPEDO_COOLDOWN = 0.55
+/**
+ * Soft-lock: nearest engaged hostile in the front hemisphere builds lock
+ * without bore-sight tracking. Bandits orbit too fast for a tight cone.
+ */
+const TORPEDO_LOCK_TIME = 0.18
+const TORPEDO_LOCK_RANGE = 160
+/** Front hemisphere — anywhere ahead counts for soft acquire. */
+const TORPEDO_LOCK_COS = 0
+/**
+ * Once locked, hold until the target dies, leaves sticky range, or goes
+ * more than this many degrees off the nose (~140°).
+ */
+const TORPEDO_STICKY_RANGE = 200
+const TORPEDO_STICKY_COS = Math.cos((140 * Math.PI) / 180)
+/** Keep unfinished lock briefly after the target leaves the soft cone. */
+const TORPEDO_LOCK_GRACE = 0.55
+const TORPEDO_LOCK_DECAY = 0.7
+const _lockAim = new Vector3()
+const _lockTo = new Vector3()
 
 export type OrbitalTelemetry = {
   speed: number
@@ -91,6 +124,11 @@ export type OrbitalTelemetry = {
   /** Seconds remaining on active buffs */
   speedBuff: number
   fireBuff: number
+  torpedoOwned: boolean
+  torpedoAmmo: number
+  torpedoMaxAmmo: number
+  /** 0–1 lock progress; 1 = ready to fire */
+  torpedoLock: number
 }
 
 /** Moving body the ship can fatally collide with (planets, etc.). */
@@ -160,11 +198,27 @@ type PlayerShipProps = {
   /** Applied once on first spawn (localStorage restore). */
   initialHull?: {
     hp: number
+    maxHp?: number
     heat?: number
     overheated?: boolean
     speedBuff?: number
     fireBuff?: number
   }
+  /**
+   * Station bay repair / armor install — bump `seq` and set target `hp`
+   * (and optional `maxHp`) after a purchase. Consumed once per seq.
+   */
+  healRequest?: { seq: number; hp: number; maxHp?: number } | null
+  /** Current max hull from armor tier (stock 100, up to 175). */
+  maxHp?: number
+  /** Seeking torpedo launcher purchased at the station. */
+  torpedoOwned?: boolean
+  /** Loaded warheads (0–4). */
+  torpedoAmmo?: number
+  /** Bandits the torpedo can lock / seek. */
+  torpedoSeekTargets?: TorpedoSeekTarget[]
+  /** Called when a tube is spent in flight. */
+  onTorpedoAmmoChange?: (ammo: number) => void
 }
 
 /** Approach radius for the dock offer (world units from station center). */
@@ -294,6 +348,12 @@ export function PlayerShip({
   onLockChange,
   onTelemetry,
   initialHull,
+  healRequest = null,
+  maxHp: maxHpProp = BASE_MAX_HP,
+  torpedoOwned = false,
+  torpedoAmmo = 0,
+  torpedoSeekTargets,
+  onTorpedoAmmoChange,
 }: PlayerShipProps) {
   const ship = useRef<Group>(null!)
   const velocity = useRef(new Vector3())
@@ -303,9 +363,16 @@ export function PlayerShip({
   const wasDocked = useRef(docked)
   const initialHullRef = useRef(initialHull)
   initialHullRef.current = initialHull
+  const healRequestRef = useRef(healRequest)
+  healRequestRef.current = healRequest
+  const lastHealSeq = useRef(0)
   const dockAvailableRef = useRef(false)
   const telemetryAge = useRef(0)
-  const hp = useRef(MAX_HP)
+  const maxHp = useRef(
+    Math.max(BASE_MAX_HP, Math.round(initialHull?.maxHp ?? maxHpProp)),
+  )
+  const hp = useRef(maxHp.current)
+  maxHp.current = Math.max(BASE_MAX_HP, Math.round(maxHpProp))
   const explosionId = useRef(0)
   const respawnTimer = useRef(-1)
   /** Ignore world collisions briefly after spawn / respawn */
@@ -317,6 +384,7 @@ export function PlayerShip({
   const heat = useRef(0)
   const overheated = useRef(false)
   const weapons = useRef<WeaponsHandle | null>(null)
+  const torpedoes = useRef<TorpedoesHandle | null>(null)
   const leftMuzzle = useRef<Object3D>(null!)
   const rightMuzzle = useRef<Object3D>(null!)
   /** 0..1 thruster VFX level — updated in the flight loop */
@@ -325,6 +393,17 @@ export function PlayerShip({
   const thrustEngaged = useRef(0)
   const speedBuff = useRef(0)
   const fireBuff = useRef(0)
+  const torpedoOwnedRef = useRef(torpedoOwned)
+  const torpedoAmmoRef = useRef(clampTorpedoAmmo(torpedoAmmo))
+  const torpedoLock = useRef(0)
+  const torpedoLockIndex = useRef(-1)
+  const torpedoCooldown = useRef(0)
+  const torpedoLockGrace = useRef(0)
+  const torpedoKeyWasDown = useRef(false)
+  const onTorpedoAmmoChangeRef = useRef(onTorpedoAmmoChange)
+  onTorpedoAmmoChangeRef.current = onTorpedoAmmoChange
+  torpedoOwnedRef.current = torpedoOwned
+  torpedoAmmoRef.current = clampTorpedoAmmo(torpedoAmmo)
   const keys = useKeyboard()
   const { camera, gl } = useThree()
   const [explosions, setExplosions] = useState<ExplosionBurst[]>([])
@@ -341,7 +420,7 @@ export function PlayerShip({
   useLayoutEffect(() => {
     if (!laserHitRef) return
     laserHitRef.current = {
-      impact(point, pad) {
+      impact(point, pad, damage = LASER_HIT_DAMAGE) {
         if (
           respawnTimer.current >= 0 ||
           dockedRef.current ||
@@ -353,7 +432,7 @@ export function PlayerShip({
         if (!group || !group.visible) return false
         const shipPad = Math.max(scale * 0.9, 0.05)
         if (group.position.distanceTo(point) > pad + shipPad) return false
-        pendingDamage.current += LASER_HIT_DAMAGE
+        pendingDamage.current += damage
         setHurtTint(true)
         window.setTimeout(() => setHurtTint(false), PLAYER_DAMAGE_FLASH * 1000)
         const id = ++hitSparkId.current
@@ -561,14 +640,20 @@ export function PlayerShip({
           spawnClearance,
         )
         const hull = initialHullRef.current
+        if (hull?.maxHp != null) {
+          maxHp.current = Math.max(BASE_MAX_HP, Math.round(hull.maxHp))
+        }
         if (hull) {
-          hp.current = Math.max(1, Math.min(MAX_HP, Math.round(hull.hp)))
+          hp.current = Math.max(
+            1,
+            Math.min(maxHp.current, Math.round(hull.hp)),
+          )
           heat.current = Math.max(0, Math.min(1, hull.heat ?? 0))
           overheated.current = !!hull.overheated
           speedBuff.current = Math.max(0, hull.speedBuff ?? 0)
           fireBuff.current = Math.max(0, hull.fireBuff ?? 0)
         } else {
-          hp.current = MAX_HP
+          hp.current = maxHp.current
           heat.current = 0
           overheated.current = false
         }
@@ -611,12 +696,31 @@ export function PlayerShip({
       return
     }
 
-    // Dock edge — station services restore hull / guns
+    // Dock edge — cool guns / clear bolts; hull repair is purchased at the bay
     if (!wasDocked.current && docked) {
-      hp.current = MAX_HP
       heat.current = 0
       overheated.current = false
       weapons.current?.clear()
+      torpedoes.current?.clear()
+      torpedoLock.current = 0
+      torpedoLockIndex.current = -1
+      torpedoLockGrace.current = 0
+      torpedoKeyWasDown.current = false
+    }
+
+    // Paid station repair / armor install (seq bumps once per purchase)
+    const heal = healRequestRef.current
+    if (heal && heal.seq !== lastHealSeq.current) {
+      lastHealSeq.current = heal.seq
+      if (heal.maxHp != null) {
+        maxHp.current = Math.max(BASE_MAX_HP, Math.round(heal.maxHp))
+      }
+      hp.current = Math.max(
+        1,
+        Math.min(maxHp.current, Math.round(heal.hp)),
+      )
+      heat.current = 0
+      overheated.current = false
     }
 
     // Undock edge — jettison clear of the berth for ship safety
@@ -695,11 +799,15 @@ export function PlayerShip({
           circularSpeed: 0,
           orbitRatio: 0,
           hp: hp.current,
-          maxHp: MAX_HP,
+          maxHp: maxHp.current,
           heat: heat.current,
           overheated: false,
           speedBuff: speedBuff.current,
           fireBuff: fireBuff.current,
+          torpedoOwned: torpedoOwnedRef.current,
+          torpedoAmmo: torpedoAmmoRef.current,
+          torpedoMaxAmmo: TORPEDO_MAX_AMMO,
+          torpedoLock: 0,
         })
       }
       return
@@ -733,7 +841,7 @@ export function PlayerShip({
           spawnPlanetRef?.current,
           spawnClearance,
         )
-        hp.current = MAX_HP
+        hp.current = maxHp.current
         heat.current = 0
         overheated.current = false
         setHidden(false)
@@ -751,11 +859,15 @@ export function PlayerShip({
             circularSpeed: 0,
             orbitRatio: 0,
             hp: 0,
-            maxHp: MAX_HP,
+            maxHp: maxHp.current,
             heat: heat.current,
             overheated: overheated.current,
             speedBuff: 0,
             fireBuff: 0,
+            torpedoOwned: torpedoOwnedRef.current,
+            torpedoAmmo: torpedoAmmoRef.current,
+            torpedoMaxAmmo: TORPEDO_MAX_AMMO,
+            torpedoLock: 0,
           })
         }
         return
@@ -971,6 +1083,11 @@ export function PlayerShip({
       thrustGlow.current = 0
       thrustEngaged.current = 0
       weapons.current?.clear()
+      torpedoes.current?.clear()
+      torpedoLock.current = 0
+      torpedoLockIndex.current = -1
+      torpedoLockGrace.current = 0
+      torpedoKeyWasDown.current = false
       setHidden(true)
       respawnTimer.current = RESPAWN_DELAY
       telemetryAge.current = 0
@@ -985,11 +1102,15 @@ export function PlayerShip({
         circularSpeed: 0,
         orbitRatio: 0,
         hp: 0,
-        maxHp: MAX_HP,
+        maxHp: maxHp.current,
         heat: 0,
         overheated: false,
         speedBuff: 0,
         fireBuff: 0,
+        torpedoOwned: torpedoOwnedRef.current,
+        torpedoAmmo: torpedoAmmoRef.current,
+        torpedoMaxAmmo: TORPEDO_MAX_AMMO,
+        torpedoLock: 0,
       })
 
       const id = ++explosionId.current
@@ -1058,6 +1179,164 @@ export function PlayerShip({
       fireCooldown.current = 1 / Math.max(effectiveFireRate, 0.1)
     }
 
+    // Seeking torpedoes — soft-lock nearest engaged foe ahead; T fires (snaps lock)
+    torpedoCooldown.current = Math.max(0, torpedoCooldown.current - dt)
+    torpedoLockGrace.current = Math.max(0, torpedoLockGrace.current - dt)
+
+    const readTorpedoTarget = (index: number) => {
+      if (!torpedoSeekTargets) return null
+      const seek = torpedoSeekTargets[index]
+      const combat = seek?.combat.current
+      const obj = seek?.object.current
+      if (!combat?.alive || !obj) return null
+      obj.getWorldPosition(_lockTo)
+      _lockAim.copy(_lockTo).sub(group.position)
+      const dist = _lockAim.length()
+      if (dist < 0.5) return null
+      _lockAim.multiplyScalar(1 / dist)
+      const cos = _lockAim.dot(_forward)
+      return { combat, dist, cos }
+    }
+
+    /** Nearest engaged (or any alive in a pinch) soft-lock candidate ahead. */
+    const pickSoftLockTarget = () => {
+      if (!torpedoSeekTargets) return -1
+      let best = -1
+      let bestScore = -Infinity
+      for (let i = 0; i < torpedoSeekTargets.length; i++) {
+        const t = readTorpedoTarget(i)
+        if (!t || t.dist > TORPEDO_LOCK_RANGE || t.cos < TORPEDO_LOCK_COS) {
+          continue
+        }
+        // Prefer engaged; still allow a close alive bandit so lock isn't dead
+        // if chase flag flickers for a frame.
+        const engagedBonus = t.combat.engaged ? 2 : 0
+        const score = engagedBonus + t.cos - t.dist / TORPEDO_LOCK_RANGE
+        if (!t.combat.engaged && t.dist > 70) continue
+        if (score > bestScore) {
+          bestScore = score
+          best = i
+        }
+      }
+      return best
+    }
+
+    if (
+      torpedoOwnedRef.current &&
+      torpedoAmmoRef.current > 0 &&
+      respawnTimer.current < 0 &&
+      torpedoSeekTargets
+    ) {
+      _forward.set(0, 0, -1).applyQuaternion(group.quaternion)
+
+      const lockedIndex = torpedoLockIndex.current
+      const fullyLocked = torpedoLock.current >= 1 && lockedIndex >= 0
+
+      if (fullyLocked) {
+        const held = readTorpedoTarget(lockedIndex)
+        const keep =
+          !!held &&
+          held.dist <= TORPEDO_STICKY_RANGE &&
+          held.cos >= TORPEDO_STICKY_COS
+        if (keep) {
+          torpedoLock.current = 1
+          torpedoLockGrace.current = TORPEDO_LOCK_GRACE
+        } else {
+          torpedoLock.current = 0
+          torpedoLockIndex.current = -1
+          torpedoLockGrace.current = 0
+        }
+      } else {
+        const bestLock = pickSoftLockTarget()
+        if (bestLock >= 0) {
+          if (torpedoLockIndex.current !== bestLock) {
+            // Soft switch — don't thrash progress between wingmates
+            if (
+              torpedoLockIndex.current >= 0 &&
+              torpedoLock.current > 0.15
+            ) {
+              torpedoLock.current *= 0.75
+            }
+            torpedoLockIndex.current = bestLock
+          }
+          torpedoLock.current = Math.min(
+            1,
+            torpedoLock.current + dt / TORPEDO_LOCK_TIME,
+          )
+          torpedoLockGrace.current = TORPEDO_LOCK_GRACE
+        } else if (torpedoLockGrace.current > 0 && torpedoLockIndex.current >= 0) {
+          // Target slid behind / aside — hold progress briefly
+          const still = readTorpedoTarget(torpedoLockIndex.current)
+          if (!still) {
+            torpedoLock.current = 0
+            torpedoLockIndex.current = -1
+            torpedoLockGrace.current = 0
+          }
+        } else {
+          torpedoLock.current = Math.max(
+            0,
+            torpedoLock.current - dt * TORPEDO_LOCK_DECAY,
+          )
+          if (torpedoLock.current <= 0) torpedoLockIndex.current = -1
+        }
+      }
+    } else {
+      torpedoLock.current = 0
+      torpedoLockIndex.current = -1
+      torpedoLockGrace.current = 0
+    }
+
+    const tDown = !!input.KeyT
+    if (
+      tDown &&
+      !torpedoKeyWasDown.current &&
+      torpedoOwnedRef.current &&
+      torpedoAmmoRef.current > 0 &&
+      torpedoCooldown.current <= 0 &&
+      respawnTimer.current < 0 &&
+      torpedoSeekTargets
+    ) {
+      _forward.set(0, 0, -1).applyQuaternion(group.quaternion)
+
+      // Snap-lock: T designates the nearest soft-lock candidate if not locked yet
+      if (torpedoLock.current < 1 || torpedoLockIndex.current < 0) {
+        const snap = pickSoftLockTarget()
+        if (snap >= 0) {
+          torpedoLockIndex.current = snap
+          torpedoLock.current = 1
+          torpedoLockGrace.current = TORPEDO_LOCK_GRACE
+        }
+      }
+
+      if (torpedoLock.current >= 1 && torpedoLockIndex.current >= 0) {
+        _right.set(1, 0, 0).applyQuaternion(group.quaternion)
+        _up.set(0, 1, 0).applyQuaternion(group.quaternion)
+        _muzzle
+          .copy(group.position)
+          .addScaledVector(_up, -scale * 0.18)
+          .addScaledVector(_forward, scale * 0.7)
+
+        const targetIndex = torpedoLockIndex.current
+        const ok = torpedoes.current?.fire(
+          _muzzle,
+          _forward,
+          velocity.current,
+          TORPEDO_SPEED,
+          TORPEDO_LIFE,
+          targetIndex,
+          TORPEDO_DAMAGE,
+        )
+        if (ok) {
+          const next = clampTorpedoAmmo(torpedoAmmoRef.current - 1)
+          torpedoAmmoRef.current = next
+          onTorpedoAmmoChangeRef.current?.(next)
+          torpedoCooldown.current = TORPEDO_COOLDOWN
+          torpedoLock.current = 1
+        }
+      }
+    }
+    torpedoKeyWasDown.current = tDown
+
     // Telemetry (throttled — avoid React renders every frame)
     telemetryAge.current += dt
     if (onTelemetry && telemetryAge.current > 0.1) {
@@ -1072,11 +1351,15 @@ export function PlayerShip({
         circularSpeed: vCircular,
         orbitRatio: vCircular > 1e-4 ? speed / vCircular : 0,
         hp: hp.current,
-        maxHp: MAX_HP,
+        maxHp: maxHp.current,
         heat: heat.current,
         overheated: overheated.current,
         speedBuff: speedBuff.current,
         fireBuff: fireBuff.current,
+        torpedoOwned: torpedoOwnedRef.current,
+        torpedoAmmo: torpedoAmmoRef.current,
+        torpedoMaxAmmo: TORPEDO_MAX_AMMO,
+        torpedoLock: torpedoLock.current,
       })
     }
 
@@ -1141,6 +1424,16 @@ export function PlayerShip({
         scale={scale}
         hazardFields={hazardFields}
         laserTargets={laserTargets}
+        paused={paused}
+      />
+      <TorpedoField
+        torpedoes={torpedoes}
+        sunPosition={sunPosition}
+        sunSize={sunSize}
+        scale={scale}
+        hazardFields={hazardFields}
+        laserTargets={laserTargets}
+        seekTargets={torpedoSeekTargets}
         paused={paused}
       />
       {explosions.map((burst) => (

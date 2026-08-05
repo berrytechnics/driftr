@@ -24,8 +24,10 @@ export type MapSnapshot = {
     /** Heading in degrees; 0 = facing world −Z (up on the map) */
     heading: number
   } | null
-  /** Bandit pip (sun-relative XZ) */
-  bandit: { x: number; z: number } | null
+  /** Bandit pips (sun-relative XZ) */
+  bandits: { x: number; z: number }[]
+  /** Friendly patrol pips (sun-relative XZ) */
+  patrols: { x: number; z: number }[]
 }
 
 export function createEmptyMapSnapshot(): MapSnapshot {
@@ -37,6 +39,7 @@ export function createEmptyMapSnapshot(): MapSnapshot {
     beltOuter: 680,
     bodies: [],
     ship: null,
-    bandit: null,
+    bandits: [],
+    patrols: [],
   }
 }

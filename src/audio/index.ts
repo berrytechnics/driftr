@@ -2,6 +2,7 @@ export {
   getAudioContext,
   unlockAudio,
   playLaserSound,
+  playTorpedoSound,
   playBuffPickupSound,
   playMaterialPickupSound,
 } from './gameAudio'

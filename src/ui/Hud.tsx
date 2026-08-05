@@ -85,6 +85,27 @@ export function Hud({
           <div style={{ marginTop: 6, color: '#ffd78a' }}>
             ₡ {formatCredits(credits)}
           </div>
+          {telemetry.torpedoOwned && (
+            <div
+              style={{
+                marginTop: 4,
+                color:
+                  telemetry.torpedoAmmo <= 0
+                    ? 'rgba(201, 209, 217, 0.4)'
+                    : telemetry.torpedoLock >= 1
+                      ? '#7dffc8'
+                      : '#5ad0ff',
+              }}
+            >
+              Torpedoes {telemetry.torpedoAmmo}/{telemetry.torpedoMaxAmmo}
+              {telemetry.torpedoAmmo > 0 &&
+                (telemetry.torpedoLock >= 1
+                  ? ' · LOCKED — T fire'
+                  : telemetry.torpedoLock > 0.05
+                    ? ` · locking ${Math.round(telemetry.torpedoLock * 100)}%`
+                    : ' · face foe · T')}
+            </div>
+          )}
           <div
             style={{
               color: hold > 0 ? '#c4a574' : 'rgba(201, 209, 217, 0.45)',

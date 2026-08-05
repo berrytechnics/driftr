@@ -22,6 +22,11 @@ export const GameCanvas = memo(function GameCanvas({
   mapShipRef,
   combatHudRef,
   initialHull,
+  healRequest,
+  maxHp,
+  torpedoOwned,
+  torpedoAmmo,
+  onTorpedoAmmoChange,
 }: {
   /** Lazy-load heavy station assets after launch (or docked save). */
   started: boolean
@@ -37,6 +42,11 @@ export const GameCanvas = memo(function GameCanvas({
   mapShipRef: RefObject<Group | null>
   combatHudRef: RefObject<CombatHudState>
   initialHull?: HullSnapshot
+  healRequest?: { seq: number; hp: number; maxHp?: number } | null
+  maxHp?: number
+  torpedoOwned?: boolean
+  torpedoAmmo?: number
+  onTorpedoAmmoChange?: (ammo: number) => void
 }) {
   return (
     <Canvas
@@ -63,6 +73,11 @@ export const GameCanvas = memo(function GameCanvas({
         mapShipRef={mapShipRef}
         combatHudRef={combatHudRef}
         initialHull={initialHull}
+        healRequest={healRequest}
+        maxHp={maxHp}
+        torpedoOwned={torpedoOwned}
+        torpedoAmmo={torpedoAmmo}
+        onTorpedoAmmoChange={onTorpedoAmmoChange}
       />
     </Canvas>
   )

@@ -109,6 +109,51 @@ export function playBuffPickupSound(volume = 0.28) {
   shimmer.stop(t0 + 0.24)
 }
 
+/** Low whoosh when launching a seeking torpedo. */
+export function playTorpedoSound(volume = 0.32) {
+  const level = scaledVolume(volume)
+  if (level < 1e-4) return
+  const ctx = getAudioContext()
+  if (!ctx) return
+  if (ctx.state === 'suspended') void ctx.resume()
+
+  const t0 = ctx.currentTime
+  const master = ctx.createGain()
+  master.gain.setValueAtTime(Math.max(0.0001, level), t0)
+  master.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.55)
+  master.connect(ctx.destination)
+
+  const osc = ctx.createOscillator()
+  const gain = ctx.createGain()
+  const filter = ctx.createBiquadFilter()
+  osc.type = 'sawtooth'
+  osc.frequency.setValueAtTime(220, t0)
+  osc.frequency.exponentialRampToValueAtTime(55, t0 + 0.45)
+  filter.type = 'lowpass'
+  filter.frequency.setValueAtTime(900, t0)
+  filter.frequency.exponentialRampToValueAtTime(180, t0 + 0.45)
+  gain.gain.setValueAtTime(0.0001, t0)
+  gain.gain.exponentialRampToValueAtTime(0.9, t0 + 0.03)
+  gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.5)
+  osc.connect(filter)
+  filter.connect(gain)
+  gain.connect(master)
+  osc.start(t0)
+  osc.stop(t0 + 0.52)
+
+  const click = ctx.createOscillator()
+  const clickGain = ctx.createGain()
+  click.type = 'triangle'
+  click.frequency.setValueAtTime(640, t0)
+  click.frequency.exponentialRampToValueAtTime(140, t0 + 0.08)
+  clickGain.gain.setValueAtTime(Math.max(0.0001, level * 0.7), t0)
+  clickGain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.1)
+  click.connect(clickGain)
+  clickGain.connect(master)
+  click.start(t0)
+  click.stop(t0 + 0.11)
+}
+
 /** Soft clink when scooping a material shard. */
 export function playMaterialPickupSound(volume = 0.2) {
   const level = scaledVolume(volume)

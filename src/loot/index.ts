@@ -6,3 +6,4 @@ export {
 } from './MaterialDrops'
 export * from './economy'
 export * from './buffs'
+export * from './shop'

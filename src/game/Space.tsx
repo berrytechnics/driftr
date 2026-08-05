@@ -13,6 +13,7 @@ import {
 } from 'react'
 import { Group, Vector3, type Mesh } from 'three'
 import { BanditShip } from '@/ship/BanditShip'
+import { PatrolShip } from '@/ship/PatrolShip'
 import type { LaserTarget } from '@/ship/ShipWeapons'
 import gaseous from '@/assets/textures/planets/Gaseous2.webp'
 import gaseousOuter from '@/assets/textures/planets/Gaseous4.webp'
@@ -41,6 +42,7 @@ import {
   type HazardField,
   type OrbitalTelemetry,
 } from '@/ship/PlayerShip'
+import type { TorpedoSeekTarget } from '@/ship/ShipTorpedoes'
 import { AsteroidBelt } from '@/world/AsteroidBelt'
 import { PlanetMoons } from '@/world/Moons'
 import { Planet } from '@/world/Planet'
@@ -84,6 +86,11 @@ export const Space = memo(function Space({
   mapShipRef,
   combatHudRef,
   initialHull,
+  healRequest = null,
+  maxHp,
+  torpedoOwned = false,
+  torpedoAmmo = 0,
+  onTorpedoAmmoChange,
 }: {
   started: boolean
   paused: boolean
@@ -96,6 +103,11 @@ export const Space = memo(function Space({
   mapShipRef: RefObject<Group | null>
   combatHudRef: RefObject<CombatHudState>
   initialHull?: HullSnapshot
+  healRequest?: { seq: number; hp: number; maxHp?: number } | null
+  maxHp?: number
+  torpedoOwned?: boolean
+  torpedoAmmo?: number
+  onTorpedoAmmoChange?: (ammo: number) => void
 }) {
   const sunMesh = useRef<Mesh>(null!)
   const mercuryPlanet = useRef<Group>(null)
@@ -121,8 +133,41 @@ export const Space = memo(function Space({
   const banditHostileRef = useRef<CollisionHazard | null>(null)
   const banditMapRef = useRef<Group | null>(null)
   const banditCombatRef = useRef<BanditCombatState>(createEmptyBanditCombat())
-  const playerLaserTargets = useMemo(() => [banditLaserHitRef], [])
-  const playerHostiles = useMemo(() => [banditHostileRef], [])
+  const bandit2LaserHitRef = useRef<LaserTarget | null>(null)
+  const bandit2HostileRef = useRef<CollisionHazard | null>(null)
+  const bandit2MapRef = useRef<Group | null>(null)
+  const bandit2CombatRef = useRef<BanditCombatState>(createEmptyBanditCombat())
+  const playerLaserTargets = useMemo(
+    () => [banditLaserHitRef, bandit2LaserHitRef],
+    [],
+  )
+  const playerHostiles = useMemo(
+    () => [banditHostileRef, bandit2HostileRef],
+    [],
+  )
+  const banditMapRefs = useMemo(() => [banditMapRef, bandit2MapRef], [])
+  const banditCombatRefs = useMemo(
+    () => [banditCombatRef, bandit2CombatRef],
+    [],
+  )
+  const bandit1Allies = useMemo(() => [bandit2MapRef], [])
+  const bandit2Allies = useMemo(() => [banditMapRef], [])
+  const torpedoSeekTargets = useMemo<TorpedoSeekTarget[]>(
+    () => [
+      { object: banditMapRef, combat: banditCombatRef },
+      { object: bandit2MapRef, combat: bandit2CombatRef },
+    ],
+    [],
+  )
+  const patrolMapRef = useRef<Group | null>(null)
+  const patrolLaserHitRef = useRef<LaserTarget | null>(null)
+  const patrolMapRefs = useMemo(() => [patrolMapRef], [])
+  const patrolRivalRefs = useMemo(() => [patrolMapRef], [])
+  const patrolRivalLaserRefs = useMemo(() => [patrolLaserHitRef], [])
+  const banditLaserHitRefs = useMemo(
+    () => [banditLaserHitRef, bandit2LaserHitRef],
+    [],
+  )
   const onRockDestroyed = useCallback((worldPosition: Vector3) => {
     const x = worldPosition.x
     const y = worldPosition.y
@@ -681,6 +726,12 @@ export const Space = memo(function Space({
           onTelemetry={onTelemetry}
           onDockAvailable={onDockAvailable}
           initialHull={initialHull}
+          healRequest={healRequest}
+          maxHp={maxHp}
+          torpedoOwned={torpedoOwned}
+          torpedoAmmo={torpedoAmmo}
+          torpedoSeekTargets={torpedoSeekTargets}
+          onTorpedoAmmoChange={onTorpedoAmmoChange}
         />
         <BanditShip
           scale={scale}
@@ -699,12 +750,54 @@ export const Space = memo(function Space({
           mapRef={banditMapRef}
           combatStateRef={banditCombatRef}
           paused={paused}
+          spawnSide={1}
+          variant={0}
+          allyRefs={bandit1Allies}
+          rivalRefs={patrolRivalRefs}
+          rivalLaserHitRefs={patrolRivalLaserRefs}
+        />
+        <BanditShip
+          scale={scale}
+          sunPosition={sunPosition}
+          sunSize={sunSize}
+          thalassaRef={beltPlanet}
+          thalassaRadius={BELT_PLANET_SIZE}
+          hermesRef={mercuryPlanet}
+          hermesRadius={MERCURY_SIZE}
+          stationRef={thalassaStation}
+          occluders={planetHazards}
+          targetRef={mapShipRef}
+          playerLaserHitRef={playerLaserHitRef}
+          banditLaserHitRef={bandit2LaserHitRef}
+          hostileHazardRef={bandit2HostileRef}
+          mapRef={bandit2MapRef}
+          combatStateRef={bandit2CombatRef}
+          paused={paused}
+          spawnSide={-1}
+          variant={1}
+          allyRefs={bandit2Allies}
+          rivalRefs={patrolRivalRefs}
+          rivalLaserHitRefs={patrolRivalLaserRefs}
+        />
+        <PatrolShip
+          scale={scale}
+          sunPosition={sunPosition}
+          sunSize={sunSize}
+          thalassaRef={beltPlanet}
+          thalassaRadius={BELT_PLANET_SIZE}
+          stationRef={thalassaStation}
+          mapRef={patrolMapRef}
+          banditRefs={banditMapRefs}
+          banditLaserHitRefs={banditLaserHitRefs}
+          banditCombatRefs={banditCombatRefs}
+          patrolLaserHitRef={patrolLaserHitRef}
+          paused={paused}
         />
       </Suspense>
 
       <CombatTracker
-        banditRef={banditMapRef}
-        banditCombatRef={banditCombatRef}
+        banditRefs={banditMapRefs}
+        banditCombatRefs={banditCombatRefs}
         hudRef={combatHudRef}
         active={!paused && !docked}
       />
@@ -719,7 +812,8 @@ export const Space = memo(function Space({
         beltOuter={beltOuter}
         bodies={mapBodies}
         shipRef={mapShipRef}
-        banditRef={banditMapRef}
+        banditRefs={banditMapRefs}
+        patrolRefs={patrolMapRefs}
       />
 
       <Starfield

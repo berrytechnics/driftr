@@ -21,7 +21,8 @@ type MapTrackerProps = {
   beltOuter: number
   bodies: TrackedBody[]
   shipRef?: RefObject<Group | null>
-  banditRef?: RefObject<Group | null>
+  banditRefs?: RefObject<Group | null>[]
+  patrolRefs?: RefObject<Group | null>[]
 }
 
 const _pos = new Vector3()
@@ -39,7 +40,8 @@ export function MapTracker({
   beltOuter,
   bodies,
   shipRef,
-  banditRef,
+  banditRefs,
+  patrolRefs,
 }: MapTrackerProps) {
   useFrame(() => {
     const snap = snapshotRef.current
@@ -94,14 +96,32 @@ export function MapTracker({
       snap.ship = null
     }
 
-    const bandit = banditRef?.current
-    if (bandit && bandit.visible) {
-      bandit.getWorldPosition(_pos)
-      if (!snap.bandit) snap.bandit = { x: 0, z: 0 }
-      snap.bandit.x = _pos.x - _sun.x
-      snap.bandit.z = _pos.z - _sun.z
-    } else {
-      snap.bandit = null
+    const bandits = snap.bandits
+    bandits.length = 0
+    if (banditRefs) {
+      for (const ref of banditRefs) {
+        const bandit = ref.current
+        if (!bandit || !bandit.visible) continue
+        bandit.getWorldPosition(_pos)
+        bandits.push({
+          x: _pos.x - _sun.x,
+          z: _pos.z - _sun.z,
+        })
+      }
+    }
+
+    const patrols = snap.patrols
+    patrols.length = 0
+    if (patrolRefs) {
+      for (const ref of patrolRefs) {
+        const patrol = ref.current
+        if (!patrol || !patrol.visible) continue
+        patrol.getWorldPosition(_pos)
+        patrols.push({
+          x: _pos.x - _sun.x,
+          z: _pos.z - _sun.z,
+        })
+      }
     }
   })
 

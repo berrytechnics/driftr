@@ -14,6 +14,7 @@ type PauseMenuProps = {
 const controls = [
   ['Mouse / arrows', 'Steer'],
   ['LMB / F', 'Fire cannons'],
+  ['T', 'Torpedo (locks nearest foe ahead)'],
   ['W / S', 'Thrust / brake'],
   ['Q / E', 'Roll'],
   ['Shift', 'Boost'],
@@ -136,8 +137,8 @@ export function PauseMenu({ mode, onResume }: PauseMenuProps) {
           100% { opacity: 1; }
         }
         @keyframes cockpitScan {
-          0% { transform: translateY(-100%); }
-          100% { transform: translateY(100%); }
+          0% { top: -35%; }
+          100% { top: 100%; }
         }
         .cockpit-btn:hover {
           background: rgba(255, 196, 92, 0.2) !important;

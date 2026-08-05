@@ -28,6 +28,21 @@ import {
   type CargoHold,
   type MaterialKind,
 } from '@/loot/economy'
+import {
+  ARMOR_TIERS,
+  TORPEDO_MAX_AMMO,
+  TORPEDO_RELOAD_COST,
+  TORPEDO_RELOAD_ID,
+  TORPEDO_UNLOCK_COST,
+  TORPEDO_WEAPON_ID,
+  canBuyArmorTier,
+  canBuyTorpedoReload,
+  canBuyTorpedoUnlock,
+  clampArmorTier,
+  clampTorpedoAmmo,
+  maxHpForArmorTier,
+  repairCost,
+} from '@/loot/shop'
 import type { MaterialPickup } from '@/loot/MaterialDrops'
 import {
   createEmptyCombatHud,
@@ -67,13 +82,26 @@ export default function App() {
   const [telemetry, setTelemetry] = useState<OrbitalTelemetry | null>(null)
   const [credits, setCredits] = useState(() => saved.credits)
   const [cargo, setCargo] = useState<CargoHold>(() => ({ ...saved.cargo }))
+  const [torpedoOwned, setTorpedoOwned] = useState(() => saved.torpedoOwned)
+  const [torpedoAmmo, setTorpedoAmmo] = useState(() => saved.torpedoAmmo)
+  const [armorTier, setArmorTier] = useState(() => saved.armorTier)
   const [damageFlash, setDamageFlash] = useState(0)
+  const [healRequest, setHealRequest] = useState<{
+    seq: number
+    hp: number
+    maxHp?: number
+  } | null>(null)
   const startedRef = useRef(saved.docked)
   const dockedRef = useRef(saved.docked)
   const lastHp = useRef<number | null>(saved.hp)
   const creditsRef = useRef(credits)
   const cargoRef = useRef(cargo)
+  const torpedoOwnedRef = useRef(torpedoOwned)
+  const torpedoAmmoRef = useRef(torpedoAmmo)
+  const armorTierRef = useRef(armorTier)
   const telemetryRef = useRef<OrbitalTelemetry | null>(null)
+  const healSeq = useRef(0)
+  const shipMaxHp = maxHpForArmorTier(armorTier)
   /** Skip the keyup from the Esc that opened the pause menu */
   const ignoreEscResume = useRef(false)
   const mapSnapshotRef = useRef<MapSnapshot>(createEmptyMapSnapshot())
@@ -83,6 +111,9 @@ export default function App() {
   dockedRef.current = docked
   creditsRef.current = credits
   cargoRef.current = cargo
+  torpedoOwnedRef.current = torpedoOwned
+  torpedoAmmoRef.current = torpedoAmmo
+  armorTierRef.current = armorTier
 
   const persistNow = useCallback(() => {
     const t = telemetryRef.current
@@ -96,6 +127,9 @@ export default function App() {
       speedBuff: t?.speedBuff ?? 0,
       fireBuff: t?.fireBuff ?? 0,
       docked: dockedRef.current,
+      torpedoOwned: torpedoOwnedRef.current,
+      torpedoAmmo: torpedoAmmoRef.current,
+      armorTier: armorTierRef.current,
     }
     saveGameSave(snapshot)
   }, [saved.hp, saved.heat, saved.overheated])
@@ -104,7 +138,16 @@ export default function App() {
   useEffect(() => {
     const timer = window.setTimeout(persistNow, 400)
     return () => window.clearTimeout(timer)
-  }, [credits, cargo, docked, telemetry, persistNow])
+  }, [
+    credits,
+    cargo,
+    docked,
+    telemetry,
+    torpedoOwned,
+    torpedoAmmo,
+    armorTier,
+    persistNow,
+  ])
 
   useEffect(() => {
     const flush = () => persistNow()
@@ -189,6 +232,86 @@ export default function App() {
     })
   }, [])
 
+  const repairShip = useCallback(() => {
+    const t = telemetryRef.current
+    if (!t || !dockedRef.current) return
+    const cost = repairCost(t.hp, t.maxHp)
+    if (cost <= 0 || creditsRef.current < cost) return
+    const repaired = { ...t, hp: t.maxHp }
+    telemetryRef.current = repaired
+    lastHp.current = t.maxHp
+    setTelemetry(repaired)
+    setCredits((c) => c - cost)
+    healSeq.current += 1
+    setHealRequest({ seq: healSeq.current, hp: t.maxHp })
+  }, [])
+
+  const onTorpedoAmmoChange = useCallback((ammo: number) => {
+    const next = clampTorpedoAmmo(ammo)
+    torpedoAmmoRef.current = next
+    setTorpedoAmmo(next)
+  }, [])
+
+  const buyShopItem = useCallback((id: string) => {
+    if (!dockedRef.current) return
+    if (id === TORPEDO_WEAPON_ID) {
+      if (!canBuyTorpedoUnlock(creditsRef.current, torpedoOwnedRef.current)) {
+        return
+      }
+      setCredits((c) => c - TORPEDO_UNLOCK_COST)
+      torpedoOwnedRef.current = true
+      torpedoAmmoRef.current = TORPEDO_MAX_AMMO
+      setTorpedoOwned(true)
+      setTorpedoAmmo(TORPEDO_MAX_AMMO)
+      return
+    }
+    if (id === TORPEDO_RELOAD_ID) {
+      if (
+        !canBuyTorpedoReload(
+          creditsRef.current,
+          torpedoOwnedRef.current,
+          torpedoAmmoRef.current,
+        )
+      ) {
+        return
+      }
+      setCredits((c) => c - TORPEDO_RELOAD_COST)
+      const next = clampTorpedoAmmo(torpedoAmmoRef.current + 1)
+      torpedoAmmoRef.current = next
+      setTorpedoAmmo(next)
+      return
+    }
+
+    const armor = ARMOR_TIERS.find((tier) => tier.id === id)
+    if (!armor) return
+    const current = clampArmorTier(armorTierRef.current)
+    if (armor.tier !== current + 1) return
+    if (!canBuyArmorTier(creditsRef.current, current)) return
+
+    const oldMax = maxHpForArmorTier(current)
+    const newMax = armor.maxHp
+    const bonus = newMax - oldMax
+    const currentHp =
+      telemetryRef.current?.hp ?? lastHp.current ?? oldMax
+    const newHp = Math.min(newMax, Math.round(currentHp) + bonus)
+
+    setCredits((c) => c - armor.cost)
+    armorTierRef.current = armor.tier
+    setArmorTier(armor.tier)
+    lastHp.current = newHp
+    if (telemetryRef.current) {
+      const updated = {
+        ...telemetryRef.current,
+        hp: newHp,
+        maxHp: newMax,
+      }
+      telemetryRef.current = updated
+      setTelemetry(updated)
+    }
+    healSeq.current += 1
+    setHealRequest({ seq: healSeq.current, hp: newHp, maxHp: newMax })
+  }, [])
+
   const dockAtStation = useCallback(() => {
     if (telemetryRef.current && telemetryRef.current.hp <= 0) return
     if (!dockAvailable && !dockedRef.current) return
@@ -206,6 +329,7 @@ export default function App() {
     dockedRef.current = false
     setDocked(false)
     setPaused(false)
+    setHealRequest(null)
     tryPlayTheme()
     const canvas = document.querySelector('canvas')
     void canvas?.requestPointerLock()
@@ -277,12 +401,22 @@ export default function App() {
         mapShipRef={mapShipRef}
         combatHudRef={combatHudRef}
         initialHull={initialHull}
+        healRequest={healRequest}
+        maxHp={shipMaxHp}
+        torpedoOwned={torpedoOwned}
+        torpedoAmmo={torpedoAmmo}
+        onTorpedoAmmoChange={onTorpedoAmmoChange}
       />
       {inFlight && (
         <>
           <Crosshair
             overheated={!!telemetry?.overheated}
             dead={!!telemetry && telemetry.hp <= 0}
+            torpedoOwned={
+              telemetry?.torpedoOwned ?? torpedoOwned
+            }
+            torpedoLock={telemetry?.torpedoLock ?? 0}
+            torpedoAmmo={telemetry?.torpedoAmmo ?? torpedoAmmo}
           />
           <CombatChevron hudRef={combatHudRef} active={inFlight} />
           <DamageFlash flashKey={damageFlash} active={inFlight} />
@@ -305,8 +439,20 @@ export default function App() {
             stationName={STATION_NAME}
             credits={credits}
             cargo={cargo}
+            hp={
+              healRequest?.hp ??
+              telemetry?.hp ??
+              lastHp.current ??
+              saved.hp
+            }
+            maxHp={healRequest?.maxHp ?? telemetry?.maxHp ?? shipMaxHp}
+            armorTier={armorTier}
+            torpedoOwned={torpedoOwned}
+            torpedoAmmo={torpedoAmmo}
             onSell={sellMaterial}
             onSellAll={sellAllCargo}
+            onRepair={repairShip}
+            onBuy={buyShopItem}
             onUndock={undockFromStation}
           />
         </Suspense>

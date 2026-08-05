@@ -192,10 +192,10 @@ function drawMap(ctx: CanvasRenderingContext2D, snapshot: MapSnapshot) {
     ctx.restore()
   }
 
-  // Bandit
-  if (snapshot.bandit) {
-    const bx = toX(snapshot.bandit.x)
-    const by = toY(snapshot.bandit.z)
+  // Bandits
+  for (const bandit of snapshot.bandits) {
+    const bx = toX(bandit.x)
+    const by = toY(bandit.z)
     ctx.beginPath()
     ctx.arc(bx, by, 7, 0, Math.PI * 2)
     ctx.fillStyle = '#ff2a3a'
@@ -207,6 +207,23 @@ function drawMap(ctx: CanvasRenderingContext2D, snapshot: MapSnapshot) {
     ctx.textAlign = 'left'
     ctx.textBaseline = 'alphabetic'
     strokeFillText(ctx, 'Bandit', bx + 10, by + 4, '#ff8a94', 'rgba(0, 0, 12, 0.85)', 3)
+  }
+
+  // Friendly patrols
+  for (const patrol of snapshot.patrols) {
+    const px = toX(patrol.x)
+    const py = toY(patrol.z)
+    ctx.beginPath()
+    ctx.arc(px, py, 6, 0, Math.PI * 2)
+    ctx.fillStyle = '#4ec4ff'
+    ctx.strokeStyle = '#062030'
+    ctx.lineWidth = 1.5
+    ctx.fill()
+    ctx.stroke()
+    ctx.font = FONT_TINY
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'alphabetic'
+    strokeFillText(ctx, 'Patrol', px + 10, py + 4, '#9ad8ff', 'rgba(0, 0, 12, 0.85)', 3)
   }
 }
 

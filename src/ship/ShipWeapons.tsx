@@ -38,6 +38,8 @@ type Slot = {
   vx: number
   vy: number
   vz: number
+  /** Optional HP to apply on laser-target impact */
+  damage: number | undefined
 }
 
 export type WeaponsHandle = {
@@ -47,15 +49,20 @@ export type WeaponsHandle = {
     inheritVelocity: Vector3,
     speed: number,
     life: number,
+    damage?: number,
   ) => boolean
   clear: () => void
 }
 
 export { playLaserSound } from '@/audio/gameAudio'
 
-/** Something a laser bolt can strike (ships, etc.). */
+/** Something a laser bolt / warhead can strike (ships, etc.). */
 export type LaserTarget = {
-  impact: (point: Vector3, pad: number) => boolean
+  /**
+   * @param damage Optional hit points; defaults are per-target (player / bandit).
+   * @returns true if the projectile was consumed by this target.
+   */
+  impact: (point: Vector3, pad: number, damage?: number) => boolean
 }
 
 type ProjectileFieldProps = {
@@ -104,6 +111,7 @@ export function ProjectileField({
       vx: 0,
       vy: 0,
       vz: 0,
+      damage: undefined,
     })),
   )
   const beamLengthRef = useRef(beamLength)
@@ -169,7 +177,7 @@ export function ProjectileField({
     }
 
     weapons.current = {
-      fire(origin, direction, inheritVelocity, speed, life) {
+      fire(origin, direction, inheritVelocity, speed, life, damage) {
         for (const slot of list) {
           if (slot.active || !slot.root) continue
           _dir.copy(direction)
@@ -178,6 +186,7 @@ export function ProjectileField({
 
           slot.active = true
           slot.life = life
+          slot.damage = damage
           slot.vx = _dir.x * speed + inheritVelocity.x
           slot.vy = _dir.y * speed + inheritVelocity.y
           slot.vz = _dir.z * speed + inheritVelocity.z
@@ -246,7 +255,13 @@ export function ProjectileField({
 
       if (!consumed && laserTargets) {
         for (const targetRef of laserTargets) {
-          if (targetRef.current?.impact(slot.root.position, asteroidPad)) {
+          if (
+            targetRef.current?.impact(
+              slot.root.position,
+              asteroidPad,
+              slot.damage,
+            )
+          ) {
             consumed = true
             break
           }
