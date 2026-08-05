@@ -88,7 +88,7 @@ export default function App() {
   const [started, setStarted] = useState(() => saved.docked)
   const [docked, setDocked] = useState(() => saved.docked)
   const [dockAvailable, setDockAvailable] = useState(false)
-  const [dockStationName, setDockStationName] = useState(
+  const [dockStationName, setDockStationName] = useState<string>(
     STATION_NAMES.thalassa,
   )
   const [telemetry, setTelemetry] = useState<OrbitalTelemetry | null>(null)

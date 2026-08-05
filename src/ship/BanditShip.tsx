@@ -334,7 +334,6 @@ export function BanditShip({
   sunPosition,
   sunSize,
   thalassaRef,
-  thalassaRadius = BELT_PLANET_SIZE,
   hermesRef,
   hermesRadius = MERCURY_SIZE,
   dockBerths,
