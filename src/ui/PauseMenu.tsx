@@ -38,6 +38,8 @@ export type PauseShipStatus = {
 type PauseMenuProps = {
   mode: 'start' | 'paused'
   onResume: () => void
+  /** Wipe credits, upgrades, cargo, lore — returns to flight-ready. */
+  onResetProgress?: () => void
   ship?: PauseShipStatus | null
 }
 
@@ -134,7 +136,12 @@ function Corner({
   )
 }
 
-export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
+export function PauseMenu({
+  mode,
+  onResume,
+  onResetProgress,
+  ship = null,
+}: PauseMenuProps) {
   const isPaused = mode === 'paused'
   const stamp = isPaused ? 'HOLD' : 'STBY'
   const title = isPaused ? 'SYSTEMS HOLD' : 'FLIGHT READY'
@@ -143,6 +150,7 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
     : 'Acquire stick lock to depart Thalassa station'
   const [audio, setAudio] = useState(getAudioSettings)
   const [comlogOpen, setComlogOpen] = useState(false)
+  const [resetArmed, setResetArmed] = useState(false)
 
   useEffect(() => subscribeAudioSettings(setAudio), [])
 
@@ -200,6 +208,14 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
         }
         .cockpit-btn:active {
           background: rgba(255, 196, 92, 0.28) !important;
+        }
+        .cockpit-btn-danger:hover {
+          background: rgba(255, 100, 90, 0.18) !important;
+          box-shadow: inset 0 0 0 1px rgba(255, 120, 100, 0.65),
+            0 0 14px rgba(255, 80, 70, 0.12);
+        }
+        .cockpit-btn-danger:active {
+          background: rgba(255, 100, 90, 0.28) !important;
         }
         .cockpit-slider {
           -webkit-appearance: none;
@@ -778,7 +794,49 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
             >
               {isPaused ? '▶  Resume flight' : '▶  Engage / Launch'}
             </button>
-            <div aria-hidden />
+            {onResetProgress ? (
+              <button
+                type="button"
+                className="cockpit-btn-danger"
+                onClick={() => {
+                  if (!resetArmed) {
+                    setResetArmed(true)
+                    return
+                  }
+                  setResetArmed(false)
+                  onResetProgress()
+                }}
+                onBlur={() => setResetArmed(false)}
+                style={{
+                  appearance: 'none',
+                  width: '100%',
+                  border: resetArmed
+                    ? '1px solid rgba(255, 120, 100, 0.85)'
+                    : '1px solid rgba(120, 200, 180, 0.28)',
+                  background: resetArmed
+                    ? 'rgba(255, 80, 70, 0.14)'
+                    : 'rgba(0, 8, 10, 0.35)',
+                  color: resetArmed
+                    ? '#ffb0a8'
+                    : 'rgba(160, 210, 195, 0.7)',
+                  padding: '11px 16px',
+                  fontSize: 13,
+                  letterSpacing: '0.14em',
+                  textTransform: 'uppercase',
+                  fontFamily: font,
+                  cursor: 'pointer',
+                  boxShadow: resetArmed
+                    ? 'inset 0 0 0 1px rgba(255, 120, 100, 0.25)'
+                    : 'none',
+                }}
+              >
+                {resetArmed
+                  ? 'Confirm wipe save'
+                  : 'Reset progress'}
+              </button>
+            ) : (
+              <div aria-hidden />
+            )}
           </div>
 
           <div

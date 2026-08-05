@@ -16,6 +16,7 @@ import {
 } from '@/audio/ThemeMusic'
 import { GameCanvas } from '@/game/GameCanvas'
 import {
+  defaultGameSave,
   hullFromSave,
   loadGameSave,
   saveGameSave,
@@ -32,6 +33,7 @@ import {
 import type { PlayerCargoStatus } from '@/loot/cargoBait'
 import {
   ARMOR_TIERS,
+  BASE_MAX_HP,
   SENSOR_MOD_ID,
   SENSOR_UNLOCK_COST,
   THRUSTER_MOD_ID,
@@ -548,6 +550,87 @@ export default function App() {
     void canvas?.requestPointerLock()
   }, [])
 
+  const resetProgress = useCallback(() => {
+    const next = defaultGameSave()
+    const hull = hullFromSave(next)
+
+    // Sync refs before any persist/unload flush can run
+    creditsRef.current = next.credits
+    cargoRef.current = { ...next.cargo }
+    playerCargoRef.current.units = 0
+    torpedoOwnedRef.current = next.torpedoOwned
+    torpedoAmmoRef.current = next.torpedoAmmo
+    armorTierRef.current = next.armorTier
+    thrusterOwnedRef.current = next.thrusterOwned
+    sensorsOwnedRef.current = next.sensorsOwned
+    nightShardsRef.current = next.nightShards
+    nyxWhisperHeardRef.current = next.nyxWhisperHeard
+    nyxCorridorUnlockedRef.current = next.nyxCorridorUnlocked
+    nyxComlogUnlockedRef.current = next.nyxComlogUnlocked
+    nyxDerelictSeenRef.current = next.nyxDerelictSeen
+    nyxDualAshDoneRef.current = next.nyxDualAshDone
+    nyxHyperionRumorHeardRef.current = next.nyxHyperionRumorHeard
+    dockedRef.current = false
+    startedRef.current = false
+    lastHp.current = hull.hp
+    nyxWhisperCooldown.current = 0
+
+    const telemetryReset: OrbitalTelemetry | null = telemetryRef.current
+      ? {
+          ...telemetryRef.current,
+          hp: hull.hp,
+          maxHp: hull.maxHp,
+          heat: 0,
+          overheated: false,
+          speedBuff: 0,
+          fireBuff: 0,
+          torpedoOwned: false,
+          torpedoAmmo: 0,
+          torpedoLock: 0,
+          thrusterOwned: false,
+          thrusterActive: false,
+        }
+      : null
+    telemetryRef.current = telemetryReset
+
+    setCredits(next.credits)
+    setCargo({ ...next.cargo })
+    setTorpedoOwned(next.torpedoOwned)
+    setTorpedoAmmo(next.torpedoAmmo)
+    setArmorTier(next.armorTier)
+    setThrusterOwned(next.thrusterOwned)
+    setSensorsOwned(next.sensorsOwned)
+    setNightShards(next.nightShards)
+    setNyxWhisperHeard(next.nyxWhisperHeard)
+    setNyxCorridorUnlocked(next.nyxCorridorUnlocked)
+    setNyxComlogUnlocked(next.nyxComlogUnlocked)
+    setNyxDerelictSeen(next.nyxDerelictSeen)
+    setNyxDualAshDone(next.nyxDualAshDone)
+    setNyxHyperionRumorHeard(next.nyxHyperionRumorHeard)
+    setGhostBerth(false)
+    setLoreToast(null)
+    setDockAvailable(false)
+    setJettisonDump(null)
+    setTelemetry(telemetryReset)
+    setDocked(false)
+    setStarted(false)
+    setPaused(false)
+
+    healSeq.current += 1
+    setHealRequest({
+      seq: healSeq.current,
+      hp: hull.hp,
+      maxHp: BASE_MAX_HP,
+    })
+    setBeltResetSeed((seed) => seed + 1)
+
+    saveGameSave(next)
+
+    if (document.pointerLockElement) {
+      document.exitPointerLock()
+    }
+  }, [])
+
   useEffect(() => {
     if (!started || !paused || docked) return
     const onKeyUp = (event: KeyboardEvent) => {
@@ -697,6 +780,7 @@ export default function App() {
           <PauseMenu
             mode={menuMode}
             onResume={resumeFlight}
+            onResetProgress={resetProgress}
             ship={{
               hp:
                 telemetry?.hp ??
