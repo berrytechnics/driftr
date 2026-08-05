@@ -48,6 +48,8 @@ export type GameSave = {
   nyxDualAshDone: boolean
   /** Lore — Hyperion rumor heard once. */
   nyxHyperionRumorHeard: boolean
+  /** Skip the first-load lore briefing modal. */
+  hideIntroSynopsis: boolean
 }
 
 export type HullSnapshot = {
@@ -116,6 +118,7 @@ export function defaultGameSave(): GameSave {
     nyxDerelictSeen: false,
     nyxDualAshDone: false,
     nyxHyperionRumorHeard: false,
+    hideIntroSynopsis: false,
   }
 }
 
@@ -185,6 +188,7 @@ export function loadGameSave(): GameSave {
     nyxDerelictSeen: !!raw.nyxDerelictSeen,
     nyxDualAshDone: !!raw.nyxDualAshDone,
     nyxHyperionRumorHeard: !!raw.nyxHyperionRumorHeard,
+    hideIntroSynopsis: !!raw.hideIntroSynopsis,
   }
 }
 
@@ -213,6 +217,7 @@ export function saveGameSave(save: GameSave) {
     nyxDerelictSeen: !!save.nyxDerelictSeen,
     nyxDualAshDone: !!save.nyxDualAshDone,
     nyxHyperionRumorHeard: !!save.nyxHyperionRumorHeard,
+    hideIntroSynopsis: !!save.hideIntroSynopsis,
   } satisfies GameSave)
 }
 

@@ -23,7 +23,7 @@ npm install
 npm run dev
 ```
 
-Open the URL Vite prints (usually `http://localhost:5173`). After the boot splash, click **Engage / Launch** to capture the pointer and fly.
+Open the URL Vite prints (usually `http://localhost:5173`). After the boot splash, a lore briefing appears on first visit (dismiss with **Continue**; pre-checked **Don't show next time** persists). Then click **Engage / Launch** to capture the pointer and fly.
 
 ```bash
 npm run build    # production build → dist/ (base path /driftr/)
@@ -70,7 +70,13 @@ Three outposts share the same economy and outfitters:
 
 Stock sensors show contacts within a modest radius; the **long-range sensors** upgrade extends map beacons (hostiles and patrols read farther into the black). During an advanced-thruster burn, NPC contacts blank so the map goes quiet.
 
-Pilots who leave the lighted lanes may notice the outer system is not entirely empty.
+### Nyx Transit
+
+Life on the Sol lane is familiar work: haul from the belt, sell at the stations, stay alive between berths. Bandits hunt the haul; patrols keep the route honest enough. Outfit the hull and the black between stops gets shorter — or quieter.
+
+Farther out, Nyx refuses to behave. When the dwarf was first charted, surveyors read a simple orbit and raised **Nyx Transit** to meet her. They did not know the ellipse. At apoapsis Nyx ran beyond any craft of that age; help could not follow. When Nyx finally swung home, there was nothing waiting in her sky — no wreck, no beacon, no debris. The station was gone without a trace. Only ghosts of bureaucracy remain: a struck transit pad on some dock boards, a corrupt comlog, rumors of shapes and whispers where the berth should have been.
+
+Pilots who leave the lighted lanes may notice the outer system is not entirely empty. The first-load briefing tells this story; **Reset progress** clears the “don’t show again” flag so it can return.
 
 ## Loop
 
@@ -96,6 +102,7 @@ Cargo desk sells ore, ice, and alloy for credits.
 ## Features
 
 - Boot splash that tracks asset load before the start menu
+- First-load lore briefing (Sol lane life and the Nyx Transit vanishing)
 - Flight model with thrusters, boost, mouse aiming, and roll
 - Loot magnet that pulls nearby shards and buffs into scoop range
 - Color-coded asteroid types (ore / ice / alloy) so you can hunt a specific haul

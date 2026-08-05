@@ -66,6 +66,7 @@ import { DamageFlash } from '@/ui/DamageFlash'
 import { FpsCounter } from '@/ui/FpsCounter'
 import { Hud } from '@/ui/Hud'
 import { LoadingScreen } from '@/ui/LoadingScreen'
+import { LoreIntroModal } from '@/ui/LoreIntroModal'
 import { LoreToast } from '@/ui/LoreToast'
 import {
   ASH_FOR_SOL_DUAL_TEXT,
@@ -134,6 +135,12 @@ export default function App() {
   const [nyxHyperionRumorHeard, setNyxHyperionRumorHeard] = useState(
     () => saved.nyxHyperionRumorHeard,
   )
+  const [hideIntroSynopsis, setHideIntroSynopsis] = useState(
+    () => saved.hideIntroSynopsis,
+  )
+  const [showIntroModal, setShowIntroModal] = useState(
+    () => !saved.hideIntroSynopsis,
+  )
   const [ghostBerth, setGhostBerth] = useState(false)
   const [loreToast, setLoreToast] = useState<string | null>(null)
   const [loreToastKey, setLoreToastKey] = useState(0)
@@ -169,6 +176,7 @@ export default function App() {
   const nyxDerelictSeenRef = useRef(nyxDerelictSeen)
   const nyxDualAshDoneRef = useRef(nyxDualAshDone)
   const nyxHyperionRumorHeardRef = useRef(nyxHyperionRumorHeard)
+  const hideIntroSynopsisRef = useRef(hideIntroSynopsis)
   const nyxWhisperCooldown = useRef(0)
   const telemetryRef = useRef<OrbitalTelemetry | null>(null)
   const healSeq = useRef(0)
@@ -196,6 +204,7 @@ export default function App() {
   nyxDerelictSeenRef.current = nyxDerelictSeen
   nyxDualAshDoneRef.current = nyxDualAshDone
   nyxHyperionRumorHeardRef.current = nyxHyperionRumorHeard
+  hideIntroSynopsisRef.current = hideIntroSynopsis
 
   const persistNow = useCallback(() => {
     const t = telemetryRef.current
@@ -221,6 +230,7 @@ export default function App() {
       nyxDerelictSeen: nyxDerelictSeenRef.current,
       nyxDualAshDone: nyxDualAshDoneRef.current,
       nyxHyperionRumorHeard: nyxHyperionRumorHeardRef.current,
+      hideIntroSynopsis: hideIntroSynopsisRef.current,
     }
     saveGameSave(snapshot)
   }, [saved.hp, saved.heat, saved.overheated])
@@ -246,6 +256,7 @@ export default function App() {
     nyxDerelictSeen,
     nyxDualAshDone,
     nyxHyperionRumorHeard,
+    hideIntroSynopsis,
     persistNow,
   ])
 
@@ -550,6 +561,14 @@ export default function App() {
     void canvas?.requestPointerLock()
   }, [])
 
+  const onIntroContinue = useCallback((dontShowAgain: boolean) => {
+    if (dontShowAgain) {
+      hideIntroSynopsisRef.current = true
+      setHideIntroSynopsis(true)
+    }
+    setShowIntroModal(false)
+  }, [])
+
   const resetProgress = useCallback(() => {
     const next = defaultGameSave()
     const hull = hullFromSave(next)
@@ -570,10 +589,12 @@ export default function App() {
     nyxDerelictSeenRef.current = next.nyxDerelictSeen
     nyxDualAshDoneRef.current = next.nyxDualAshDone
     nyxHyperionRumorHeardRef.current = next.nyxHyperionRumorHeard
+    hideIntroSynopsisRef.current = next.hideIntroSynopsis
     dockedRef.current = false
     startedRef.current = false
     lastHp.current = hull.hp
     nyxWhisperCooldown.current = 0
+    setShowIntroModal(!next.hideIntroSynopsis)
 
     const telemetryReset: OrbitalTelemetry | null = telemetryRef.current
       ? {
@@ -607,6 +628,7 @@ export default function App() {
     setNyxDerelictSeen(next.nyxDerelictSeen)
     setNyxDualAshDone(next.nyxDualAshDone)
     setNyxHyperionRumorHeard(next.nyxHyperionRumorHeard)
+    setHideIntroSynopsis(next.hideIntroSynopsis)
     setGhostBerth(false)
     setLoreToast(null)
     setDockAvailable(false)
@@ -803,6 +825,9 @@ export default function App() {
             }}
           />
         </Suspense>
+      )}
+      {!booting && showIntroModal && (
+        <LoreIntroModal onContinue={onIntroContinue} />
       )}
       {!booting && <FpsCounter />}
       {booting && <LoadingScreen onFinished={onBootFinished} />}
