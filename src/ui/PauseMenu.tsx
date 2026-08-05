@@ -238,6 +238,10 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
           align-items: start;
           flex: 1;
           min-height: 0;
+          overflow: auto;
+        }
+        .pause-mfd-main {
+          min-width: 0;
         }
         @media (max-width: 820px) {
           .pause-mfd-grid {
@@ -403,7 +407,7 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
           </div>
 
           <div className="pause-mfd-grid">
-            <div>
+            <div className="pause-mfd-main">
               <h1
                 style={{
                   margin: '10px 0 10px',
@@ -685,8 +689,10 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
 
           <div
             style={{
-              marginTop: 'auto',
-              paddingTop: 18,
+              flexShrink: 0,
+              marginTop: 16,
+              paddingTop: 14,
+              borderTop: '1px solid rgba(120, 200, 180, 0.12)',
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'flex-end',
@@ -703,7 +709,7 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
               height={1254}
               style={{
                 display: 'block',
-                width: 'clamp(100px, 13vw, 148px)',
+                width: 'clamp(72px, 9vw, 104px)',
                 height: 'auto',
                 animation: 'cockpitLogoIn 0.55s ease-out both',
               }}
