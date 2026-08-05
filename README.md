@@ -1,32 +1,49 @@
-# React + TypeScript + Vite
+# Driftr
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+A browser space-flight game. Pilot a ship through a solar system — mine the asteroid belt, sell cargo at Thalassa Station, and fight bandits along the way.
 
-Currently, two official plugins are available:
+Built with React, Three.js, and React Three Fiber.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+## Play
 
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the Oxlint configuration
-
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
-
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+```bash
+npm install
+npm run dev
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+Open the URL Vite prints (usually `http://localhost:5173`), then click **Engage / Launch** to capture the pointer and fly.
+
+```bash
+npm run build    # production build → dist/
+npm run preview  # serve the build locally
+```
+
+## Controls
+
+| Input | Action |
+| --- | --- |
+| Mouse / arrows | Steer |
+| `W` / `S` | Thrust / brake |
+| `Shift` | Boost |
+| `Q` / `E` | Roll |
+| LMB / `F` | Fire cannons |
+| Hold `M` | System map |
+| `F` (near station) | Dock |
+| `Esc` | Pause / resume |
+
+## Features
+
+- **Flight** — thrusters, boost, mouse aiming, weapon heat / overheat
+- **Solar system** — star, planets, moons, dense asteroid belt
+- **Mining** — destroy rocks for ore, ice, and rare alloys (plus short buff pickups)
+- **Station** — dock at Thalassa to sell cargo and repair
+- **Combat** — bandit encounters with hull HP, hit feedback, and off-screen chevrons
+- **Progress** — credits, cargo, and hull state save to `localStorage`
+
+Dev tuning (sun, belt density, flight feel, etc.) lives in the Leva panel — those settings are **not** persisted.
+
+## Stack
+
+- [React](https://react.dev) + [Vite](https://vite.dev)
+- [Three.js](https://threejs.org) via [React Three Fiber](https://docs.pmnd.rs/react-three-fiber) / [Drei](https://github.com/pmndrs/drei)
+- [Leva](https://github.com/pmndrs/leva) for debug controls
