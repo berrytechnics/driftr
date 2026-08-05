@@ -10,6 +10,10 @@
   <a href="https://berrytechnics.github.io/driftr/"><strong>Play online →</strong></a>
 </p>
 
+<p align="center">
+  <img src="public/gameplay.png" alt="Driftr gameplay — flying the belt toward Kronos" width="720" />
+</p>
+
 Browser space-flight game built with React, Three.js, and React Three Fiber. Installable as a PWA. Pushes to `main` deploy to GitHub Pages.
 
 ## Play locally
