@@ -3,9 +3,11 @@ import { useLayoutEffect, useMemo, useRef, type RefObject } from 'react'
 import {
   Color,
   DynamicDrawUsage,
+  Euler,
   IcosahedronGeometry,
   InstancedMesh,
   Object3D,
+  Quaternion,
   Sphere,
   Vector3,
   type BufferGeometry,
@@ -34,9 +36,9 @@ export type AsteroidShapeParams = {
 
 export const DEFAULT_ASTEROID_SHAPE: AsteroidShapeParams = {
   meshDetail: 3,
-  largeLumps: 0.37,
-  mediumLumps: 0.12,
-  fineLumps: 0.06,
+  largeLumps: 0.3,
+  mediumLumps: 0.08,
+  fineLumps: 0.07,
 }
 
 type AsteroidBeltProps = {
@@ -54,6 +56,8 @@ type AsteroidBeltProps = {
   count?: number
   /** Vertical half-thickness */
   thickness?: number
+  /** Multiplier on rock instance scale / hit radius */
+  sizeScale?: number
   /** Orbital plane tilt (radians) */
   inclination?: number
   shape?: AsteroidShapeParams
@@ -90,31 +94,132 @@ type Rock = {
   /** Remaining life for debris (seconds) */
   life: number
   color: Color
+  /** Index into orbitingList / debrisList for O(1) swap-remove; -1 if dead */
+  listPos: number
+}
+
+/** Swap-remove `rockIndex` from a compact live list using each rock's listPos. */
+function removeFromLiveList(
+  list: number[],
+  rocks: Rock[],
+  rockIndex: number,
+) {
+  const rock = rocks[rockIndex]
+  const pos = rock.listPos
+  if (pos < 0) return
+  const last = list.length - 1
+  if (pos !== last) {
+    const swapped = list[last]
+    list[pos] = swapped
+    rocks[swapped].listPos = pos
+  }
+  list.pop()
+  rock.listPos = -1
+}
+
+function addToLiveList(list: number[], rockIndex: number, rock: Rock) {
+  rock.listPos = list.length
+  list.push(rockIndex)
 }
 
 /** Pieces smaller than this are vaporized instead of splitting further. */
-const MIN_HIT_RADIUS = 0.42
+const MIN_HIT_RADIUS = 1.25
+/** Base fragment count for a mid-size rock (scales up with parent size) */
 const MIN_FRAGMENTS = 2
-const MAX_FRAGMENTS = 3
+const MAX_FRAGMENTS = 7
 const FRAG_SCALE_MIN = 0.34
 const FRAG_SCALE_MAX = 0.5
-/** Keep breakaway chunks from spiking fill-rate near the camera */
+/** Soft cap on fragment radius for a mid-size parent (grows with parent) */
 const MAX_FRAG_HIT_RADIUS = 2.4
 const DEBRIS_LIFE = 18
-const DEBRIS_KICK = 9
+const DEBRIS_KICK = 3.5
+/** Parent hitRadius at which debris kick / fragment scaling is ~1× */
+const DEBRIS_KICK_REF_RADIUS = 4
 /** Orbiting rocks drift buckets slowly — rebuild at this interval */
 const ORBIT_HASH_INTERVAL = 0.4
 
 const _dummy = new Object3D()
 const _boundCenter = new Vector3()
 const _local = new Vector3()
+const _localTo = new Vector3()
 const _impactDir = new Vector3()
 const _dropWorld = new Vector3()
 const _fragColor = new Color()
+const _hitLocal = new Vector3()
+const _hitEuler = new Euler()
+const _hitQuat = new Quaternion()
+const _losSeg = new Vector3()
+const _losClosest = new Vector3()
+
+/**
+ * Collision / LOS surface vs unit mesh scale.
+ * Lumps push verts ~0.78–1.22; stay under typical peaks so skimming is possible.
+ */
+const HIT_SURFACE = 0.86
+/** Covers largest rock search keys when querying nearby buckets. */
+const ROCK_SEARCH_PAD = 36
 
 /** Angular sectors for belt hazard queries (thin torus → 1D hash). */
 const BUCKET_COUNT = 64
 const BUCKET_SPAN = (Math.PI * 2) / BUCKET_COUNT
+
+/** Ellipsoid hit against a rock’s scaled / spun mesh (belt-local coords). */
+function pointHitsRock(
+  rock: Rock,
+  lx: number,
+  ly: number,
+  lz: number,
+  pad: number,
+): boolean {
+  _hitLocal.set(lx - rock.x, ly - rock.y, lz - rock.z)
+  _hitEuler.set(rock.angle * 0.7, rock.angle, rock.angle * 0.35)
+  _hitQuat.setFromEuler(_hitEuler)
+  _hitLocal.applyQuaternion(_hitQuat.invert())
+  const rx = rock.sx * HIT_SURFACE + pad
+  const ry = rock.sy * HIT_SURFACE + pad
+  const rz = rock.sz * HIT_SURFACE + pad
+  if (rx < 1e-6 || ry < 1e-6 || rz < 1e-6) return false
+  const nx = _hitLocal.x / rx
+  const ny = _hitLocal.y / ry
+  const nz = _hitLocal.z / rz
+  return nx * nx + ny * ny + nz * nz < 1
+}
+
+/** Bounding-sphere segment hit (belt-local) — used for LOS sweeps. */
+function segmentHitsRockSphere(
+  ax: number,
+  ay: number,
+  az: number,
+  bx: number,
+  by: number,
+  bz: number,
+  rock: Rock,
+): boolean {
+  const r = rock.hitRadius * HIT_SURFACE
+  if (r < 1e-6) return false
+  const r2 = r * r
+  // Skip if either endpoint is inside (spotter / prey sitting in a pocket)
+  const dax = ax - rock.x
+  const day = ay - rock.y
+  const daz = az - rock.z
+  if (dax * dax + day * day + daz * daz < r2) return false
+  const dbx = bx - rock.x
+  const dby = by - rock.y
+  const dbz = bz - rock.z
+  if (dbx * dbx + dby * dby + dbz * dbz < r2) return false
+
+  _losSeg.set(bx - ax, by - ay, bz - az)
+  const abLenSq = _losSeg.lengthSq()
+  if (abLenSq < 1e-12) return false
+  _losClosest.set(rock.x - ax, rock.y - ay, rock.z - az)
+  let t = _losClosest.dot(_losSeg) / abLenSq
+  if (t < 0) t = 0
+  else if (t > 1) t = 1
+  const cx = ax + _losSeg.x * t - rock.x
+  const cy = ay + _losSeg.y * t - rock.y
+  const cz = az + _losSeg.z * t - rock.z
+  return cx * cx + cy * cy + cz * cz < r2
+}
 
 /** Deterministic PRNG so the belt layout stays stable across remounts. */
 function mulberry32(seed: number) {
@@ -169,13 +274,27 @@ function rockColor(rand: () => number, base?: Color) {
   if (base) {
     return base
       .clone()
-      .offsetHSL((rand() - 0.5) * 0.04, (rand() - 0.5) * 0.05, (rand() - 0.5) * 0.08)
+      .offsetHSL((rand() - 0.5) * 0.03, (rand() - 0.5) * 0.04, (rand() - 0.5) * 0.12)
   }
-  return new Color().setHSL(
-    0.07 + rand() * 0.06,
-    0.08 + rand() * 0.14,
-    0.22 + rand() * 0.28,
-  )
+  // Mostly ash / slate; rare faint warm or cool tint — avoid brown/yellow belt cast
+  const roll = rand()
+  let hue: number
+  let sat: number
+  if (roll < 0.72) {
+    // Neutral gray
+    hue = 0.55 + (rand() - 0.5) * 0.08
+    sat = 0.01 + rand() * 0.04
+  } else if (roll < 0.88) {
+    // Cool blue-slate
+    hue = 0.58 + rand() * 0.08
+    sat = 0.04 + rand() * 0.08
+  } else {
+    // Faint dusty warm (still low sat)
+    hue = 0.06 + rand() * 0.05
+    sat = 0.03 + rand() * 0.06
+  }
+  const light = 0.18 + rand() * 0.42
+  return new Color().setHSL(hue, sat, light)
 }
 
 function syncOrbitPosition(rock: Rock) {
@@ -201,17 +320,19 @@ function makePool(
   innerRadius: number,
   outerRadius: number,
   thickness: number,
+  sizeScale: number,
 ): Rock[] {
   const rand = mulberry32(0xa57e01d)
   const rocks: Rock[] = []
   const span = Math.max(outerRadius - innerRadius, 1)
+  const scale = Math.max(0.05, sizeScale)
 
   for (let i = 0; i < capacity; i++) {
     if (i < count) {
       const u = Math.pow(rand(), 0.85)
       const orbitRadius = innerRadius + span * u
       // Power < 1 biases toward larger rocks; wide range for more variety
-      const size = 0.55 + Math.pow(rand(), 0.55) * 4.8
+      const size = (1.65 + Math.pow(rand(), 0.55) * 13.6) * scale
       // Independent axis stretches → potato / slab / elongated shapes
       const sx = size * (0.32 + Math.pow(rand(), 0.65) * 1.7)
       const sy = size * (0.28 + Math.pow(rand(), 0.65) * 1.65)
@@ -238,6 +359,7 @@ function makePool(
         angle: rand() * Math.PI * 2,
         life: 0,
         color: rockColor(rand),
+        listPos: i,
       }
       syncOrbitPosition(rock)
       rocks.push(rock)
@@ -261,6 +383,7 @@ function makePool(
         angle: 0,
         life: 0,
         color: new Color('#000000'),
+        listPos: -1,
       })
     }
   }
@@ -322,6 +445,7 @@ export function AsteroidBelt({
   outerRadius = 2273,
   count = 6000,
   thickness = 16,
+  sizeScale = 1,
   inclination = 0.06,
   shape = DEFAULT_ASTEROID_SHAPE,
   texture = DEFAULT_ASTEROID_TEXTURE,
@@ -329,7 +453,8 @@ export function AsteroidBelt({
   hazardRef,
   onRockDestroyed,
 }: AsteroidBeltProps) {
-  const capacity = useMemo(() => Math.max(count * 3, count + 64), [count])
+  // Debris slots only — orbiting rocks stay in the base count
+  const capacity = useMemo(() => count + Math.max(768, count), [count])
   const mesh = useRef<InstancedMesh>(null!)
   const geometry = useMemo(
     () =>
@@ -372,19 +497,41 @@ export function AsteroidBelt({
     texture.metalness,
   ])
   const rocks = useMemo(
-    () => makePool(count, capacity, innerRadius, outerRadius, thickness),
-    [count, capacity, innerRadius, outerRadius, thickness],
+    () =>
+      makePool(count, capacity, innerRadius, outerRadius, thickness, sizeScale),
+    [count, capacity, innerRadius, outerRadius, thickness, sizeScale],
   )
   const rocksRef = useRef(rocks)
   rocksRef.current = rocks
+  const sizeScaleRef = useRef(sizeScale)
+  sizeScaleRef.current = sizeScale
   /** O(1) dead-slot stack — avoids scanning the whole pool on each fragment */
   const freeSlots = useRef<number[]>([])
+  /** Compact live indices — useFrame / collision never scan the full pool */
+  const orbitingList = useRef<number[]>([])
+  const debrisList = useRef<number[]>([])
+  const spatialRef = useRef({
+    dirty: true,
+    buckets: Array.from({ length: BUCKET_COUNT }, () => [] as number[]),
+  })
+  const orbitHashTimer = useRef(0)
   useLayoutEffect(() => {
     const free: number[] = []
+    const orbiting: number[] = []
     for (let i = 0; i < rocks.length; i++) {
-      if (!rocks[i].alive) free.push(i)
+      const rock = rocks[i]
+      if (!rock.alive) {
+        free.push(i)
+        rock.listPos = -1
+        continue
+      }
+      rock.listPos = orbiting.length
+      orbiting.push(i)
     }
     freeSlots.current = free
+    orbitingList.current = orbiting
+    debrisList.current = []
+    spatialRef.current.dirty = true
   }, [rocks])
   // v ∝ √μ — scale μ by k² so circular speed becomes k·v (matches planets)
   const effectiveMu = mu * orbitSpeedScale * orbitSpeedScale
@@ -411,16 +558,12 @@ export function AsteroidBelt({
   const splitRockRef = useRef<(index: number, impactLocal: Vector3) => void>(
     () => {},
   )
-  const spatialRef = useRef({
-    dirty: true,
-    buckets: Array.from({ length: BUCKET_COUNT }, () => [] as number[]),
-  })
-  const orbitHashTimer = useRef(0)
 
   const markSpatialDirty = () => {
     spatialRef.current.dirty = true
   }
 
+  /** Rebuild angle buckets for orbiting rocks only (debris is checked separately). */
   const ensureBuckets = () => {
     const spatial = spatialRef.current
     if (!spatial.dirty) return
@@ -428,14 +571,19 @@ export function AsteroidBelt({
     const { buckets } = spatial
     for (let b = 0; b < BUCKET_COUNT; b++) buckets[b].length = 0
     const list = rocksRef.current
-    for (let i = 0; i < list.length; i++) {
-      const rock = list[i]
-      if (!rock.alive) continue
-      buckets[angleBucket(rock.x, rock.z)].push(i)
+    const orbiting = orbitingList.current
+    for (let i = 0; i < orbiting.length; i++) {
+      const index = orbiting[i]
+      const rock = list[index]
+      buckets[angleBucket(rock.x, rock.z)].push(index)
     }
   }
 
-  /** Visit rocks near a local XZ point; returns false to stop early. */
+  /**
+   * Visit nearby orbiting rocks via the spatial hash, then all debris
+   * (debris count stays small; hashing it every frame was the shoot lag).
+   * Return false from visit to stop early.
+   */
   const forNearbyRocks = (
     lx: number,
     lz: number,
@@ -444,6 +592,7 @@ export function AsteroidBelt({
   ) => {
     ensureBuckets()
     const { buckets } = spatialRef.current
+    const rocks = rocksRef.current
     const radial = Math.hypot(lx, lz)
     const halfWidth = searchPad / Math.max(radial, 8)
     const span = Math.min(
@@ -458,8 +607,21 @@ export function AsteroidBelt({
       const cell = buckets[b]
       for (let i = 0; i < cell.length; i++) {
         const index = cell[i]
-        if (visit(index, rocksRef.current[index]) === false) return
+        if (visit(index, rocks[index]) === false) return
       }
+    }
+
+    // Debris stays off the angle hash so motion never forces a rebuild;
+    // cheap XZ reject keeps this fine even with a few hundred fragments.
+    const debris = debrisList.current
+    for (let i = 0; i < debris.length; i++) {
+      const index = debris[i]
+      const rock = rocks[index]
+      const dx = rock.x - lx
+      const dz = rock.z - lz
+      const lim = rock.hitRadius + searchPad
+      if (dx * dx + dz * dz > lim * lim) continue
+      if (visit(index, rock) === false) return
     }
   }
 
@@ -469,13 +631,19 @@ export function AsteroidBelt({
   }
 
   const killRock = (index: number, updateMesh = true) => {
-    const rock = rocksRef.current[index]
+    const list = rocksRef.current
+    const rock = list[index]
     if (!rock.alive) return
+    if (rock.orbiting) {
+      removeFromLiveList(orbitingList.current, list, index)
+      markSpatialDirty()
+    } else {
+      removeFromLiveList(debrisList.current, list, index)
+    }
     rock.alive = false
     rock.orbiting = false
     rock.hitRadius = 0
     freeSlots.current.push(index)
-    markSpatialDirty()
     if (!updateMesh) return
     const inst = mesh.current
     if (!inst) return
@@ -495,6 +663,17 @@ export function AsteroidBelt({
 
     const rand = randRef.current
     const size = parent.hitRadius
+    const sizeScale = Math.max(0.05, sizeScaleRef.current)
+    const minHit = MIN_HIT_RADIUS * sizeScale
+    const refRadius = DEBRIS_KICK_REF_RADIUS * sizeScale
+    const sizeRatio = size / refRadius
+    // Larger parents shed more / bigger chunks (still capped for fill-rate)
+    const maxFrag = Math.min(
+      size * 0.55,
+      MAX_FRAG_HIT_RADIUS *
+        sizeScale *
+        Math.min(3.2, 0.85 + sizeRatio * 0.85),
+    )
     const px = parent.x
     const py = parent.y
     const pz = parent.z
@@ -504,7 +683,7 @@ export function AsteroidBelt({
     _fragColor.copy(parent.color)
 
     // Small rocks vaporize — always a destroy event for loot
-    if (size < MIN_HIT_RADIUS) {
+    if (size < minHit) {
       killRock(index)
       const inst = mesh.current
       if (inst) {
@@ -528,32 +707,46 @@ export function AsteroidBelt({
 
     killRock(index)
 
+    // Heavier parent → slower spray (keeps orbital velocity; damps kick only)
+    const kickScale = Math.min(
+      1.35,
+      Math.max(0.18, refRadius / size),
+    )
+
+    const fragCountMax = Math.min(
+      MAX_FRAGMENTS,
+      MIN_FRAGMENTS + Math.floor(sizeRatio * 2.2),
+    )
     const fragments =
-      MIN_FRAGMENTS + Math.floor(rand() * (MAX_FRAGMENTS - MIN_FRAGMENTS + 1))
+      MIN_FRAGMENTS +
+      Math.floor(rand() * (fragCountMax - MIN_FRAGMENTS + 1))
+    const fragScaleBoost = Math.min(1.75, 0.9 + sizeRatio * 0.4)
     const inst = mesh.current
 
     for (let f = 0; f < fragments; f++) {
-      const scale =
-        FRAG_SCALE_MIN + rand() * (FRAG_SCALE_MAX - FRAG_SCALE_MIN)
-      let sx = psx * scale * (0.75 + rand() * 0.5)
-      let sy = psy * scale * (0.75 + rand() * 0.5)
-      let sz = psz * scale * (0.75 + rand() * 0.5)
+      const fragScale =
+        (FRAG_SCALE_MIN + rand() * (FRAG_SCALE_MAX - FRAG_SCALE_MIN)) *
+        fragScaleBoost
+      let sx = psx * fragScale * (0.75 + rand() * 0.5)
+      let sy = psy * fragScale * (0.75 + rand() * 0.5)
+      let sz = psz * fragScale * (0.75 + rand() * 0.5)
       let hitRadius = Math.max(sx, sy, sz)
-      if (hitRadius > MAX_FRAG_HIT_RADIUS) {
-        const shrink = MAX_FRAG_HIT_RADIUS / hitRadius
+      if (hitRadius > maxFrag) {
+        const shrink = maxFrag / hitRadius
         sx *= shrink
         sy *= shrink
         sz *= shrink
-        hitRadius = MAX_FRAG_HIT_RADIUS
+        hitRadius = maxFrag
       }
 
       // Too small to bother simulating — already "destroyed"
-      if (hitRadius < MIN_HIT_RADIUS * 0.85) continue
+      if (hitRadius < minHit * 0.85) continue
 
       const slot = findFreeSlot()
       if (slot < 0) break
 
-      const kick = DEBRIS_KICK * (0.55 + rand())
+      const kick = DEBRIS_KICK * (0.55 + rand()) * kickScale
+      const impactBoost = (1.1 + rand() * 1.8) * kickScale
       // Random spray + bias along laser impact
       const rx = (rand() - 0.5) * 2
       const ry = (rand() - 0.5) * 2
@@ -568,22 +761,23 @@ export function AsteroidBelt({
       child.x = px + (rx / rLen) * hitRadius * 0.55
       child.y = py + (ry / rLen) * hitRadius * 0.55
       child.z = pz + (rz / rLen) * hitRadius * 0.55
-      child.vx = ovx + (rx / rLen) * kick + impactLocal.x * (3 + rand() * 5)
-      child.vy = ovy + (ry / rLen) * kick + impactLocal.y * (3 + rand() * 5)
-      child.vz = ovz + (rz / rLen) * kick + impactLocal.z * (3 + rand() * 5)
+      child.vx = ovx + (rx / rLen) * kick + impactLocal.x * impactBoost
+      child.vy = ovy + (ry / rLen) * kick + impactLocal.y * impactBoost
+      child.vz = ovz + (rz / rLen) * kick + impactLocal.z * impactBoost
       child.sx = sx
       child.sy = sy
       child.sz = sz
       child.hitRadius = hitRadius
-      child.spin = (rand() - 0.5) * 2.4
+      child.spin = (rand() - 0.5) * 2.4 * kickScale
       child.angle = rand() * Math.PI * 2
       child.life = DEBRIS_LIFE * (0.7 + rand() * 0.6)
       child.color.copy(_fragColor)
       child.color.offsetHSL(
+        (rand() - 0.5) * 0.03,
         (rand() - 0.5) * 0.04,
-        (rand() - 0.5) * 0.05,
-        (rand() - 0.5) * 0.08,
+        (rand() - 0.5) * 0.12,
       )
+      addToLiveList(debrisList.current, slot, child)
 
       if (inst) writeInstance(inst, slot, child)
     }
@@ -616,33 +810,24 @@ export function AsteroidBelt({
         const radial = Math.hypot(_local.x, _local.z)
         // Debris can drift — keep the cull loose
         const margin = Math.max(outer * 0.35, 40) + pad
+        const hasDebris = debrisList.current.length > 0
         if (radial > outer + margin) return false
         if (Math.abs(_local.y) > tall * 6 + pad) return false
         // Hollow center: only worth testing if debris may be inward
-        if (radial < inner - margin) {
-          let anyDebris = false
-          const list = rocksRef.current
-          for (let i = 0; i < list.length; i++) {
-            if (list[i].alive && !list[i].orbiting) {
-              anyDebris = true
-              break
-            }
-          }
-          if (!anyDebris) return false
-        }
+        if (radial < inner - margin && !hasDebris) return false
 
         let hit = false
-        // +12 covers the largest rock radii when computing angular span
-        forNearbyRocks(_local.x, _local.z, pad + 12, (_index, rock) => {
-          const dx = rock.x - _local.x
-          const dy = rock.y - _local.y
-          const dz = rock.z - _local.z
-          const hitR = rock.hitRadius + pad
-          if (dx * dx + dy * dy + dz * dz < hitR * hitR) {
-            hit = true
-            return false
-          }
-        })
+        forNearbyRocks(
+          _local.x,
+          _local.z,
+          pad + ROCK_SEARCH_PAD,
+          (_index, rock) => {
+            if (pointHitsRock(rock, _local.x, _local.y, _local.z, pad)) {
+              hit = true
+              return false
+            }
+          },
+        )
         return hit
       },
 
@@ -661,36 +846,89 @@ export function AsteroidBelt({
 
         const radial = Math.hypot(_local.x, _local.z)
         const margin = Math.max(outer * 0.35, 40) + pad
-        if (radial > outer + margin || radial < Math.max(0, inner - margin)) {
-          // Still allow hits on drifted debris outside the ring
-          let anyDebris = false
-          const list = rocksRef.current
-          for (let i = 0; i < list.length; i++) {
-            if (list[i].alive && !list[i].orbiting) {
-              anyDebris = true
-              break
-            }
-          }
-          if (!anyDebris) return false
+        if (
+          (radial > outer + margin || radial < Math.max(0, inner - margin)) &&
+          debrisList.current.length === 0
+        ) {
+          return false
         }
 
         let best = -1
         let bestDist = Infinity
-        forNearbyRocks(_local.x, _local.z, pad + 12, (index, rock) => {
-          const dx = rock.x - _local.x
-          const dy = rock.y - _local.y
-          const dz = rock.z - _local.z
-          const distSq = dx * dx + dy * dy + dz * dz
-          const hitR = rock.hitRadius + pad
-          if (distSq < hitR * hitR && distSq < bestDist) {
-            bestDist = distSq
-            best = index
-          }
-        })
+        forNearbyRocks(
+          _local.x,
+          _local.z,
+          pad + ROCK_SEARCH_PAD,
+          (index, rock) => {
+            if (!pointHitsRock(rock, _local.x, _local.y, _local.z, pad)) return
+            const dx = rock.x - _local.x
+            const dy = rock.y - _local.y
+            const dz = rock.z - _local.z
+            const distSq = dx * dx + dy * dy + dz * dz
+            if (distSq < bestDist) {
+              bestDist = distSq
+              best = index
+            }
+          },
+        )
 
         if (best < 0) return false
         splitRockRef.current(best, _impactDir)
         return true
+      },
+
+      occludes(from, to) {
+        const {
+          sunPosition: sun,
+          inclination: tilt,
+          innerRadius: inner,
+          outerRadius: outer,
+          thickness: tall,
+        } = orbitRef.current
+
+        worldToLocal(from, sun, tilt, _local)
+        worldToLocal(to, sun, tilt, _localTo)
+
+        const ax = _local.x
+        const ay = _local.y
+        const az = _local.z
+        const bx = _localTo.x
+        const by = _localTo.y
+        const bz = _localTo.z
+        const dx = bx - ax
+        const dy = by - ay
+        const dz = bz - az
+        const dist = Math.hypot(dx, dy, dz)
+        if (dist < 1e-5) return false
+
+        // Quick belt proximity cull — segment far from the torus can't clip rocks
+        const ra = Math.hypot(ax, az)
+        const rb = Math.hypot(bx, bz)
+        const minR = Math.min(ra, rb)
+        const maxR = Math.max(ra, rb)
+        const hasDebris = debrisList.current.length > 0
+        const margin = Math.max(outer * 0.35, 40) + ROCK_SEARCH_PAD
+        if (minR > outer + margin && !hasDebris) return false
+        if (maxR < inner - margin && !hasDebris) return false
+        if (Math.abs(ay) > tall * 8 + ROCK_SEARCH_PAD && Math.abs(by) > tall * 8 + ROCK_SEARCH_PAD) {
+          return false
+        }
+
+        const step = Math.min(16, Math.max(5, dist / 48))
+        const n = Math.min(96, Math.max(2, Math.ceil(dist / step)))
+        let blocked = false
+        for (let i = 0; i <= n && !blocked; i++) {
+          const t = i / n
+          const px = ax + dx * t
+          const pz = az + dz * t
+          forNearbyRocks(px, pz, step + ROCK_SEARCH_PAD, (_index, rock) => {
+            if (segmentHitsRockSphere(ax, ay, az, bx, by, bz, rock)) {
+              blocked = true
+              return false
+            }
+          })
+        }
+        return blocked
       },
     }
 
@@ -729,41 +967,41 @@ export function AsteroidBelt({
     const maxDebrisR = outer * 1.85
     const minDebrisR = Math.max(inner * 0.35, 20)
     let matricesDirty = false
-    let debrisMoved = false
 
-    for (let i = 0; i < list.length; i++) {
+    const orbiting = orbitingList.current
+    for (let n = 0; n < orbiting.length; n++) {
+      const i = orbiting[n]
       const rock = list[i]
-      if (!rock.alive) continue
+      const omega =
+        circularOrbitSpeed(effectiveMu, rock.orbitRadius) / rock.orbitRadius
+      // Decreasing θ — same orbital direction as the planets
+      rock.theta -= omega * dt
+      syncOrbitPosition(rock)
+      rock.angle += rock.spin * dt
+      writeMatrix(inst, i, rock)
+      matricesDirty = true
+    }
 
-      if (rock.orbiting) {
-        const omega =
-          circularOrbitSpeed(effectiveMu, rock.orbitRadius) / rock.orbitRadius
-        // Decreasing θ — same orbital direction as the planets
-        rock.theta -= omega * dt
-        syncOrbitPosition(rock)
-      } else {
-        rock.x += rock.vx * dt
-        rock.y += rock.vy * dt
-        rock.z += rock.vz * dt
-        rock.life -= dt
-        debrisMoved = true
+    const debris = debrisList.current
+    for (let n = debris.length - 1; n >= 0; n--) {
+      const i = debris[n]
+      const rock = list[i]
+      rock.x += rock.vx * dt
+      rock.y += rock.vy * dt
+      rock.z += rock.vz * dt
+      rock.life -= dt
 
-        const radial = Math.hypot(rock.x, rock.z)
-        if (
-          rock.life <= 0 ||
-          radial > maxDebrisR ||
-          radial < minDebrisR ||
-          Math.abs(rock.y) > thickness * 6
-        ) {
-          rock.alive = false
-          rock.orbiting = false
-          rock.hitRadius = 0
-          freeSlots.current.push(i)
-          markSpatialDirty()
-          writeMatrix(inst, i, rock)
-          matricesDirty = true
-          continue
-        }
+      const radial = Math.hypot(rock.x, rock.z)
+      if (
+        rock.life <= 0 ||
+        radial > maxDebrisR ||
+        radial < minDebrisR ||
+        Math.abs(rock.y) > thickness * 6
+      ) {
+        // killRock swap-removes from debrisList; safe because we iterate backward
+        killRock(i)
+        matricesDirty = true
+        continue
       }
 
       rock.angle += rock.spin * dt
@@ -771,11 +1009,11 @@ export function AsteroidBelt({
       matricesDirty = true
     }
 
-    // Orbiting rocks cross buckets slowly; debris needs fresh buckets now
+    // Orbiting rocks cross buckets slowly — never rebuild for debris motion
     orbitHashTimer.current -= dt
-    if (debrisMoved || orbitHashTimer.current <= 0) {
+    if (orbitHashTimer.current <= 0) {
       markSpatialDirty()
-      if (orbitHashTimer.current <= 0) orbitHashTimer.current = ORBIT_HASH_INTERVAL
+      orbitHashTimer.current = ORBIT_HASH_INTERVAL
     }
 
     if (matricesDirty) inst.instanceMatrix.needsUpdate = true

@@ -21,7 +21,7 @@ import {
   saveGameSave,
   type GameSave,
 } from '@/game/persist'
-import { STATION_NAME } from '@/game/systemConfig'
+import { STATION_NAMES } from '@/game/systemConfig'
 import {
   cargoUnits,
   emptyCargo,
@@ -32,12 +32,18 @@ import {
 import type { PlayerCargoStatus } from '@/loot/cargoBait'
 import {
   ARMOR_TIERS,
+  SENSOR_MOD_ID,
+  SENSOR_UNLOCK_COST,
+  THRUSTER_MOD_ID,
+  THRUSTER_UNLOCK_COST,
   TORPEDO_MAX_AMMO,
   TORPEDO_RELOAD_COST,
   TORPEDO_RELOAD_ID,
   TORPEDO_UNLOCK_COST,
   TORPEDO_WEAPON_ID,
   canBuyArmorTier,
+  canBuySensorUnlock,
+  canBuyThrusterUnlock,
   canBuyTorpedoReload,
   canBuyTorpedoUnlock,
   clampArmorTier,
@@ -55,6 +61,7 @@ import type { OrbitalTelemetry } from '@/ship/PlayerShip'
 import { CombatChevron } from '@/ui/CombatChevron'
 import { Crosshair } from '@/ui/Crosshair'
 import { DamageFlash } from '@/ui/DamageFlash'
+import { FpsCounter } from '@/ui/FpsCounter'
 import { Hud } from '@/ui/Hud'
 import { LoadingScreen } from '@/ui/LoadingScreen'
 
@@ -81,12 +88,17 @@ export default function App() {
   const [started, setStarted] = useState(() => saved.docked)
   const [docked, setDocked] = useState(() => saved.docked)
   const [dockAvailable, setDockAvailable] = useState(false)
+  const [dockStationName, setDockStationName] = useState(
+    STATION_NAMES.thalassa,
+  )
   const [telemetry, setTelemetry] = useState<OrbitalTelemetry | null>(null)
   const [credits, setCredits] = useState(() => saved.credits)
   const [cargo, setCargo] = useState<CargoHold>(() => ({ ...saved.cargo }))
   const [torpedoOwned, setTorpedoOwned] = useState(() => saved.torpedoOwned)
   const [torpedoAmmo, setTorpedoAmmo] = useState(() => saved.torpedoAmmo)
   const [armorTier, setArmorTier] = useState(() => saved.armorTier)
+  const [thrusterOwned, setThrusterOwned] = useState(() => saved.thrusterOwned)
+  const [sensorsOwned, setSensorsOwned] = useState(() => saved.sensorsOwned)
   const [damageFlash, setDamageFlash] = useState(0)
   const [healRequest, setHealRequest] = useState<{
     seq: number
@@ -109,6 +121,8 @@ export default function App() {
   const torpedoOwnedRef = useRef(torpedoOwned)
   const torpedoAmmoRef = useRef(torpedoAmmo)
   const armorTierRef = useRef(armorTier)
+  const thrusterOwnedRef = useRef(thrusterOwned)
+  const sensorsOwnedRef = useRef(sensorsOwned)
   const telemetryRef = useRef<OrbitalTelemetry | null>(null)
   const healSeq = useRef(0)
   const jettisonSeq = useRef(0)
@@ -126,6 +140,8 @@ export default function App() {
   torpedoOwnedRef.current = torpedoOwned
   torpedoAmmoRef.current = torpedoAmmo
   armorTierRef.current = armorTier
+  thrusterOwnedRef.current = thrusterOwned
+  sensorsOwnedRef.current = sensorsOwned
 
   const persistNow = useCallback(() => {
     const t = telemetryRef.current
@@ -142,6 +158,8 @@ export default function App() {
       torpedoOwned: torpedoOwnedRef.current,
       torpedoAmmo: torpedoAmmoRef.current,
       armorTier: armorTierRef.current,
+      thrusterOwned: thrusterOwnedRef.current,
+      sensorsOwned: sensorsOwnedRef.current,
     }
     saveGameSave(snapshot)
   }, [saved.hp, saved.heat, saved.overheated])
@@ -158,6 +176,8 @@ export default function App() {
     torpedoOwned,
     torpedoAmmo,
     armorTier,
+    thrusterOwned,
+    sensorsOwned,
     persistNow,
   ])
 
@@ -210,12 +230,16 @@ export default function App() {
     setTelemetry(value)
   }, [])
 
-  const onDockAvailable = useCallback((available: boolean) => {
-    if (available && telemetryRef.current && telemetryRef.current.hp <= 0) {
-      return
-    }
-    setDockAvailable(available)
-  }, [])
+  const onDockAvailable = useCallback(
+    (available: boolean, stationName?: string) => {
+      // PlayerShip already suppresses offers while wrecked. Do not gate on
+      // telemetry hp here — rejecting after the ship flips its local
+      // dockAvailableRef leaves App stuck false until you leave and re-enter range.
+      setDockAvailable(available)
+      if (available && stationName) setDockStationName(stationName)
+    },
+    [],
+  )
 
   const onMaterialPickup = useCallback((pickup: MaterialPickup) => {
     setCargo((prev) => ({
@@ -292,6 +316,24 @@ export default function App() {
       torpedoAmmoRef.current = TORPEDO_MAX_AMMO
       setTorpedoOwned(true)
       setTorpedoAmmo(TORPEDO_MAX_AMMO)
+      return
+    }
+    if (id === THRUSTER_MOD_ID) {
+      if (!canBuyThrusterUnlock(creditsRef.current, thrusterOwnedRef.current)) {
+        return
+      }
+      setCredits((c) => c - THRUSTER_UNLOCK_COST)
+      thrusterOwnedRef.current = true
+      setThrusterOwned(true)
+      return
+    }
+    if (id === SENSOR_MOD_ID) {
+      if (!canBuySensorUnlock(creditsRef.current, sensorsOwnedRef.current)) {
+        return
+      }
+      setCredits((c) => c - SENSOR_UNLOCK_COST)
+      sensorsOwnedRef.current = true
+      setSensorsOwned(true)
       return
     }
     if (id === TORPEDO_RELOAD_ID) {
@@ -435,6 +477,8 @@ export default function App() {
         torpedoOwned={torpedoOwned}
         torpedoAmmo={torpedoAmmo}
         onTorpedoAmmoChange={onTorpedoAmmoChange}
+        thrusterOwned={thrusterOwned}
+        sensorsOwned={sensorsOwned}
         playerCargoRef={playerCargoRef}
         jettisonDump={jettisonDump}
         onJettisonCargo={onJettisonCargo}
@@ -460,7 +504,10 @@ export default function App() {
           />
           {dockAvailable && !(telemetry && telemetry.hp <= 0) && (
             <Suspense fallback={null}>
-              <DockPrompt stationName={STATION_NAME} onDock={dockAtStation} />
+              <DockPrompt
+                stationName={dockStationName}
+                onDock={dockAtStation}
+              />
             </Suspense>
           )}
         </>
@@ -473,7 +520,7 @@ export default function App() {
       {docked && (
         <Suspense fallback={null}>
           <StationMenu
-            stationName={STATION_NAME}
+            stationName={dockStationName}
             credits={credits}
             cargo={cargo}
             hp={
@@ -486,6 +533,8 @@ export default function App() {
             armorTier={armorTier}
             torpedoOwned={torpedoOwned}
             torpedoAmmo={torpedoAmmo}
+            thrusterOwned={thrusterOwned}
+            sensorsOwned={sensorsOwned}
             onSell={sellMaterial}
             onSellAll={sellAllCargo}
             onRepair={repairShip}
@@ -510,6 +559,8 @@ export default function App() {
               cargo,
               torpedoOwned,
               torpedoAmmo,
+              thrusterOwned,
+              sensorsOwned,
               heat: telemetry?.heat ?? saved.heat,
               overheated: telemetry?.overheated ?? saved.overheated,
               speed: telemetry?.speed ?? 0,
@@ -518,6 +569,7 @@ export default function App() {
           />
         </Suspense>
       )}
+      {!booting && <FpsCounter />}
       {booting && <LoadingScreen onFinished={onBootFinished} />}
     </>
   )

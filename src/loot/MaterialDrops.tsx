@@ -1,6 +1,21 @@
 import { useFrame } from '@react-three/fiber'
-import { useLayoutEffect, useRef, type RefObject } from 'react'
-import { Group, Mesh, Vector3, type MeshStandardMaterial } from 'three'
+import {
+  useLayoutEffect,
+  useRef,
+  type MutableRefObject,
+  type RefObject,
+} from 'react'
+import {
+  Group,
+  Mesh,
+  Object3D,
+  Vector3,
+  type MeshStandardMaterial,
+} from 'three'
+import {
+  clearCargoBait,
+  type CargoBait,
+} from '@/loot/cargoBait'
 import {
   JETTISON_LIFETIME,
   MATERIAL_COLOR,
@@ -11,9 +26,11 @@ import {
   type CargoHold,
   type MaterialKind,
 } from '@/loot/economy'
+import { stepPickupMagnet } from '@/loot/magnet'
 
 const MAX_SHARDS = 48
 const PICKUP_PAD = 0.65
+const _magnet = new Vector3()
 
 type Shard = {
   root: Group | null
@@ -27,8 +44,8 @@ type Shard = {
   vx: number
   vy: number
   vz: number
-  /** Bandit bait — player cannot scoop these. */
-  scavengeOnly: boolean
+  /** Death / jettison dump — player + bandits both contest it */
+  isDump: boolean
 }
 
 export type MaterialPickup = {
@@ -39,9 +56,9 @@ export type MaterialPickup = {
 export type MaterialDropsHandle = {
   /** Always spawn a material shard (caller already decided no buff). */
   spawn: (x: number, y: number, z: number) => void
-  /** Spill an exact cargo hold as scavenger bait (not player-collectible). */
+  /** Spill an exact cargo hold as contested dump (player + bandits). */
   spawnDump: (x: number, y: number, z: number, cargo: CargoHold) => void
-  /** Remove jettison bait shards after bandits finish scavenging. */
+  /** Remove dump shards after bandits claim the pile. */
   clearScavenge: () => void
   collect: (point: Vector3, radius: number) => MaterialPickup | null
   clear: () => void
@@ -49,6 +66,10 @@ export type MaterialDropsHandle = {
 
 type MaterialDropsProps = {
   handleRef: RefObject<MaterialDropsHandle | null>
+  /** Shared bait state — player pickups reduce remaining for bandits */
+  cargoBaitRef?: MutableRefObject<CargoBait>
+  /** Ship root — shards drift toward this when nearby */
+  magnetTargetRef?: RefObject<Object3D | null>
   paused?: boolean
 }
 
@@ -65,7 +86,7 @@ function makeShard(): Shard {
     vx: 0,
     vy: 0,
     vz: 0,
-    scavengeOnly: false,
+    isDump: false,
   }
 }
 
@@ -75,7 +96,6 @@ function applyVisual(shard: Shard, kind: MaterialKind) {
   mat.color.set(MATERIAL_COLOR[kind])
   mat.emissive.set(MATERIAL_COLOR[kind])
   mat.emissiveIntensity = kind === 'alloy' ? 0.35 : kind === 'ice' ? 0.22 : 0.08
-  // Don't set material.needsUpdate — that forces a shader recompile hitch
 }
 
 function activateShard(
@@ -85,35 +105,40 @@ function activateShard(
   x: number,
   y: number,
   z: number,
-  scavengeOnly: boolean,
+  isDump: boolean,
 ) {
   shard.alive = true
   shard.kind = kind
   shard.amount = amount
-  shard.scavengeOnly = scavengeOnly
-  shard.life = scavengeOnly
+  shard.isDump = isDump
+  shard.life = isDump
     ? JETTISON_LIFETIME * (0.9 + Math.random() * 0.25)
     : MATERIAL_LIFETIME * (0.85 + Math.random() * 0.3)
   shard.spin = 0.6 + Math.random() * 1.2
   shard.bob = Math.random() * Math.PI * 2
-  const burst = scavengeOnly ? 2.8 : 1.6
+  const burst = isDump ? 2.8 : 1.6
   shard.vx = (Math.random() - 0.5) * burst
-  shard.vy = (Math.random() - 0.5) * (scavengeOnly ? 1.6 : 1.0)
+  shard.vy = (Math.random() - 0.5) * (isDump ? 1.6 : 1.0)
   shard.vz = (Math.random() - 0.5) * burst
   if (!shard.root) return
   shard.root.position.set(x, y, z)
-  const s = scavengeOnly
-    ? 0.75 + amount * 0.14
-    : 0.55 + amount * 0.12
+  const s = isDump ? 0.75 + amount * 0.14 : 0.55 + amount * 0.12
   shard.root.scale.setScalar(s)
   shard.root.visible = true
   applyVisual(shard, kind)
 }
 
-export function MaterialDrops({ handleRef, paused = false }: MaterialDropsProps) {
+export function MaterialDrops({
+  handleRef,
+  cargoBaitRef,
+  magnetTargetRef,
+  paused = false,
+}: MaterialDropsProps) {
   const pool = useRef<Shard[]>(
     Array.from({ length: MAX_SHARDS }, () => makeShard()),
   )
+  const baitRef = useRef(cargoBaitRef)
+  baitRef.current = cargoBaitRef
 
   useLayoutEffect(() => {
     const list = pool.current
@@ -121,16 +146,16 @@ export function MaterialDrops({ handleRef, paused = false }: MaterialDropsProps)
     const clear = () => {
       for (const shard of list) {
         shard.alive = false
-        shard.scavengeOnly = false
+        shard.isDump = false
         if (shard.root) shard.root.visible = false
       }
     }
 
     const clearScavenge = () => {
       for (const shard of list) {
-        if (!shard.alive || !shard.scavengeOnly) continue
+        if (!shard.alive || !shard.isDump) continue
         shard.alive = false
-        shard.scavengeOnly = false
+        shard.isDump = false
         if (shard.root) shard.root.visible = false
       }
     }
@@ -169,7 +194,7 @@ export function MaterialDrops({ handleRef, paused = false }: MaterialDropsProps)
         let best: Shard | null = null
         let bestDist = Infinity
         for (const shard of list) {
-          if (!shard.alive || !shard.root || shard.scavengeOnly) continue
+          if (!shard.alive || !shard.root) continue
           const d2 = shard.root.position.distanceToSquared(point)
           if (d2 < reach2 && d2 < bestDist) {
             bestDist = d2
@@ -178,7 +203,19 @@ export function MaterialDrops({ handleRef, paused = false }: MaterialDropsProps)
         }
         if (!best || !best.root) return null
         const pickup = { kind: best.kind, amount: best.amount }
+        if (best.isDump) {
+          const bait = baitRef.current?.current
+          if (bait?.active) {
+            bait.remaining = Math.max(0, bait.remaining - best.amount)
+            bait.cargo[best.kind] = Math.max(
+              0,
+              bait.cargo[best.kind] - best.amount,
+            )
+            if (bait.remaining <= 0) clearCargoBait(bait)
+          }
+        }
         best.alive = false
+        best.isDump = false
         best.root.visible = false
         return pickup
       },
@@ -193,6 +230,8 @@ export function MaterialDrops({ handleRef, paused = false }: MaterialDropsProps)
   useFrame((_, delta) => {
     if (paused) return
     const dt = Math.min(delta, 0.05)
+    const magnet = magnetTargetRef?.current
+    if (magnet) magnet.getWorldPosition(_magnet)
 
     for (const shard of pool.current) {
       if (!shard.alive || !shard.root) continue
@@ -200,22 +239,29 @@ export function MaterialDrops({ handleRef, paused = false }: MaterialDropsProps)
       shard.life -= dt
       if (shard.life <= 0) {
         shard.alive = false
-        shard.scavengeOnly = false
+        shard.isDump = false
         shard.root.visible = false
         continue
       }
 
-      shard.root.position.x += shard.vx * dt
-      shard.root.position.y += shard.vy * dt
-      shard.root.position.z += shard.vz * dt
-      shard.vx *= Math.exp(-0.4 * dt)
-      shard.vy *= Math.exp(-0.4 * dt)
-      shard.vz *= Math.exp(-0.4 * dt)
+      const magnetState = magnet
+        ? stepPickupMagnet(shard.root.position, shard, _magnet, dt)
+        : 'none'
+      const pulling = magnetState !== 'none'
+
+      if (!pulling) {
+        shard.root.position.x += shard.vx * dt
+        shard.root.position.y += shard.vy * dt
+        shard.root.position.z += shard.vz * dt
+        shard.vx *= Math.exp(-0.4 * dt)
+        shard.vy *= Math.exp(-0.4 * dt)
+        shard.vz *= Math.exp(-0.4 * dt)
+        shard.root.position.y += Math.sin(shard.bob) * 0.004
+      }
 
       shard.bob += dt * 1.8
       shard.root.rotation.x += shard.spin * 0.55 * dt
       shard.root.rotation.y += shard.spin * dt
-      shard.root.position.y += Math.sin(shard.bob) * 0.004
     }
   })
 

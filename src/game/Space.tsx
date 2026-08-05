@@ -14,10 +14,19 @@ import {
   type MutableRefObject,
   type RefObject,
 } from 'react'
-import { Group, Vector3, type Mesh } from 'three'
+import {
+  Group,
+  Object3D,
+  Vector3,
+  type DirectionalLight,
+  type Mesh,
+} from 'three'
 import { BanditShip } from '@/ship/BanditShip'
 import { PatrolShip } from '@/ship/PatrolShip'
 import type { LaserTarget } from '@/ship/ShipWeapons'
+import { sensorRangeForOwned } from '@/loot/shop'
+import stationAresUrl from '@/assets/models/space_station.glb?url'
+import stationKronosUrl from '@/assets/models/space__station.glb?url'
 import gaseous from '@/assets/textures/planets/Gaseous2.webp'
 import gaseousOuter from '@/assets/textures/planets/Gaseous4.webp'
 import icy from '@/assets/textures/planets/Icy.webp'
@@ -48,8 +57,10 @@ import type { HullSnapshot } from '@/game/persist'
 import { MapTracker } from '@/map/MapTracker'
 import type { MapSnapshot } from '@/map/systemMap'
 import {
+  DOCK_APPROACH_PAD,
   PlayerShip,
   type CollisionHazard,
+  type DockBerth,
   type HazardField,
   type OrbitalTelemetry,
 } from '@/ship/PlayerShip'
@@ -74,6 +85,7 @@ import {
   MID_ORBIT,
   MID_PLANET_SIZE,
   MOON_NAMES,
+  MOON_SIZES,
   OUTER_DWARF_ECC,
   OUTER_DWARF_ORBIT,
   OUTER_DWARF_SIZE,
@@ -81,6 +93,7 @@ import {
   OUTER_GAS_SIZE,
   PLANET_NAMES,
   STAR_NAME,
+  STATION_NAMES,
   SUN_SIZE,
 } from '@/game/systemConfig'
 
@@ -111,6 +124,41 @@ function CargoBaitClock({
   return null
 }
 
+/**
+ * Parallel sunlight that matches the visible sun near the camera.
+ * Default DirectionalLight aims at world origin, but this system orbits an
+ * offset star — so we re-aim at the camera each frame.
+ */
+function SunLight({
+  sunPosition,
+  intensity,
+  color,
+}: {
+  sunPosition: [number, number, number]
+  intensity: number
+  color: string
+}) {
+  const lightRef = useRef<DirectionalLight>(null!)
+  const targetRef = useRef<Object3D>(null!)
+
+  useFrame(({ camera }) => {
+    const light = lightRef.current
+    const target = targetRef.current
+    if (!light || !target) return
+    light.position.set(sunPosition[0], sunPosition[1], sunPosition[2])
+    target.position.copy(camera.position)
+    light.target = target
+    target.updateMatrixWorld()
+  })
+
+  return (
+    <>
+      <directionalLight ref={lightRef} intensity={intensity} color={color} />
+      <object3D ref={targetRef} />
+    </>
+  )
+}
+
 export const Space = memo(function Space({
   started,
   paused,
@@ -128,6 +176,8 @@ export const Space = memo(function Space({
   torpedoOwned = false,
   torpedoAmmo = 0,
   onTorpedoAmmoChange,
+  thrusterOwned = false,
+  sensorsOwned = false,
   playerCargoRef,
   jettisonDump,
   onJettisonCargo,
@@ -137,7 +187,7 @@ export const Space = memo(function Space({
   docked: boolean
   onLockChange: (locked: boolean) => void
   onTelemetry: (telemetry: OrbitalTelemetry) => void
-  onDockAvailable: (available: boolean) => void
+  onDockAvailable: (available: boolean, stationName?: string) => void
   onMaterialPickup: (pickup: MaterialPickup) => void
   mapSnapshotRef: RefObject<MapSnapshot>
   mapShipRef: RefObject<Group | null>
@@ -148,6 +198,8 @@ export const Space = memo(function Space({
   torpedoOwned?: boolean
   torpedoAmmo?: number
   onTorpedoAmmoChange?: (ammo: number) => void
+  thrusterOwned?: boolean
+  sensorsOwned?: boolean
   playerCargoRef: RefObject<PlayerCargoStatus>
   jettisonDump: {
     seq: number
@@ -167,6 +219,8 @@ export const Space = memo(function Space({
   const outerGasGiant = useRef<Group>(null)
   const outerDwarf = useRef<Group>(null)
   const thalassaStation = useRef<Group>(null)
+  const aresStation = useRef<Group>(null)
+  const kronosStation = useRef<Group>(null)
   const aresMoon = useRef<Group>(null)
   const boreasMoon = useRef<Group>(null)
   const thalassaMoon = useRef<Group>(null)
@@ -176,6 +230,10 @@ export const Space = memo(function Space({
   const ouranosMoonA = useRef<Group>(null)
   const ouranosMoonB = useRef<Group>(null)
   const asteroidHazards = useRef<HazardField | null>(null)
+  /** True while advanced thruster burn is active — blanks NPC map contacts */
+  const mapCloakRef = useRef(false)
+  const sensorRangeRef = useRef(sensorRangeForOwned(sensorsOwned))
+  sensorRangeRef.current = sensorRangeForOwned(sensorsOwned)
   const buffDrops = useRef<BuffDropsHandle | null>(null)
   const materialDrops = useRef<MaterialDropsHandle | null>(null)
   const cargoBaitRef = useRef<CargoBait>(createEmptyCargoBait())
@@ -204,6 +262,29 @@ export const Space = memo(function Space({
   )
   const bandit1Allies = useMemo(() => [bandit2MapRef], [])
   const bandit2Allies = useMemo(() => [banditMapRef], [])
+  const dockBerths = useMemo<DockBerth[]>(
+    () => [
+      {
+        station: thalassaStation,
+        planet: beltPlanet,
+        name: STATION_NAMES.thalassa,
+        planetDockRange: BELT_PLANET_SIZE + 13.2 + DOCK_APPROACH_PAD,
+      },
+      {
+        station: aresStation,
+        planet: innerPlanet,
+        name: STATION_NAMES.ares,
+        planetDockRange: INNER_PLANET_SIZE + 12 + DOCK_APPROACH_PAD,
+      },
+      {
+        station: kronosStation,
+        planet: gasGiant,
+        name: STATION_NAMES.kronos,
+        planetDockRange: GAS_GIANT_SIZE + 55 + DOCK_APPROACH_PAD,
+      },
+    ],
+    [],
+  )
   const torpedoSeekTargets = useMemo<TorpedoSeekTarget[]>(
     () => [
       { object: banditMapRef, combat: banditCombatRef },
@@ -258,23 +339,98 @@ export const Space = memo(function Space({
 
   const planetHazards = useMemo<CollisionHazard[]>(
     () => [
-      { object: mercuryPlanet, radius: MERCURY_SIZE },
-      { object: innerPlanet, radius: INNER_PLANET_SIZE },
-      { object: midPlanet, radius: MID_PLANET_SIZE },
-      { object: beltPlanet, radius: BELT_PLANET_SIZE },
-      { object: gasGiant, radius: GAS_GIANT_SIZE },
-      { object: outerGasGiant, radius: OUTER_GAS_SIZE },
-      { object: outerDwarf, radius: OUTER_DWARF_SIZE },
+      {
+        object: mercuryPlanet,
+        radius: MERCURY_SIZE,
+        name: PLANET_NAMES.mercury,
+        kind: 'planet',
+      },
+      {
+        object: innerPlanet,
+        radius: INNER_PLANET_SIZE,
+        name: PLANET_NAMES.inner,
+        kind: 'planet',
+      },
+      {
+        object: midPlanet,
+        radius: MID_PLANET_SIZE,
+        name: PLANET_NAMES.mid,
+        kind: 'planet',
+      },
+      {
+        object: beltPlanet,
+        radius: BELT_PLANET_SIZE,
+        name: PLANET_NAMES.belt,
+        kind: 'planet',
+      },
+      {
+        object: gasGiant,
+        radius: GAS_GIANT_SIZE,
+        name: PLANET_NAMES.gas,
+        kind: 'planet',
+      },
+      {
+        object: outerGasGiant,
+        radius: OUTER_GAS_SIZE,
+        name: PLANET_NAMES.outerGas,
+        kind: 'planet',
+      },
+      {
+        object: outerDwarf,
+        radius: OUTER_DWARF_SIZE,
+        name: PLANET_NAMES.outerDwarf,
+        kind: 'planet',
+      },
       // Station is dockable (non-lethal) — see PlayerShip dock offer
       // Moons
-      { object: aresMoon, radius: 0.38 },
-      { object: boreasMoon, radius: 0.48 },
-      { object: thalassaMoon, radius: 0.55 },
-      { object: kronosMoonA, radius: 0.55 },
-      { object: kronosMoonB, radius: 0.85 },
-      { object: kronosMoonC, radius: 1.15 },
-      { object: ouranosMoonA, radius: 0.7 },
-      { object: ouranosMoonB, radius: 1.05 },
+      {
+        object: aresMoon,
+        radius: MOON_SIZES.ares,
+        name: MOON_NAMES.ares,
+        kind: 'moon',
+      },
+      {
+        object: boreasMoon,
+        radius: MOON_SIZES.boreas,
+        name: MOON_NAMES.boreas,
+        kind: 'moon',
+      },
+      {
+        object: thalassaMoon,
+        radius: MOON_SIZES.thalassa,
+        name: MOON_NAMES.thalassa,
+        kind: 'moon',
+      },
+      {
+        object: kronosMoonA,
+        radius: MOON_SIZES.kronosA,
+        name: MOON_NAMES.kronosA,
+        kind: 'moon',
+      },
+      {
+        object: kronosMoonB,
+        radius: MOON_SIZES.kronosB,
+        name: MOON_NAMES.kronosB,
+        kind: 'moon',
+      },
+      {
+        object: kronosMoonC,
+        radius: MOON_SIZES.kronosC,
+        name: MOON_NAMES.kronosC,
+        kind: 'moon',
+      },
+      {
+        object: ouranosMoonA,
+        radius: MOON_SIZES.ouranosA,
+        name: MOON_NAMES.ouranosA,
+        kind: 'moon',
+      },
+      {
+        object: ouranosMoonB,
+        radius: MOON_SIZES.ouranosB,
+        name: MOON_NAMES.ouranosB,
+        kind: 'moon',
+      },
     ],
     [],
   )
@@ -329,56 +485,56 @@ export const Space = memo(function Space({
       {
         name: MOON_NAMES.ares,
         object: aresMoon,
-        size: 0.38,
+        size: MOON_SIZES.ares,
         color: '#b0a090',
         kind: 'moon' as const,
       },
       {
         name: MOON_NAMES.boreas,
         object: boreasMoon,
-        size: 0.48,
+        size: MOON_SIZES.boreas,
         color: '#d8e8f4',
         kind: 'moon' as const,
       },
       {
         name: MOON_NAMES.thalassa,
         object: thalassaMoon,
-        size: 0.55,
+        size: MOON_SIZES.thalassa,
         color: '#9a9588',
         kind: 'moon' as const,
       },
       {
         name: MOON_NAMES.kronosA,
         object: kronosMoonA,
-        size: 0.55,
+        size: MOON_SIZES.kronosA,
         color: '#c4b8a8',
         kind: 'moon' as const,
       },
       {
         name: MOON_NAMES.kronosB,
         object: kronosMoonB,
-        size: 0.85,
+        size: MOON_SIZES.kronosB,
         color: '#e8f0f6',
         kind: 'moon' as const,
       },
       {
         name: MOON_NAMES.kronosC,
         object: kronosMoonC,
-        size: 1.15,
+        size: MOON_SIZES.kronosC,
         color: '#d2a878',
         kind: 'moon' as const,
       },
       {
         name: MOON_NAMES.ouranosA,
         object: ouranosMoonA,
-        size: 0.7,
+        size: MOON_SIZES.ouranosA,
         color: '#c8dcec',
         kind: 'moon' as const,
       },
       {
         name: MOON_NAMES.ouranosB,
         object: ouranosMoonB,
-        size: 1.05,
+        size: MOON_SIZES.ouranosB,
         color: '#f0f4f8',
         kind: 'moon' as const,
       },
@@ -397,7 +553,7 @@ export const Space = memo(function Space({
   } = useControls('Stars', {
     count: { value: 5000, min: 500, max: 20000, step: 100 },
     depth: { value: 80, min: 10, max: 200, step: 1 },
-    radius: { value: 120, min: 20, max: 400, step: 5 },
+    radius: { value: 120, min: 20, max: 800, step: 5 },
     factor: { value: 5, min: 1, max: 12, step: 0.1 },
     saturation: { value: 0, min: 0, max: 1, step: 0.01 },
     fade: true,
@@ -417,7 +573,7 @@ export const Space = memo(function Space({
   } = useControls('Sun', {
     sunColor: '#ffdfb9',
     sunIntensity: { value: 4.15, min: 0, max: 5, step: 0.05 },
-    sunDistance: { value: 200, min: 40, max: 400, step: 5 },
+    sunDistance: { value: 520, min: 80, max: 1200, step: 5 },
     elevation: { value: 18, min: -60, max: 80, step: 1 },
     azimuth: { value: 35, min: 0, max: 360, step: 1 },
     flowSpeed: {
@@ -461,26 +617,31 @@ export const Space = memo(function Space({
     },
   })
 
-  const { beltCount, beltThickness, beltInclination } = useControls(
-    'Asteroid belt',
-    {
-      beltCount: { value: 6000, min: 200, max: 8000, step: 50, label: 'Count' },
+  const { beltCount, beltThickness, beltInclination, beltSizeScale } =
+    useControls('Asteroid belt', {
+      beltCount: { value: 7600, min: 200, max: 8000, step: 50, label: 'Count' },
       beltThickness: {
-        value: 51,
+        value: 60,
         min: 2,
         max: 60,
         step: 1,
         label: 'Thickness',
       },
+      beltSizeScale: {
+        value: 0.75,
+        min: 0.15,
+        max: 4,
+        step: 0.05,
+        label: 'Rock size',
+      },
       beltInclination: {
-        value: 0,
+        value: 0.16,
         min: -0.4,
         max: 0.4,
         step: 0.01,
         label: 'Inclination',
       },
-    },
-  )
+    })
 
   const {
     meshDetail,
@@ -490,27 +651,27 @@ export const Space = memo(function Space({
   } = useControls('Asteroid shape', {
     meshDetail: {
       value: 3,
-      min: 2,
+      min: 1,
       max: 7,
       step: 1,
       label: 'Mesh detail',
     },
     largeLumps: {
-      value: 0.37,
+      value: 0.3,
       min: 0,
       max: 0.55,
       step: 0.01,
       label: 'Large lumps',
     },
     mediumLumps: {
-      value: 0.12,
+      value: 0.08,
       min: 0,
       max: 0.4,
       step: 0.01,
       label: 'Medium lumps',
     },
     fineLumps: {
-      value: 0.06,
+      value: 0.07,
       min: 0,
       max: 0.25,
       step: 0.005,
@@ -526,35 +687,35 @@ export const Space = memo(function Space({
     rockMetalness,
   } = useControls('Asteroid texture', {
     rockFreq: {
-      value: 4.55,
+      value: 5.7,
       min: 0.2,
       max: 6,
       step: 0.05,
       label: 'Noise scale',
     },
     rockBump: {
-      value: 1.65,
+      value: 2.55,
       min: 0,
       max: 3,
       step: 0.05,
       label: 'Bump',
     },
     rockContrast: {
-      value: 0.3,
+      value: 0.45,
       min: 0,
       max: 0.9,
       step: 0.01,
       label: 'Contrast',
     },
     rockRoughness: {
-      value: 0.73,
+      value: 0.96,
       min: 0.4,
       max: 1,
       step: 0.01,
       label: 'Roughness',
     },
     rockMetalness: {
-      value: 0.26,
+      value: 0.06,
       min: 0,
       max: 0.5,
       step: 0.01,
@@ -593,26 +754,20 @@ export const Space = memo(function Space({
 
       {/* Soft space fill — enough to read planet color without washing them out */}
       <ambientLight intensity={0.14} color="#7a8db0" />
-      {/* Directional = sunlight at any distance (outer planets still lit) */}
-      <directionalLight
-        position={sunPosition}
+      {/* Directional = constant sunlight; aimed sun → camera (see SunLight) */}
+      <SunLight
+        sunPosition={sunPosition}
         intensity={sunIntensity * 1.15}
         color={sunColor}
       />
 
-      {/* Sparse lightformers — ship reflections without replacing the sky */}
+      {/* Cool fill only — a sun lightformer baked from world origin sits in the
+          wrong sky direction once you leave the origin for planetary orbits */}
       <Environment
         background={false}
         resolution={128}
         environmentIntensity={0.45}
       >
-        <Lightformer
-          form="circle"
-          intensity={3.2}
-          color={sunColor}
-          scale={10}
-          position={sunPosition}
-        />
         <Lightformer
           intensity={0.35}
           color="#6a82a8"
@@ -675,8 +830,8 @@ export const Space = memo(function Space({
           paused={paused}
           moons={[
             {
-              size: 0.38,
-              orbitAltitude: 2.6,
+              size: MOON_SIZES.ares,
+              orbitAltitude: 15.6,
               orbitSpeed: 0.22,
               inclination: 0.14,
               phase: 1.1,
@@ -687,6 +842,20 @@ export const Space = memo(function Space({
             },
           ]}
         />
+        {started && (
+          <SpaceStation
+            planetRef={innerPlanet}
+            planetSize={INNER_PLANET_SIZE}
+            modelUrl={stationAresUrl}
+            orbitAltitude={12}
+            orbitSpeed={0.16}
+            inclination={0.12}
+            phase={2.4}
+            scale={0.26}
+            paused={paused}
+            stationRef={aresStation}
+          />
+        )}
         <Planet
           planetRef={midPlanet}
           sunPosition={sunPosition}
@@ -708,8 +877,8 @@ export const Space = memo(function Space({
           paused={paused}
           moons={[
             {
-              size: 0.48,
-              orbitAltitude: 3.2,
+              size: MOON_SIZES.boreas,
+              orbitAltitude: 19.2,
               orbitSpeed: 0.16,
               inclination: -0.2,
               phase: 0.4,
@@ -740,9 +909,10 @@ export const Space = memo(function Space({
           <SpaceStation
             planetRef={beltPlanet}
             planetSize={BELT_PLANET_SIZE}
-            orbitAltitude={2.2}
+            orbitAltitude={13.2}
             orbitSpeed={0.14}
             inclination={0.22}
+            phase={Math.PI * 0.35}
             scale={0.28}
             paused={paused}
             stationRef={thalassaStation}
@@ -754,8 +924,8 @@ export const Space = memo(function Space({
           paused={paused}
           moons={[
             {
-              size: 0.55,
-              orbitAltitude: 6.8,
+              size: MOON_SIZES.thalassa,
+              orbitAltitude: 40.8,
               orbitSpeed: 0.11,
               inclination: 0.35,
               phase: 2.6,
@@ -774,6 +944,7 @@ export const Space = memo(function Space({
           outerRadius={beltOuter}
           count={beltCount}
           thickness={beltThickness}
+          sizeScale={beltSizeScale}
           inclination={beltInclination}
           shape={asteroidShape}
           texture={asteroidTexture}
@@ -797,14 +968,28 @@ export const Space = memo(function Space({
           spin={0.11}
           paused={paused}
         />
+        {started && (
+          <SpaceStation
+            planetRef={gasGiant}
+            planetSize={GAS_GIANT_SIZE}
+            modelUrl={stationKronosUrl}
+            orbitAltitude={55}
+            orbitSpeed={0.09}
+            inclination={-0.2}
+            phase={4.8}
+            scale={0.42}
+            paused={paused}
+            stationRef={kronosStation}
+          />
+        )}
         <PlanetMoons
           planetRef={gasGiant}
           planetSize={GAS_GIANT_SIZE}
           paused={paused}
           moons={[
             {
-              size: 0.55,
-              orbitAltitude: 3.8,
+              size: MOON_SIZES.kronosA,
+              orbitAltitude: 22.8,
               orbitSpeed: 0.28,
               inclination: 0.08,
               phase: 0.2,
@@ -814,8 +999,8 @@ export const Space = memo(function Space({
               moonRef: kronosMoonA,
             },
             {
-              size: 0.85,
-              orbitAltitude: 7.2,
+              size: MOON_SIZES.kronosB,
+              orbitAltitude: 43.2,
               orbitSpeed: 0.17,
               inclination: -0.12,
               phase: 2.1,
@@ -825,8 +1010,8 @@ export const Space = memo(function Space({
               moonRef: kronosMoonB,
             },
             {
-              size: 1.15,
-              orbitAltitude: 12,
+              size: MOON_SIZES.kronosC,
+              orbitAltitude: 72,
               orbitSpeed: 0.1,
               inclination: 0.22,
               phase: 4.0,
@@ -859,8 +1044,8 @@ export const Space = memo(function Space({
           paused={paused}
           moons={[
             {
-              size: 0.7,
-              orbitAltitude: 4.5,
+              size: MOON_SIZES.ouranosA,
+              orbitAltitude: 27,
               orbitSpeed: 0.2,
               inclination: 0.16,
               phase: 1.4,
@@ -870,8 +1055,8 @@ export const Space = memo(function Space({
               moonRef: ouranosMoonA,
             },
             {
-              size: 1.05,
-              orbitAltitude: 9.5,
+              size: MOON_SIZES.ouranosB,
+              orbitAltitude: 57,
               orbitSpeed: 0.12,
               inclination: -0.28,
               phase: 3.3,
@@ -899,8 +1084,17 @@ export const Space = memo(function Space({
           spin={0.03}
           paused={paused}
         />
-        <BuffDrops handleRef={buffDrops} paused={paused} />
-        <MaterialDrops handleRef={materialDrops} paused={paused} />
+        <BuffDrops
+          handleRef={buffDrops}
+          magnetTargetRef={mapShipRef}
+          paused={paused}
+        />
+        <MaterialDrops
+          handleRef={materialDrops}
+          cargoBaitRef={cargoBaitRef}
+          magnetTargetRef={mapShipRef}
+          paused={paused}
+        />
         <CargoBaitClock
           baitRef={cargoBaitRef}
           materialDrops={materialDrops}
@@ -926,6 +1120,7 @@ export const Space = memo(function Space({
           spawnAnchorRef={thalassaStation}
           spawnPlanetRef={beltPlanet}
           spawnClearance={8}
+          dockBerths={dockBerths}
           docked={docked}
           paused={paused}
           onLockChange={onLockChange}
@@ -938,6 +1133,9 @@ export const Space = memo(function Space({
           torpedoAmmo={torpedoAmmo}
           torpedoSeekTargets={torpedoSeekTargets}
           onTorpedoAmmoChange={onTorpedoAmmoChange}
+          thrusterOwned={thrusterOwned}
+          combatHudRef={combatHudRef}
+          mapCloakRef={mapCloakRef}
           hasCargoRef={playerCargoRef}
           onJettisonCargo={onJettisonCargo}
         />
@@ -949,7 +1147,8 @@ export const Space = memo(function Space({
           thalassaRadius={BELT_PLANET_SIZE}
           hermesRef={mercuryPlanet}
           hermesRadius={MERCURY_SIZE}
-          stationRef={thalassaStation}
+          dockBerths={dockBerths}
+          hazardFields={hazardFields}
           occluders={planetHazards}
           targetRef={mapShipRef}
           playerLaserHitRef={playerLaserHitRef}
@@ -966,6 +1165,7 @@ export const Space = memo(function Space({
           playerCargoRef={playerCargoRef}
           cargoBaitRef={cargoBaitRef}
           onBaitClaimed={onBaitClaimed}
+          sensorsOwned={sensorsOwned}
         />
         <BanditShip
           scale={scale}
@@ -975,7 +1175,8 @@ export const Space = memo(function Space({
           thalassaRadius={BELT_PLANET_SIZE}
           hermesRef={mercuryPlanet}
           hermesRadius={MERCURY_SIZE}
-          stationRef={thalassaStation}
+          dockBerths={dockBerths}
+          hazardFields={hazardFields}
           occluders={planetHazards}
           targetRef={mapShipRef}
           playerLaserHitRef={playerLaserHitRef}
@@ -992,6 +1193,7 @@ export const Space = memo(function Space({
           playerCargoRef={playerCargoRef}
           cargoBaitRef={cargoBaitRef}
           onBaitClaimed={onBaitClaimed}
+          sensorsOwned={sensorsOwned}
         />
         <PatrolShip
           scale={scale}
@@ -1006,6 +1208,7 @@ export const Space = memo(function Space({
           banditCombatRefs={banditCombatRefs}
           patrolLaserHitRef={patrolLaserHitRef}
           paused={paused}
+          sensorsOwned={sensorsOwned}
         />
       </Suspense>
 
@@ -1028,6 +1231,8 @@ export const Space = memo(function Space({
         shipRef={mapShipRef}
         banditRefs={banditMapRefs}
         patrolRefs={patrolMapRefs}
+        hideNpcsRef={mapCloakRef}
+        sensorRangeRef={sensorRangeRef}
       />
 
       <Starfield

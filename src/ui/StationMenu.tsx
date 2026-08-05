@@ -12,10 +12,18 @@ import {
 import {
   ARMOR_MAX_TIER,
   ARMOR_TIERS,
+  SENSOR_MOD_ID,
+  SENSOR_SHOP,
+  SENSOR_UNLOCK_COST,
+  THRUSTER_MOD_ID,
+  THRUSTER_SHOP,
+  THRUSTER_UNLOCK_COST,
   TORPEDO_MAX_AMMO,
   TORPEDO_RELOAD_ID,
   TORPEDO_WEAPON_ID,
   WEAPON_SHOP,
+  canBuySensorUnlock,
+  canBuyThrusterUnlock,
   canBuyTorpedoReload,
   canBuyTorpedoUnlock,
   missingHp,
@@ -33,6 +41,8 @@ type StationMenuProps = {
   armorTier: number
   torpedoOwned: boolean
   torpedoAmmo: number
+  thrusterOwned: boolean
+  sensorsOwned: boolean
   onSell: (kind: MaterialKind) => void
   onSellAll: () => void
   onRepair: () => void
@@ -87,6 +97,8 @@ export function StationMenu({
   armorTier,
   torpedoOwned,
   torpedoAmmo,
+  thrusterOwned,
+  sensorsOwned,
   onSell,
   onSellAll,
   onRepair,
@@ -773,6 +785,205 @@ export function StationMenu({
                               border: '1px solid rgba(220, 190, 140, 0.55)',
                               background: 'rgba(200, 170, 120, 0.1)',
                               color: '#e8d0a8',
+                              padding: '12px 16px',
+                              fontSize: 13,
+                              letterSpacing: '0.14em',
+                              textTransform: 'uppercase',
+                              fontFamily: font,
+                              cursor: canBuy ? 'pointer' : 'default',
+                            }}
+                          >
+                            {buttonLabel}
+                          </button>
+                        </div>
+                      )
+                    })}
+
+                    <div
+                      style={{
+                        marginTop: 16,
+                        paddingTop: 14,
+                        borderTop: '1px dashed rgba(120, 190, 230, 0.2)',
+                        fontSize: 11,
+                        letterSpacing: '0.18em',
+                        color: 'rgba(160, 200, 230, 0.55)',
+                        marginBottom: 8,
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <span>PROPULSION</span>
+                      <span>
+                        {thrusterOwned ? 'ADV THRUSTER' : 'STOCK DRIVES'}
+                      </span>
+                    </div>
+
+                    {THRUSTER_SHOP.map((item) => {
+                      const owned = item.id === THRUSTER_MOD_ID && thrusterOwned
+                      const canBuy = canBuyThrusterUnlock(
+                        credits,
+                        thrusterOwned,
+                      )
+                      let status = `₡ ${formatCredits(item.cost ?? THRUSTER_UNLOCK_COST)}`
+                      let buttonLabel = 'Purchase'
+                      if (owned) {
+                        status = 'INSTALLED'
+                        buttonLabel = 'Owned'
+                      } else if (!canBuy && (item.cost ?? 0) > credits) {
+                        buttonLabel = 'Insufficient credits'
+                      } else {
+                        buttonLabel = `Install · ₡ ${formatCredits(item.cost ?? 0)}`
+                      }
+
+                      return (
+                        <div
+                          key={item.id}
+                          style={{
+                            padding: '14px 0',
+                            borderBottom: '1px solid rgba(120, 190, 230, 0.08)',
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              gap: 12,
+                              alignItems: 'baseline',
+                              marginBottom: 8,
+                            }}
+                          >
+                            <div style={{ color: '#c8e8ff', fontSize: 16 }}>
+                              {item.label}
+                            </div>
+                            <div
+                              style={{
+                                color: owned ? '#9ef0c8' : '#ffd78a',
+                                fontSize: 15,
+                              }}
+                            >
+                              {status}
+                            </div>
+                          </div>
+                          <p
+                            style={{
+                              margin: '0 0 12px',
+                              fontSize: 13,
+                              lineHeight: 1.45,
+                              color: 'rgba(160, 200, 230, 0.55)',
+                              letterSpacing: '0.03em',
+                            }}
+                          >
+                            {item.blurb} Bind: C.
+                          </p>
+                          <button
+                            type="button"
+                            className="station-btn weapon-btn"
+                            disabled={!canBuy}
+                            onClick={() => onBuy(item.id)}
+                            style={{
+                              appearance: 'none',
+                              width: '100%',
+                              border: '1px solid rgba(90, 208, 255, 0.55)',
+                              background: 'rgba(90, 208, 255, 0.1)',
+                              color: '#9ad8ff',
+                              padding: '12px 16px',
+                              fontSize: 13,
+                              letterSpacing: '0.14em',
+                              textTransform: 'uppercase',
+                              fontFamily: font,
+                              cursor: canBuy ? 'pointer' : 'default',
+                            }}
+                          >
+                            {buttonLabel}
+                          </button>
+                        </div>
+                      )
+                    })}
+
+                    <div
+                      style={{
+                        marginTop: 16,
+                        paddingTop: 14,
+                        borderTop: '1px dashed rgba(120, 190, 230, 0.2)',
+                        fontSize: 11,
+                        letterSpacing: '0.18em',
+                        color: 'rgba(160, 200, 230, 0.55)',
+                        marginBottom: 8,
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                      }}
+                    >
+                      <span>SENSORS</span>
+                      <span>
+                        {sensorsOwned ? 'LONG-RANGE' : 'STOCK ARRAY'}
+                      </span>
+                    </div>
+
+                    {SENSOR_SHOP.map((item) => {
+                      const owned = item.id === SENSOR_MOD_ID && sensorsOwned
+                      const canBuy = canBuySensorUnlock(credits, sensorsOwned)
+                      let status = `₡ ${formatCredits(item.cost ?? SENSOR_UNLOCK_COST)}`
+                      let buttonLabel = 'Purchase'
+                      if (owned) {
+                        status = 'INSTALLED'
+                        buttonLabel = 'Owned'
+                      } else if (!canBuy && (item.cost ?? 0) > credits) {
+                        buttonLabel = 'Insufficient credits'
+                      } else {
+                        buttonLabel = `Install · ₡ ${formatCredits(item.cost ?? 0)}`
+                      }
+
+                      return (
+                        <div
+                          key={item.id}
+                          style={{
+                            padding: '14px 0',
+                            borderBottom: '1px solid rgba(120, 190, 230, 0.08)',
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              gap: 12,
+                              alignItems: 'baseline',
+                              marginBottom: 8,
+                            }}
+                          >
+                            <div style={{ color: '#c8e8ff', fontSize: 16 }}>
+                              {item.label}
+                            </div>
+                            <div
+                              style={{
+                                color: owned ? '#9ef0c8' : '#ffd78a',
+                                fontSize: 15,
+                              }}
+                            >
+                              {status}
+                            </div>
+                          </div>
+                          <p
+                            style={{
+                              margin: '0 0 12px',
+                              fontSize: 13,
+                              lineHeight: 1.45,
+                              color: 'rgba(160, 200, 230, 0.55)',
+                              letterSpacing: '0.03em',
+                            }}
+                          >
+                            {item.blurb}
+                          </p>
+                          <button
+                            type="button"
+                            className="station-btn weapon-btn"
+                            disabled={!canBuy}
+                            onClick={() => onBuy(item.id)}
+                            style={{
+                              appearance: 'none',
+                              width: '100%',
+                              border: '1px solid rgba(160, 220, 180, 0.55)',
+                              background: 'rgba(120, 210, 160, 0.1)',
+                              color: '#9ef0c8',
                               padding: '12px 16px',
                               fontSize: 13,
                               letterSpacing: '0.14em',

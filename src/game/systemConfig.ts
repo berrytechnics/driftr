@@ -1,31 +1,31 @@
 /**
  * Compressed system scale — Sol is always the largest body.
  * Radii / orbital distances (world units):
- *   Sol 40 | Hermes 1.4 @ 432 | Ares 2.4 @ 773 | Boreas 2.7 @ 1159
- *   Thalassa 3.0 @ 1500 | belt 1727–2273 (mid ~2000) | Kronos 10 @ 2727 | Ouranos 14 @ 3727
- *   Nyx 0.95 @ a=5600, e=0.32 (peri ≈ 3808, apo ≈ 7392)
+ *   Sol 240 | Hermes 8.4 @ 432 | Ares 14.4 @ 773 | Boreas 16.2 @ 1159
+ *   Thalassa 18 @ 1500 | belt 1727–2273 (mid ~2000) | Kronos 60 @ 2727 | Ouranos 84 @ 3727
+ *   Nyx 5.7 @ a=5600, e=0.32 (peri ≈ 3808, apo ≈ 7392)
+ *
+ * Body radii are sized so orbital stations (~14u) read as outposts, not giants.
  */
-export const SUN_SIZE = 40
-export const MERCURY_SIZE = 1.4
+export const SUN_SIZE = 240
+export const MERCURY_SIZE = 8.4
 export const MERCURY_ORBIT = 432
-export const INNER_PLANET_SIZE = 2.4
+export const INNER_PLANET_SIZE = 14.4
 export const INNER_ORBIT = 773
-export const MID_PLANET_SIZE = 2.7
+export const MID_PLANET_SIZE = 16.2
 export const MID_ORBIT = 1159
-export const BELT_PLANET_SIZE = 3.0
+export const BELT_PLANET_SIZE = 18
 export const BELT_ORBIT = 1500
 export const BELT_INNER = 1727
 export const BELT_OUTER = 2273
-export const GAS_GIANT_SIZE = 10
+export const GAS_GIANT_SIZE = 60
 export const GAS_ORBIT = 2727
-export const OUTER_GAS_SIZE = 14
+export const OUTER_GAS_SIZE = 84
 export const OUTER_GAS_ORBIT = 3727
 /** Distant dwarf — semi-major axis; eccentricity makes a visibly stretched year */
-export const OUTER_DWARF_SIZE = 0.95
+export const OUTER_DWARF_SIZE = 5.7
 export const OUTER_DWARF_ORBIT = 5600
 export const OUTER_DWARF_ECC = 0.32
-export const STATION_NAME = 'Thalassa Station'
-
 export const STAR_NAME = 'Sol'
 export const PLANET_NAMES = {
   mercury: 'Hermes',
@@ -37,6 +37,15 @@ export const PLANET_NAMES = {
   outerDwarf: 'Nyx',
 } as const
 
+/** Orbital outposts — one per named world */
+export const STATION_NAMES = {
+  thalassa: 'Thalassa Station',
+  ares: 'Ares Station',
+  kronos: 'Kronos Station',
+} as const
+/** @deprecated Prefer STATION_NAMES.thalassa — kept for older imports */
+export const STATION_NAME = STATION_NAMES.thalassa
+
 export const MOON_NAMES = {
   ares: 'Deimos',
   boreas: 'Khione',
@@ -46,4 +55,16 @@ export const MOON_NAMES = {
   kronosC: 'Hyperion',
   ouranosA: 'Titania',
   ouranosB: 'Oberon',
+} as const
+
+/** Moon radii (world units) — scaled with host planets */
+export const MOON_SIZES = {
+  ares: 2.28,
+  boreas: 2.88,
+  thalassa: 3.3,
+  kronosA: 3.3,
+  kronosB: 5.1,
+  kronosC: 6.9,
+  ouranosA: 4.2,
+  ouranosB: 6.3,
 } as const

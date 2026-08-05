@@ -23,9 +23,15 @@ import type { HazardField } from '@/ship/PlayerShip'
 import type { LaserTarget } from '@/ship/ShipWeapons'
 
 const MAX_TORPEDOES = 4
+/**
+ * Authored in world units. Ship mesh scale is tiny (~0.08); warheads stay
+ * readable in flight by ignoring that crush factor (see visualScale below).
+ */
 const BODY_LEN = 0.55
 const BODY_R = 0.055
 const NOSE_LEN = 0.22
+const TRAIL_LEN = 1.35
+const AURA_R = 0.28
 const _dir = new Vector3()
 const _wish = new Vector3()
 const _vel = new Vector3()
@@ -92,9 +98,13 @@ export function TorpedoField({
   turnRate = 2.8,
   paused,
 }: TorpedoFieldProps) {
-  const bodyLen = BODY_LEN * scale
-  const bodyR = BODY_R * scale
-  const noseLen = NOSE_LEN * scale
+  // Keep warheads world-readable even when the craft mesh is miniature.
+  const visualScale = Math.max(scale * 12, 0.55)
+  const bodyLen = BODY_LEN * visualScale
+  const bodyR = BODY_R * visualScale
+  const noseLen = NOSE_LEN * visualScale
+  const trailLen = TRAIL_LEN * visualScale
+  const auraR = AURA_R * visualScale
   const pool = useRef<Slot[]>(
     Array.from({ length: MAX_TORPEDOES }, () => ({
       root: null,
@@ -113,45 +123,67 @@ export function TorpedoField({
     return {
       bodyGeo: new CylinderGeometry(bodyR * 0.85, bodyR, bodyLen, 10, 1),
       noseGeo: new ConeGeometry(bodyR * 0.95, noseLen, 10, 1),
-      glowGeo: new SphereGeometry(bodyR * 1.35, 12, 10),
-      trailGeo: new ConeGeometry(bodyR * 0.7, bodyLen * 0.9, 8, 1),
+      glowGeo: new SphereGeometry(bodyR * 1.8, 12, 10),
+      auraGeo: new SphereGeometry(auraR, 14, 12),
+      trailGeo: new ConeGeometry(bodyR * 1.15, trailLen, 10, 1),
+      trailCoreGeo: new ConeGeometry(bodyR * 0.45, trailLen * 0.85, 8, 1),
       bodyMat: new MeshBasicMaterial({
-        color: '#1a2838',
+        color: '#6a88a8',
         toneMapped: false,
       }),
       noseMat: new MeshBasicMaterial({
-        color: '#ffb040',
+        color: '#f0f8ff',
         toneMapped: false,
       }),
       glowMat: new MeshBasicMaterial({
-        color: '#ff6a28',
+        color: '#9ad8ff',
         toneMapped: false,
         depthWrite: false,
         blending: AdditiveBlending,
         transparent: true,
-        opacity: 0.55,
+        opacity: 0.85,
+      }),
+      auraMat: new MeshBasicMaterial({
+        color: '#4aa8ff',
+        toneMapped: false,
+        depthWrite: false,
+        blending: AdditiveBlending,
+        transparent: true,
+        opacity: 0.32,
       }),
       trailMat: new MeshBasicMaterial({
-        color: '#5ad0ff',
+        color: '#5ec0ff',
         toneMapped: false,
         depthWrite: false,
         blending: AdditiveBlending,
         transparent: true,
-        opacity: 0.45,
+        opacity: 0.65,
+      }),
+      trailCoreMat: new MeshBasicMaterial({
+        color: '#ffffff',
+        toneMapped: false,
+        depthWrite: false,
+        blending: AdditiveBlending,
+        transparent: true,
+        opacity: 0.95,
       }),
     }
-  }, [bodyLen, bodyR, noseLen])
+  }, [bodyLen, bodyR, noseLen, trailLen, auraR])
 
   useEffect(() => {
     return () => {
       shared.bodyGeo.dispose()
       shared.noseGeo.dispose()
       shared.glowGeo.dispose()
+      shared.auraGeo.dispose()
       shared.trailGeo.dispose()
+      shared.trailCoreGeo.dispose()
       shared.bodyMat.dispose()
       shared.noseMat.dispose()
       shared.glowMat.dispose()
+      shared.auraMat.dispose()
       shared.trailMat.dispose()
+      shared.trailCoreMat.dispose()
     }
   }, [shared])
 
@@ -351,10 +383,23 @@ export function TorpedoField({
           />
           <mesh
             frustumCulled={false}
-            position={[0, -bodyLen * 0.55, 0]}
+            position={[0, bodyLen * 0.15, 0]}
+            geometry={shared.auraGeo}
+            material={shared.auraMat}
+          />
+          <mesh
+            frustumCulled={false}
+            position={[0, -bodyLen * 0.5 - trailLen * 0.42, 0]}
             rotation={[Math.PI, 0, 0]}
             geometry={shared.trailGeo}
             material={shared.trailMat}
+          />
+          <mesh
+            frustumCulled={false}
+            position={[0, -bodyLen * 0.5 - trailLen * 0.36, 0]}
+            rotation={[Math.PI, 0, 0]}
+            geometry={shared.trailCoreGeo}
+            material={shared.trailCoreMat}
           />
         </group>
       ))}

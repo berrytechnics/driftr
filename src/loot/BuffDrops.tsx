@@ -1,19 +1,24 @@
 import { useFrame } from '@react-three/fiber'
-import { useLayoutEffect, useRef, type RefObject } from 'react'
+import { useLayoutEffect, useMemo, useRef, type RefObject } from 'react'
 import {
   AdditiveBlending,
   Group,
   Mesh,
-  PointLight,
+  MeshBasicMaterial,
+  Object3D,
+  OctahedronGeometry,
+  SphereGeometry,
   Vector3,
-  type MeshBasicMaterial,
 } from 'three'
+
+const _magnet = new Vector3()
 import {
   BUFF_DROP_CHANCE,
   TOKEN_LIFETIME,
   buffColor,
   type BuffKind,
 } from '@/loot/buffs'
+import { stepPickupMagnet } from '@/loot/magnet'
 
 export type { BuffKind } from '@/loot/buffs'
 
@@ -25,7 +30,6 @@ type Token = {
   aura: Mesh | null
   halo: Mesh | null
   gem: Mesh | null
-  light: PointLight | null
   alive: boolean
   kind: BuffKind
   life: number
@@ -49,6 +53,8 @@ export type BuffDropsHandle = {
 
 type BuffDropsProps = {
   handleRef: RefObject<BuffDropsHandle | null>
+  /** Ship root — tokens drift toward this when nearby */
+  magnetTargetRef?: RefObject<Object3D | null>
   paused?: boolean
 }
 
@@ -58,7 +64,6 @@ function makeToken(): Token {
     aura: null,
     halo: null,
     gem: null,
-    light: null,
     alive: false,
     kind: 'speed',
     life: 0,
@@ -82,12 +87,25 @@ function applyKindVisual(token: Token, kind: BuffKind) {
   if (token.gem) {
     ;(token.gem.material as MeshBasicMaterial).color.set(hot)
   }
-  if (token.light) token.light.color.set(color)
 }
 
-export function BuffDrops({ handleRef, paused = false }: BuffDropsProps) {
+export function BuffDrops({
+  handleRef,
+  magnetTargetRef,
+  paused = false,
+}: BuffDropsProps) {
   const pool = useRef<Token[]>(
     Array.from({ length: MAX_TOKENS }, () => makeToken()),
+  )
+
+  // Shared geometries — avoid allocating 72 unique sphere/octa meshes.
+  const geometries = useMemo(
+    () => ({
+      aura: new SphereGeometry(1.25, 12, 10),
+      halo: new SphereGeometry(0.62, 10, 8),
+      gem: new OctahedronGeometry(0.55, 0),
+    }),
+    [],
   )
 
   useLayoutEffect(() => {
@@ -97,7 +115,6 @@ export function BuffDrops({ handleRef, paused = false }: BuffDropsProps) {
       for (const token of list) {
         token.alive = false
         if (token.root) token.root.visible = false
-        if (token.light) token.light.intensity = 0
       }
     }
 
@@ -118,7 +135,6 @@ export function BuffDrops({ handleRef, paused = false }: BuffDropsProps) {
           token.root.position.set(x, y, z)
           token.root.visible = true
           applyKindVisual(token, kind)
-          if (token.light) token.light.intensity = 2.8
           return true
         }
         return false
@@ -140,7 +156,6 @@ export function BuffDrops({ handleRef, paused = false }: BuffDropsProps) {
         const kind = best.kind
         best.alive = false
         best.root.visible = false
-        if (best.light) best.light.intensity = 0
         return kind
       },
       clear,
@@ -151,10 +166,20 @@ export function BuffDrops({ handleRef, paused = false }: BuffDropsProps) {
     }
   }, [handleRef])
 
+  useLayoutEffect(() => {
+    return () => {
+      geometries.aura.dispose()
+      geometries.halo.dispose()
+      geometries.gem.dispose()
+    }
+  }, [geometries])
+
   useFrame(({ clock }, delta) => {
     if (paused) return
     const dt = Math.min(delta, 0.05)
     const t = clock.elapsedTime
+    const magnet = magnetTargetRef?.current
+    if (magnet) magnet.getWorldPosition(_magnet)
 
     for (const token of pool.current) {
       if (!token.alive || !token.root) continue
@@ -163,21 +188,27 @@ export function BuffDrops({ handleRef, paused = false }: BuffDropsProps) {
       if (token.life <= 0) {
         token.alive = false
         token.root.visible = false
-        if (token.light) token.light.intensity = 0
         continue
       }
 
-      token.root.position.x += token.vx * dt
-      token.root.position.y += token.vy * dt
-      token.root.position.z += token.vz * dt
-      token.vx *= Math.exp(-0.35 * dt)
-      token.vy *= Math.exp(-0.35 * dt)
-      token.vz *= Math.exp(-0.35 * dt)
+      const magnetState = magnet
+        ? stepPickupMagnet(token.root.position, token, _magnet, dt)
+        : 'none'
+      const pulling = magnetState !== 'none'
+
+      if (!pulling) {
+        token.root.position.x += token.vx * dt
+        token.root.position.y += token.vy * dt
+        token.root.position.z += token.vz * dt
+        token.vx *= Math.exp(-0.35 * dt)
+        token.vy *= Math.exp(-0.35 * dt)
+        token.vz *= Math.exp(-0.35 * dt)
+        token.root.position.y += Math.sin(token.bob) * 0.005
+      }
 
       token.bob += dt * 2.2
       const pulse = 0.82 + 0.18 * Math.sin(t * 5.5 + token.bob)
       token.root.rotation.y += token.spin * dt
-      token.root.position.y += Math.sin(token.bob) * 0.005
 
       const fade = Math.min(1, token.life / 3)
       if (token.aura) {
@@ -192,7 +223,6 @@ export function BuffDrops({ handleRef, paused = false }: BuffDropsProps) {
       if (token.gem) {
         ;(token.gem.material as MeshBasicMaterial).opacity = 0.95 * fade
       }
-      if (token.light) token.light.intensity = 2.6 * pulse * fade
     }
   })
 
@@ -205,16 +235,14 @@ export function BuffDrops({ handleRef, paused = false }: BuffDropsProps) {
             token.root = root
           }}
           visible={false}
-          frustumCulled={false}
         >
-          {/* Soft round aura */}
+          {/* Soft round aura — additive meshes fake the glow; no real lights */}
           <mesh
             ref={(mesh) => {
               token.aura = mesh
             }}
-            frustumCulled={false}
+            geometry={geometries.aura}
           >
-            <sphereGeometry args={[1.25, 24, 24]} />
             <meshBasicMaterial
               color="#5cffd0"
               transparent
@@ -224,14 +252,12 @@ export function BuffDrops({ handleRef, paused = false }: BuffDropsProps) {
               toneMapped={false}
             />
           </mesh>
-          {/* Brighter inner orb */}
           <mesh
             ref={(mesh) => {
               token.halo = mesh
             }}
-            frustumCulled={false}
+            geometry={geometries.halo}
           >
-            <sphereGeometry args={[0.62, 20, 20]} />
             <meshBasicMaterial
               color="#5cffd0"
               transparent
@@ -241,15 +267,13 @@ export function BuffDrops({ handleRef, paused = false }: BuffDropsProps) {
               toneMapped={false}
             />
           </mesh>
-          {/* Diamond gem core */}
           <mesh
             ref={(mesh) => {
               token.gem = mesh
             }}
             scale={[0.55, 0.85, 0.55]}
-            frustumCulled={false}
+            geometry={geometries.gem}
           >
-            <octahedronGeometry args={[0.55, 0]} />
             <meshBasicMaterial
               color="#eafff8"
               transparent
@@ -259,15 +283,6 @@ export function BuffDrops({ handleRef, paused = false }: BuffDropsProps) {
               toneMapped={false}
             />
           </mesh>
-          <pointLight
-            ref={(light) => {
-              token.light = light
-            }}
-            color="#5cffd0"
-            intensity={0}
-            distance={16}
-            decay={2}
-          />
         </group>
       ))}
     </group>

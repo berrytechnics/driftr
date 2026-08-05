@@ -40,13 +40,12 @@ import { Spaceship } from '@/ship/Spaceship'
 import {
   avoidSphere,
   dirToward,
-  hasLineOfSight,
   steerWithAvoidance,
-  type Occluder,
 } from '@/ship/banditMath'
 import {
-  DOCK_OFFER_RANGE,
   type CollisionHazard,
+  type DockBerth,
+  type HazardField,
 } from '@/ship/PlayerShip'
 
 type BanditMode = 'patrol' | 'chase' | 'search' | 'scavenge'
@@ -60,8 +59,11 @@ type BanditShipProps = {
   /** Wait for this body, then spawn beside its world position */
   hermesRef: RefObject<Object3D | null>
   hermesRadius?: number
-  /** Station — player is combat-safe while inside its dock offer range */
-  stationRef?: RefObject<Object3D | null>
+  /** Dockable worlds — player is combat-safe inside any planetary dock shell */
+  dockBerths?: DockBerth[]
+  /** Dense fields that block spotting (asteroid belt, …) */
+  hazardFields?: RefObject<HazardField | null>[]
+  /** Kept for API compat; planetary LOS is not used (blocks belt chords). */
   occluders?: CollisionHazard[]
   targetRef: RefObject<Object3D | null>
   playerLaserHitRef: MutableRefObject<LaserTarget | null>
@@ -92,6 +94,8 @@ type BanditShipProps = {
   cargoBaitRef?: MutableRefObject<CargoBait>
   /** Clear bait visuals after a scavenger claims the dump. */
   onBaitClaimed?: () => void
+  /** Long-range sensors amplify the contact beacon. */
+  sensorsOwned?: boolean
 }
 
 type BanditPersona = {
@@ -110,25 +114,28 @@ const BANDIT_HP = 70
 const BANDIT_DAMAGE_FLASH = 0.12
 /** Dead airtime before the bandit returns to the fight. */
 const RESPAWN_DELAY = 60
-const THALASSA_KEEP_OUT = BELT_PLANET_SIZE + 5.5
+const THALASSA_KEEP_OUT = BELT_PLANET_SIZE + 33
 /** Clearance beyond Hermes' surface */
-const HERMES_CLEARANCE = 6
+const HERMES_CLEARANCE = 36
 /** Sun-centered belt patrol radius (mid annulus) */
 const PATROL_ORBIT = (BELT_INNER + BELT_OUTER) * 0.5
-/** Blend width for radial correction toward the belt ring */
-const PATROL_RADIAL_BLEND = 90
-const SUN_KEEP_OUT_PAD = 14
-/** Scaled system — was 160, player never got inside (min preyDist ~191) */
-const DETECT_RANGE = 420
-const LOSE_RANGE = 620
+/**
+ * Radial blend into the ring — must scale with system size or bandits
+ * bee-line outward (radialW≈1) then crawl so slowly they look parked.
+ */
+const PATROL_RADIAL_BLEND = Math.max(280, (BELT_OUTER - BELT_INNER) * 0.85)
+const SUN_KEEP_OUT_PAD = 84
+/** Acquire / hold ranges — scaled for the ~2000 belt */
+const DETECT_RANGE = 640
+const LOSE_RANGE = 920
 const CONTACT_RANGE = 36
 const FIRE_RANGE = 30
 const FIRE_COS = Math.cos((55 * Math.PI) / 180)
 const SEARCH_TIME = 8
-/** Keep chase briefly through a flicker of occlusion, then investigate last seen */
-const LOS_GRACE = 0.45
-const SEARCH_CRUISE = 22
-const SCAVENGE_CRUISE = 26
+/** Hold chase briefly if the prey slips outside detect range */
+const LOS_GRACE = 2.8
+const SEARCH_CRUISE = 38
+const SCAVENGE_CRUISE = 48
 const SCAVENGE_ARRIVE = 5.5
 const COMBAT_ORBIT_BLEND = 8
 const BANDIT_SCALE_MUL = 1.45
@@ -140,6 +147,8 @@ const HURT_MEMORY = 2.4
 /** Soft push so bandits don't occupy the same pocket */
 const ALLY_SEPARATION = 32
 const ALLY_SEPARATION_WEIGHT = 1.15
+/** Extra pull when drifting past the outer belt edge */
+const BELT_RETURN_KICK = 48
 
 const PERSONAS: BanditPersona[] = [
   {
@@ -149,9 +158,12 @@ const PERSONAS: BanditPersona[] = [
     patrolOrbit: PATROL_ORBIT - 55,
     fireInterval: 0.38,
     firePhase: 0.05,
-    approachCruise: 21,
-    orbitCruise: 11,
-    patrolCruise: 15,
+    // Combat cruise sits between player thrust (~14) and boost (~24)
+    // so only Shift reliably outruns them.
+    approachCruise: 20,
+    orbitCruise: 16,
+    // Ring cruise — readable motion on a ~2000-radius belt
+    patrolCruise: 52,
   },
   {
     orbitSign: -1,
@@ -160,9 +172,9 @@ const PERSONAS: BanditPersona[] = [
     patrolOrbit: PATROL_ORBIT + 70,
     fireInterval: 0.52,
     firePhase: 0.28,
-    approachCruise: 17,
-    orbitCruise: 9,
-    patrolCruise: 13.5,
+    approachCruise: 18,
+    orbitCruise: 15,
+    patrolCruise: 46,
   },
 ]
 
@@ -181,12 +193,12 @@ const _radial = new Vector3()
 const _tangent = new Vector3()
 const _aim = new Vector3()
 const _ally = new Vector3()
+const _allyPush = new Vector3()
 const _station = new Vector3()
 const _worldUp = new Vector3(0, 1, 0)
 const _zeroVel = new Vector3()
 const _q = new Quaternion()
 const _qFrom = new Quaternion()
-const _occluders: Occluder[] = []
 
 function personaFor(variant: number): BanditPersona {
   const i = ((variant % PERSONAS.length) + PERSONAS.length) % PERSONAS.length
@@ -232,7 +244,10 @@ function steerBeltPatrol(
   return { r, radialW }
 }
 
-/** Circle the prey — close in / back off, plus tangent strafe (sign splits allies). */
+/**
+ * Circle the prey — close hard when far, strafe in the pocket, only shove
+ * out if nearly overlapping (old blend read as “flee on approach”).
+ */
 function steerCombatOrbit(
   position: Vector3,
   prey: Vector3,
@@ -252,12 +267,17 @@ function steerCombatOrbit(
   _tangent.normalize()
   if (orbitSign < 0) _tangent.multiplyScalar(-1)
 
-  // +radial = away from prey. Want away when too close, toward when too far.
-  const radialAwayW = Math.max(
-    -1,
-    Math.min(1, (combatOrbit - sep) / COMBAT_ORBIT_BLEND),
-  )
-  const tangentW = Math.sqrt(Math.max(0.35, 1 - radialAwayW * radialAwayW))
+  // +radial = away from prey
+  let radialAwayW = 0
+  if (sep > combatOrbit) {
+    radialAwayW = -Math.min(1, (sep - combatOrbit) / (COMBAT_ORBIT_BLEND * 2.5))
+  } else if (sep < combatOrbit * 0.55) {
+    radialAwayW = Math.min(
+      0.65,
+      (combatOrbit * 0.55 - sep) / COMBAT_ORBIT_BLEND,
+    )
+  }
+  const tangentW = Math.sqrt(Math.max(0.45, 1 - radialAwayW * radialAwayW))
   out
     .copy(_radial)
     .multiplyScalar(radialAwayW)
@@ -278,11 +298,12 @@ function allySeparation(
     const ally = ref.current
     if (!ally || !ally.visible) continue
     ally.getWorldPosition(_ally)
-    _avoid.copy(position).sub(_ally)
-    const d = _avoid.length()
+    // Dedicated temp — never alias with `out` (callers pass `_avoid`)
+    _allyPush.copy(position).sub(_ally)
+    const d = _allyPush.length()
     if (d < 1e-4 || d >= ALLY_SEPARATION) continue
     const urgency = 1 - d / ALLY_SEPARATION
-    out.addScaledVector(_avoid, (urgency * urgency) / d)
+    out.addScaledVector(_allyPush, (urgency * urgency) / d)
   }
   return out
 }
@@ -316,8 +337,9 @@ export function BanditShip({
   thalassaRadius = BELT_PLANET_SIZE,
   hermesRef,
   hermesRadius = MERCURY_SIZE,
-  stationRef,
-  occluders = [],
+  dockBerths,
+  hazardFields,
+  occluders: _occluders = [],
   targetRef,
   playerLaserHitRef,
   banditLaserHitRef,
@@ -333,6 +355,7 @@ export function BanditShip({
   playerCargoRef,
   cargoBaitRef,
   onBaitClaimed,
+  sensorsOwned = false,
 }: BanditShipProps) {
   const persona = personaFor(variant)
   const root = useRef<Group>(null!)
@@ -370,6 +393,8 @@ export function BanditShip({
   const visualScale = scale * BANDIT_SCALE_MUL
   const shipPad = Math.max(visualScale * 0.9, 0.05)
   const hitRadius = Math.max(visualScale * 1.8, 0.14)
+  const beaconMul = sensorsOwned ? 1.85 : 1
+  const beaconLightBoost = sensorsOwned ? 2.2 : 1
 
   const writeCombatState = (engaged: boolean, alive: boolean) => {
     if (!combatStateRef) return
@@ -476,8 +501,8 @@ export function BanditShip({
 
     beaconPulse.current += dt
     if (beaconRingMat.current) {
-      beaconRingMat.current.opacity =
-        0.45 + 0.4 * Math.sin(beaconPulse.current * 5)
+      const pulse = sensorsOwned ? 0.55 + 0.45 * Math.sin(beaconPulse.current * 5.5) : 0.45 + 0.4 * Math.sin(beaconPulse.current * 5)
+      beaconRingMat.current.opacity = pulse
     }
 
     if (mapRef) mapRef.current = group
@@ -553,28 +578,6 @@ export function BanditShip({
     const planet = thalassaRef.current
     if (planet) planet.getWorldPosition(_thalassa)
 
-    // Planets/moons only — sun occluder made LOS impossible while stuck on Sol
-    _occluders.length = 0
-    if (planet) {
-      _occluders.push({
-        x: _thalassa.x,
-        y: _thalassa.y,
-        z: _thalassa.z,
-        radius: thalassaRadius * 0.98,
-      })
-    }
-    for (const hazard of occluders) {
-      const obj = hazard.object.current
-      if (!obj || obj === planet) continue
-      obj.getWorldPosition(_steer)
-      _occluders.push({
-        x: _steer.x,
-        y: _steer.y,
-        z: _steer.z,
-        radius: hazard.radius * 0.98,
-      })
-    }
-
     hurtMemory.current = Math.max(0, hurtMemory.current - dt)
     returnFire.current = Math.max(0, returnFire.current - dt)
 
@@ -585,17 +588,29 @@ export function BanditShip({
     if (prey) {
       prey.getWorldPosition(_target)
       preyDist = group.position.distanceTo(_target)
-      const station = stationRef?.current
-      if (station) {
-        station.getWorldPosition(_station)
-        dockSafe = _target.distanceTo(_station) < DOCK_OFFER_RANGE
+      if (dockBerths) {
+        for (const berth of dockBerths) {
+          const planet = berth.planet.current
+          if (!planet) continue
+          planet.getWorldPosition(_station)
+          if (_target.distanceTo(_station) < berth.planetDockRange) {
+            dockSafe = true
+            break
+          }
+        }
       }
-      // Station approach is a no-fire / no-spot sanctuary
+      // Planetary dock shell is a no-fire / no-spot sanctuary.
+      // Asteroids (and other hazard fields) block line of sight; planets are
+      // not used as occluders so belt chords don't false-block across the ring.
       if (!dockSafe) {
-        if (preyDist < CONTACT_RANGE) {
-          spotted = true
-        } else if (preyDist < DETECT_RANGE) {
-          spotted = hasLineOfSight(group.position, _target, _occluders)
+        spotted = preyDist < DETECT_RANGE
+        if (spotted && hazardFields) {
+          for (const fieldRef of hazardFields) {
+            if (fieldRef.current?.occludes?.(group.position, _target)) {
+              spotted = false
+              break
+            }
+          }
         }
       }
     }
@@ -628,11 +643,19 @@ export function BanditShip({
     }
     const baitDist = baitLive ? group.position.distanceTo(_aim) : Infinity
     const haulUnits = playerCargoRef?.current?.units ?? 0
-    // Pirates hunt hauls — empty holds aren't worth it unless you shot them
-    const worthChasing = haulUnits > 0 || hurtMemory.current > 0
+    // Hunt hauls at range; always fight if you get in their face (or shoot them)
+    const worthChasing =
+      haulUnits > 0 ||
+      hurtMemory.current > 0 ||
+      (spotted && preyDist < CONTACT_RANGE * 2.2)
 
-    // Spot → chase. Dumped cargo pulls hunters into scavenge instead.
-    if (
+    // Spot → chase. Contested dumps override patrol / sanctuary.
+    if (baitLive) {
+      // Commit from anywhere in the system
+      mode.current = 'scavenge'
+      searchTimer.current = 0
+      losGrace.current = 0
+    } else if (
       dockSafe &&
       (mode.current === 'chase' ||
         mode.current === 'search' ||
@@ -641,22 +664,12 @@ export function BanditShip({
       mode.current = 'patrol'
       searchTimer.current = 0
       losGrace.current = 0
-    } else if (
-      baitLive &&
-      (mode.current === 'chase' ||
-        mode.current === 'search' ||
-        mode.current === 'scavenge' ||
-        (mode.current === 'patrol' && baitDist < DETECT_RANGE))
-    ) {
-      mode.current = 'scavenge'
-      searchTimer.current = 0
-      losGrace.current = 0
     } else if (spotted && worthChasing) {
       mode.current = 'chase'
       lastSeen.current.copy(_target)
       searchTimer.current = SEARCH_TIME
       losGrace.current = LOS_GRACE
-    } else if (mode.current === 'chase' && !worthChasing) {
+    } else if (mode.current === 'chase' && !worthChasing && preyDist > DETECT_RANGE) {
       mode.current = 'patrol'
       searchTimer.current = 0
       losGrace.current = 0
@@ -665,11 +678,14 @@ export function BanditShip({
         mode.current = 'search'
         searchTimer.current = SEARCH_TIME
         losGrace.current = 0
-      } else {
+      } else if (!spotted) {
+        // Still in lose-range but outside detect — grace, then search
         losGrace.current -= dt
         if (losGrace.current <= 0) {
           mode.current = 'search'
         }
+      } else {
+        losGrace.current = LOS_GRACE
       }
     } else if (mode.current === 'search') {
       searchTimer.current -= dt
@@ -707,13 +723,21 @@ export function BanditShip({
         mode.current = 'patrol'
       }
     } else if (chasing && prey) {
-      combatSep = steerCombatOrbit(
-        group.position,
-        trackLive ? _target : seen,
-        _dir,
-        combatOrbit,
-        persona.orbitSign,
-      )
+      // Long-range: pure pursuit. Orbit strafe at 400u read as fleeing in logs
+      // (dirDotPlayer ≈ -0.7 while mode=chase).
+      const chasePrey = trackLive ? _target : seen
+      combatSep = group.position.distanceTo(chasePrey)
+      if (combatSep > combatOrbit * 1.8) {
+        dirToward(group.position, chasePrey, _dir)
+      } else {
+        combatSep = steerCombatOrbit(
+          group.position,
+          chasePrey,
+          _dir,
+          combatOrbit,
+          persona.orbitSign,
+        )
+      }
     } else if (skirmishing && rivalLive) {
       rivalLive.getWorldPosition(_aim)
       combatSep = steerCombatOrbit(
@@ -729,11 +753,15 @@ export function BanditShip({
         mode.current = 'patrol'
       }
     } else {
+      // If the player is nearby on patrol, steer toward their belt sector
+      // instead of racing the opposite way on the ring.
+      const watchPlayer =
+        !!prey && !dockSafe && preyDist < DETECT_RANGE ? _target : null
       const patrol = steerBeltPatrol(
         group.position,
         _sun,
         _dir,
-        null,
+        watchPlayer,
         persona.patrolOrbit,
         persona.patrolSign,
       )
@@ -751,10 +779,14 @@ export function BanditShip({
 
     allySeparation(group.position, allyRefs, _avoid)
     if (_avoid.lengthSq() > 1e-6) {
-      const weight =
-        chasing || skirmishing || scavenging ? ALLY_SEPARATION_WEIGHT : 0.75
-      steerWithAvoidance(_dir, _avoid, weight, _steer)
-      _dir.copy(_steer)
+      // Don't let ally separation reverse pursuit (stacked hunters → flee)
+      const fightsChase = chasing && _avoid.dot(_dir) < -0.15
+      if (!fightsChase) {
+        const weight =
+          chasing || skirmishing || scavenging ? ALLY_SEPARATION_WEIGHT : 0.75
+        steerWithAvoidance(_dir, _avoid, weight, _steer)
+        _dir.copy(_steer)
+      }
     }
 
     if (planet && !chasing && !skirmishing && !scavenging) {
@@ -765,8 +797,17 @@ export function BanditShip({
       }
     }
 
+    // Transit boost while correcting radius — ease off when the player is near
+    // so a radial correction doesn't read as fleeing the approach.
+    const nearPlayer = !!prey && preyDist < DETECT_RANGE
+    const transitBoost =
+      patrolling && !nearPlayer ? 1 + Math.abs(patrolRadialW) * 2.4 : 1
+    const scavengeBoost =
+      scavenging && baitDist > 80
+        ? 1 + Math.min(2.8, baitDist / 350)
+        : 1
     const cruise = scavenging
-      ? SCAVENGE_CRUISE
+      ? SCAVENGE_CRUISE * scavengeBoost
       : chasing
         ? combatSep > combatOrbit * 2.2
           ? persona.approachCruise
@@ -774,7 +815,7 @@ export function BanditShip({
         : skirmishing
           ? persona.orbitCruise
           : patrolling
-            ? persona.patrolCruise
+            ? persona.patrolCruise * transitBoost
             : SEARCH_CRUISE
     _wish.copy(_dir).multiplyScalar(cruise)
     velocity.current.lerp(_wish, 1 - Math.exp(-5.5 * dt))
@@ -811,7 +852,7 @@ export function BanditShip({
       velocity.current.copy(_radial).multiplyScalar(cruise)
       rNow = sunKeep + 2
     } else if (patrolling && rNow > BELT_OUTER + 80) {
-      velocity.current.addScaledVector(_radial, -12)
+      velocity.current.addScaledVector(_radial, -BELT_RETURN_KICK)
     }
 
     if (planet) {
@@ -951,17 +992,21 @@ export function BanditShip({
 
         <Billboard follow position={[0, visualScale * 3.2, 0]}>
           <mesh>
-            <sphereGeometry args={[visualScale * 1.35, 16, 16]} />
+            <sphereGeometry args={[visualScale * 1.35 * beaconMul, 16, 16]} />
             <meshBasicMaterial
               color="#ff2a3a"
               toneMapped={false}
               transparent
-              opacity={0.95}
+              opacity={sensorsOwned ? 1 : 0.95}
             />
           </mesh>
           <mesh>
             <ringGeometry
-              args={[visualScale * 1.7, visualScale * 2.6, 28]}
+              args={[
+                visualScale * 1.7 * beaconMul,
+                visualScale * 2.6 * beaconMul,
+                28,
+              ]}
             />
             <meshBasicMaterial
               ref={(mat) => {
@@ -988,8 +1033,8 @@ export function BanditShip({
         />
         <pointLight
           color="#ff3344"
-          intensity={2.2}
-          distance={28}
+          intensity={2.2 * beaconLightBoost}
+          distance={28 * (sensorsOwned ? 2.1 : 1)}
           decay={2}
           position={[0, visualScale * 2.4, 0]}
         />

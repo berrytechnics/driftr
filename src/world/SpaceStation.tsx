@@ -8,21 +8,33 @@ import {
   type MeshStandardMaterial,
   type Object3D,
 } from 'three'
-import stationUrl from '@/assets/models/space+station.glb?url'
+import stationThalassaUrl from '@/assets/models/space+station.glb?url'
+import stationAresUrl from '@/assets/models/space_station.glb?url'
+import stationKronosUrl from '@/assets/models/space__station.glb?url'
+
+export const STATION_MODEL_URLS = {
+  thalassa: stationThalassaUrl,
+  ares: stationAresUrl,
+  kronos: stationKronosUrl,
+} as const
 
 type SpaceStationProps = {
-  /** Planet the station orbits (habitable world) */
+  /** Planet the station orbits */
   planetRef: RefObject<Object3D | null>
   planetSize: number
+  /** GLB url — defaults to Thalassa’s classic station */
+  modelUrl?: string
   /** Clearance above the planet surface */
   orbitAltitude?: number
   /** Orbital angular speed (rad/s) */
   orbitSpeed?: number
   /** Orbital plane tilt (radians) */
   inclination?: number
+  /** Starting orbital angle (radians) */
+  phase?: number
   scale?: number
   paused?: boolean
-  /** Exposes the station root for collision tests */
+  /** Exposes the station root for collision / dock tests */
   stationRef?: RefObject<Group | null>
 }
 
@@ -54,17 +66,19 @@ function tuneStationMaterials(root: Object3D) {
 export function SpaceStation({
   planetRef,
   planetSize,
+  modelUrl = STATION_MODEL_URLS.thalassa,
   orbitAltitude = 2.4,
   orbitSpeed = 0.14,
   inclination = 0.18,
+  phase = Math.PI * 0.35,
   scale = 0.28,
   paused = false,
   stationRef,
 }: SpaceStationProps) {
   const group = useRef<Group>(null!)
-  const angle = useRef(Math.PI * 0.35)
+  const angle = useRef(phase)
   // meshopt + webp (compressed station asset); decoder enabled via useMeshopt
-  const { scene } = useGLTF(stationUrl, true, true)
+  const { scene } = useGLTF(modelUrl, true, true)
 
   const model = useMemo(() => {
     const clone = scene.clone(true)
@@ -88,8 +102,9 @@ export function SpaceStation({
   }
 
   useLayoutEffect(() => {
+    angle.current = phase
     placeAtAngle(group.current, angle.current)
-  }, [planetRef, planetSize, orbitAltitude, inclination])
+  }, [planetRef, planetSize, orbitAltitude, inclination, phase])
 
   useFrame((_, delta) => {
     const root = group.current
@@ -114,3 +129,7 @@ export function SpaceStation({
     </group>
   )
 }
+
+useGLTF.preload(STATION_MODEL_URLS.thalassa, true, true)
+useGLTF.preload(STATION_MODEL_URLS.ares, true, true)
+useGLTF.preload(STATION_MODEL_URLS.kronos, true, true)

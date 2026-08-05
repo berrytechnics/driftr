@@ -22,6 +22,32 @@ export const TORPEDO_RELOAD_COST = 85
 export const TORPEDO_WEAPON_ID = 'wpn-torpedo'
 export const TORPEDO_RELOAD_ID = 'ammo-torpedo'
 
+/** One-time unlock — ballistic cruise burn (no steer / no weapons). */
+export const THRUSTER_UNLOCK_COST = 720
+export const THRUSTER_MOD_ID = 'mod-adv-thruster'
+/** Forward speed while the advanced thruster is lit. */
+export const THRUSTER_SPEED = 110
+
+export function canBuyThrusterUnlock(credits: number, owned: boolean) {
+  return !owned && credits >= THRUSTER_UNLOCK_COST
+}
+
+/** One-time unlock — longer map contacts and brighter NPC beacons. */
+export const SENSOR_UNLOCK_COST = 540
+export const SENSOR_MOD_ID = 'mod-adv-sensors'
+/** Stock contact radius (world units, ship-relative XZ). */
+export const BASE_SENSOR_RANGE = 1000
+/** Installed array contact radius. */
+export const UPGRADED_SENSOR_RANGE = 3200
+
+export function canBuySensorUnlock(credits: number, owned: boolean) {
+  return !owned && credits >= SENSOR_UNLOCK_COST
+}
+
+export function sensorRangeForOwned(owned: boolean) {
+  return owned ? UPGRADED_SENSOR_RANGE : BASE_SENSOR_RANGE
+}
+
 /** Sequential hull plating upgrades (buy in order). */
 export type ArmorTierDef = {
   id: string
@@ -171,3 +197,27 @@ export const ARMOR_SHOP: ShopListing[] = ARMOR_TIERS.map((tier) => ({
   cost: tier.cost,
   unique: true,
 }))
+
+export const THRUSTER_SHOP: ShopListing[] = [
+  {
+    id: THRUSTER_MOD_ID,
+    category: 'mod',
+    label: 'Advanced thruster',
+    blurb:
+      'Ballistic cruise — locks out steering and weapons while lit. Map contacts blank. Toggle with C; no limit.',
+    cost: THRUSTER_UNLOCK_COST,
+    unique: true,
+  },
+]
+
+export const SENSOR_SHOP: ShopListing[] = [
+  {
+    id: SENSOR_MOD_ID,
+    category: 'mod',
+    label: 'Long-range sensors',
+    blurb:
+      'Extends map contact range and amplifies hostile / patrol beacons so contacts read farther in the black.',
+    cost: SENSOR_UNLOCK_COST,
+    unique: true,
+  },
+]

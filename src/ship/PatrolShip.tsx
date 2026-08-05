@@ -57,6 +57,8 @@ type PatrolShipProps = {
   /** So bandits can return fire */
   patrolLaserHitRef: MutableRefObject<LaserTarget | null>
   paused?: boolean
+  /** Long-range sensors amplify the contact beacon. */
+  sensorsOwned?: boolean
 }
 
 const PATROL_HP = 110
@@ -65,19 +67,19 @@ const RESPAWN_DELAY = EXPLOSION_LIFETIME + 5
 /** Soft hits — skirmish, don't delete bandits in one pass */
 const SUPPRESS_DAMAGE = 9
 const STATION_CLEARANCE = 4.2
-const THALASSA_KEEP_OUT = BELT_PLANET_SIZE + 5.5
-const SUN_KEEP_OUT_PAD = 14
+const THALASSA_KEEP_OUT = BELT_PLANET_SIZE + 33
+const SUN_KEEP_OUT_PAD = 84
 const PATROL_SCALE_MUL = 1.35
 /** Sun-centered belt cruise (same ring bandits use) */
 const BELT_ORBIT = (BELT_INNER + BELT_OUTER) * 0.5
-const BELT_RADIAL_BLEND = 90
-const BELT_CRUISE = 14
-const INTERVENE_CRUISE = 18
-const ORBIT_CRUISE = 11
+const BELT_RADIAL_BLEND = Math.max(280, (BELT_OUTER - BELT_INNER) * 0.85)
+const BELT_CRUISE = 48
+const INTERVENE_CRUISE = 34
+const ORBIT_CRUISE = 18
 /** Only step in when a bandit is already on the player, or right on top of us */
-const INTERVENE_RANGE = 220
+const INTERVENE_RANGE = 280
 const CONTACT_RANGE = 42
-const LOSE_RANGE = 320
+const LOSE_RANGE = 380
 const FIRE_RANGE = 32
 const FIRE_COS = Math.cos((50 * Math.PI) / 180)
 const COMBAT_ORBIT = 22
@@ -86,6 +88,7 @@ const COMBAT_ORBIT_BLEND = 9
 const INTERVENE_MAX = 6.5
 const COOLDOWN_TIME = 18
 const FIRE_COOLDOWN = 0.62
+const BELT_RETURN_KICK = 48
 
 const _sun = new Vector3()
 const _thalassa = new Vector3()
@@ -182,6 +185,7 @@ export function PatrolShip({
   banditCombatRefs,
   patrolLaserHitRef,
   paused = false,
+  sensorsOwned = false,
 }: PatrolShipProps) {
   const root = useRef<Group>(null!)
   const velocity = useRef(new Vector3())
@@ -212,6 +216,8 @@ export function PatrolShip({
 
   const visualScale = scale * PATROL_SCALE_MUL
   const shipPad = Math.max(visualScale * 0.9, 0.05)
+  const beaconMul = sensorsOwned ? 1.85 : 1
+  const beaconLightBoost = sensorsOwned ? 2.2 : 1
 
   const trySpawnAtStation = (group: Group): boolean => {
     const station = stationRef.current
@@ -227,7 +233,7 @@ export function PatrolShip({
     if (
       !Number.isFinite(stationDist) ||
       stationDist < thalassaRadius * 0.5 ||
-      stationDist > thalassaRadius + 12
+      stationDist > thalassaRadius + 80
     ) {
       return false
     }
@@ -292,8 +298,9 @@ export function PatrolShip({
 
     beaconPulse.current += dt
     if (beaconRingMat.current) {
-      beaconRingMat.current.opacity =
-        0.4 + 0.35 * Math.sin(beaconPulse.current * 4.2)
+      beaconRingMat.current.opacity = sensorsOwned
+        ? 0.5 + 0.45 * Math.sin(beaconPulse.current * 4.8)
+        : 0.4 + 0.35 * Math.sin(beaconPulse.current * 4.2)
     }
 
     if (mapRef) mapRef.current = group
@@ -437,7 +444,7 @@ export function PatrolShip({
       ? combatSep > COMBAT_ORBIT * 2.2
         ? INTERVENE_CRUISE
         : ORBIT_CRUISE
-      : BELT_CRUISE
+      : BELT_CRUISE * (1 + Math.abs(patrolRadialW) * 2.4)
     _wish.copy(_dir).multiplyScalar(cruise)
     velocity.current.lerp(_wish, 1 - Math.exp(-5.2 * dt))
     group.position.addScaledVector(velocity.current, dt)
@@ -471,7 +478,7 @@ export function PatrolShip({
       velocity.current.copy(_radial).multiplyScalar(cruise)
       rNow = sunKeep + 2
     } else if (!intervening && rNow > BELT_OUTER + 80) {
-      velocity.current.addScaledVector(_radial, -12)
+      velocity.current.addScaledVector(_radial, -BELT_RETURN_KICK)
     }
 
     if (planet) {
@@ -572,16 +579,22 @@ export function PatrolShip({
 
         <Billboard follow position={[0, visualScale * 3.2, 0]}>
           <mesh>
-            <sphereGeometry args={[visualScale * 1.35, 16, 16]} />
+            <sphereGeometry args={[visualScale * 1.35 * beaconMul, 16, 16]} />
             <meshBasicMaterial
               color="#4ec4ff"
               toneMapped={false}
               transparent
-              opacity={0.95}
+              opacity={sensorsOwned ? 1 : 0.95}
             />
           </mesh>
           <mesh>
-            <ringGeometry args={[visualScale * 1.7, visualScale * 2.6, 28]} />
+            <ringGeometry
+              args={[
+                visualScale * 1.7 * beaconMul,
+                visualScale * 2.6 * beaconMul,
+                28,
+              ]}
+            />
             <meshBasicMaterial
               ref={(mat) => {
                 beaconRingMat.current = mat
@@ -607,8 +620,8 @@ export function PatrolShip({
         />
         <pointLight
           color="#4ec4ff"
-          intensity={1.8}
-          distance={24}
+          intensity={1.8 * beaconLightBoost}
+          distance={24 * (sensorsOwned ? 2.1 : 1)}
           decay={2}
           position={[0, visualScale * 2.4, 0]}
         />

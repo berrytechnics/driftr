@@ -24,8 +24,8 @@ export const MATERIAL_COLOR: Record<MaterialKind, string> = {
 /** Token lifetime in the belt if not scooped */
 export const MATERIAL_LIFETIME = 28
 
-/** Jettisoned haul drifts longer so bandits can reach it. */
-export const JETTISON_LIFETIME = 48
+/** Jettisoned haul drifts longer so bandits can cross the system. */
+export const JETTISON_LIFETIME = 180
 
 export const MATERIAL_KINDS: MaterialKind[] = ['ore', 'ice', 'alloy']
 

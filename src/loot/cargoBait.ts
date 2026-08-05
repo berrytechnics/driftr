@@ -5,7 +5,7 @@ import {
   type CargoHold,
 } from '@/loot/economy'
 
-/** World dump that bandits peel off to scavenge. */
+/** World dump — player can re-scoop; bandits scramble from anywhere. */
 export type CargoBait = {
   id: number
   active: boolean

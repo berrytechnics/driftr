@@ -24,6 +24,8 @@ export type PauseShipStatus = {
   cargo: CargoHold
   torpedoOwned: boolean
   torpedoAmmo: number
+  thrusterOwned: boolean
+  sensorsOwned: boolean
   heat: number
   overheated: boolean
   speed: number
@@ -40,7 +42,8 @@ const controls = [
   ['Mouse / arrows', 'Steer'],
   ['LMB / F', 'Fire cannons'],
   ['T', 'Torpedo (locks nearest foe ahead)'],
-  ['J', 'Jettison cargo (bandits scavenge)'],
+  ['C', 'Advanced thruster (toggle ballistic; unavailable in combat)'],
+  ['J', 'Jettison cargo (race bandits for it)'],
   ['W / S', 'Thrust / brake'],
   ['Q / E', 'Roll'],
   ['Shift', 'Boost'],
@@ -66,10 +69,10 @@ function VolumeSlider({
     <label
       style={{
         display: 'grid',
-        gridTemplateColumns: '80px 1fr 48px',
+        gridTemplateColumns: '64px 1fr 40px',
         alignItems: 'center',
-        gap: 12,
-        fontSize: 15,
+        gap: 8,
+        fontSize: 13,
         letterSpacing: '0.12em',
       }}
     >
@@ -234,18 +237,22 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
         .pause-mfd-grid {
           display: grid;
           grid-template-columns: minmax(0, 1.55fr) minmax(0, 0.75fr);
-          gap: clamp(20px, 3vw, 40px);
+          gap: clamp(14px, 2vw, 28px);
           align-items: start;
           flex: 1;
           min-height: 0;
-          overflow: auto;
+          overflow: hidden;
         }
         .pause-mfd-main {
           min-width: 0;
+          min-height: 0;
+          display: flex;
+          flex-direction: column;
         }
         @media (max-width: 820px) {
           .pause-mfd-grid {
             grid-template-columns: 1fr;
+            overflow: auto;
           }
         }
       `}</style>
@@ -295,7 +302,7 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
           width: 'calc(100vw - 40px)',
           height: 'calc(100vh - 40px)',
           maxWidth: 1400,
-          overflow: 'auto',
+          overflow: 'hidden',
           borderRadius: 6,
           border: '3px solid #1a2422',
           boxShadow: `
@@ -356,11 +363,12 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
           style={{
             position: 'relative',
             zIndex: 1,
-            padding: 'clamp(22px, 3vh, 36px) clamp(24px, 3vw, 48px)',
+            padding: 'clamp(14px, 2vh, 24px) clamp(18px, 2.5vw, 40px)',
             height: '100%',
             boxSizing: 'border-box',
             display: 'flex',
             flexDirection: 'column',
+            overflow: 'hidden',
           }}
         >
           {/* Top status strip */}
@@ -370,10 +378,11 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
               justifyContent: 'space-between',
               alignItems: 'center',
               gap: 12,
-              marginBottom: 18,
-              paddingBottom: 12,
+              flexShrink: 0,
+              marginBottom: 10,
+              paddingBottom: 8,
               borderBottom: '1px solid rgba(120, 200, 180, 0.18)',
-              fontSize: 14,
+              fontSize: 12,
               letterSpacing: '0.14em',
               color: 'rgba(160, 210, 195, 0.7)',
             }}
@@ -394,10 +403,11 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
             style={{
               display: 'flex',
               justifyContent: 'space-between',
-              fontSize: 13,
+              flexShrink: 0,
+              fontSize: 11,
               letterSpacing: '0.2em',
               color: 'rgba(255, 196, 92, 0.75)',
-              marginBottom: 8,
+              marginBottom: 4,
             }}
           >
             <span>NAV</span>
@@ -410,8 +420,8 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
             <div className="pause-mfd-main">
               <h1
                 style={{
-                  margin: '10px 0 10px',
-                  fontSize: 'clamp(40px, 6vw, 64px)',
+                  margin: '4px 0 6px',
+                  fontSize: 'clamp(28px, 4.2vw, 48px)',
                   fontWeight: 400,
                   letterSpacing: '0.12em',
                   color: '#ffe2a8',
@@ -422,9 +432,9 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
               </h1>
               <p
                 style={{
-                  margin: '0 0 28px',
-                  fontSize: 'clamp(16px, 1.6vw, 20px)',
-                  lineHeight: 1.5,
+                  margin: '0 0 14px',
+                  fontSize: 'clamp(13px, 1.3vw, 16px)',
+                  lineHeight: 1.35,
                   color: 'rgba(180, 210, 200, 0.75)',
                   letterSpacing: '0.04em',
                   maxWidth: 520,
@@ -438,8 +448,8 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
                 style={{
                   display: 'grid',
                   gridTemplateColumns: '1fr 1fr 1fr',
-                  gap: 12,
-                  marginBottom: 18,
+                  gap: 8,
+                  marginBottom: 10,
                 }}
               >
                 {(
@@ -464,20 +474,20 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
                     style={{
                       border: '1px solid rgba(120, 200, 180, 0.22)',
                       background: 'rgba(0, 0, 0, 0.28)',
-                      padding: '14px 16px',
+                      padding: '8px 12px',
                     }}
                   >
                     <div
                       style={{
-                        fontSize: 12,
+                        fontSize: 10,
                         letterSpacing: '0.18em',
                         color: 'rgba(160, 210, 195, 0.55)',
-                        marginBottom: 6,
+                        marginBottom: 2,
                       }}
                     >
                       {label}
                     </div>
-                    <div style={{ fontSize: 24, color }}>{value}</div>
+                    <div style={{ fontSize: 20, color }}>{value}</div>
                   </div>
                 ))}
               </div>
@@ -485,21 +495,23 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
               {ship && (
                 <div
                   style={{
-                    marginBottom: 22,
+                    flex: 1,
+                    minHeight: 0,
                     border: '1px solid rgba(120, 200, 180, 0.2)',
                     background: 'rgba(0, 8, 10, 0.4)',
-                    padding: '16px 18px 18px',
+                    padding: '8px 12px 10px',
+                    overflow: 'auto',
                   }}
                 >
                   <div
                     style={{
                       display: 'flex',
                       justifyContent: 'space-between',
-                      fontSize: 13,
+                      fontSize: 11,
                       letterSpacing: '0.18em',
                       color: 'rgba(160, 210, 195, 0.55)',
-                      marginBottom: 12,
-                      paddingBottom: 8,
+                      marginBottom: 6,
+                      paddingBottom: 5,
                       borderBottom: '1px dashed rgba(120, 200, 180, 0.18)',
                     }}
                   >
@@ -530,6 +542,18 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
                           ? `${ship.torpedoAmmo}/${TORPEDO_MAX_AMMO} tubes`
                           : 'Not installed',
                       ],
+                      [
+                        'Thruster',
+                        ship.thrusterOwned
+                          ? 'Advanced (C)'
+                          : 'Not installed',
+                      ],
+                      [
+                        'Sensors',
+                        ship.sensorsOwned
+                          ? 'Long-range'
+                          : 'Stock array',
+                      ],
                       ...(isPaused
                         ? ([
                             ['Speed', `${ship.speed.toFixed(0)} u/s`],
@@ -542,10 +566,10 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
                       key={label}
                       style={{
                         display: 'grid',
-                        gridTemplateColumns: '120px 1fr',
-                        gap: 10,
-                        fontSize: 16,
-                        lineHeight: 1.85,
+                        gridTemplateColumns: '100px 1fr',
+                        gap: 8,
+                        fontSize: 13,
+                        lineHeight: 1.42,
                         color: 'rgba(210, 230, 220, 0.88)',
                       }}
                     >
@@ -559,7 +583,11 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
                               ? '#ffd78a'
                               : label === 'Torpedoes' && ship.torpedoOwned
                                 ? '#9ad8ff'
-                                : 'rgba(210, 230, 220, 0.88)',
+                                : label === 'Thruster' && ship.thrusterOwned
+                                  ? '#9ef0c8'
+                                  : label === 'Sensors' && ship.sensorsOwned
+                                    ? '#9ef0c8'
+                                  : 'rgba(210, 230, 220, 0.88)',
                         }}
                       >
                         {value}
@@ -568,53 +596,96 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
                   ))}
                 </div>
               )}
+            </div>
 
-              <button
-                type="button"
-                className="cockpit-btn"
-                onClick={onResume}
-                style={{
-                  appearance: 'none',
-                  width: '100%',
-                  border: '1px solid rgba(255, 196, 92, 0.75)',
-                  background: 'rgba(255, 196, 92, 0.1)',
-                  color: '#ffd78a',
-                  padding: '18px 24px',
-                  fontSize: 18,
-                  letterSpacing: '0.22em',
-                  textTransform: 'uppercase',
-                  fontFamily: font,
-                  cursor: 'pointer',
-                  boxShadow: 'inset 0 0 0 1px rgba(255, 196, 92, 0.2)',
-                }}
-              >
-                {isPaused ? '▶  Resume flight' : '▶  Engage / Launch'}
-              </button>
-
+            {/* Controls + audio — right rail */}
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+                minWidth: 0,
+              }}
+            >
               <div
                 style={{
-                  marginTop: 22,
                   border: '1px solid rgba(120, 200, 180, 0.2)',
-                  background: 'rgba(0, 8, 10, 0.4)',
-                  padding: '16px 18px 18px',
+                  background: 'rgba(0, 8, 10, 0.45)',
+                  padding: '8px 10px 6px',
+                  boxSizing: 'border-box',
                 }}
               >
                 <div
                   style={{
                     display: 'flex',
                     justifyContent: 'space-between',
-                    fontSize: 13,
+                    fontSize: 10,
+                    letterSpacing: '0.16em',
+                    color: 'rgba(160, 210, 195, 0.55)',
+                    marginBottom: 4,
+                    paddingBottom: 4,
+                    borderBottom: '1px dashed rgba(120, 200, 180, 0.18)',
+                  }}
+                >
+                  <span>CTRL MAP</span>
+                  <span>INPUT MATRIX</span>
+                </div>
+                {controls.map(([key, action], i) => (
+                  <div
+                    key={key}
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: '20px 1fr 1fr',
+                      gap: 6,
+                      fontSize: 'clamp(10px, 0.9vw, 12px)',
+                      lineHeight: 1.55,
+                      color: 'rgba(210, 230, 220, 0.88)',
+                      borderBottom:
+                        i === controls.length - 1
+                          ? 'none'
+                          : '1px solid rgba(120, 200, 180, 0.06)',
+                    }}
+                  >
+                    <span style={{ color: 'rgba(160, 210, 195, 0.35)' }}>
+                      {String(i + 1).padStart(2, '0')}
+                    </span>
+                    <span style={{ color: '#ffd078' }}>{key}</span>
+                    <span
+                      style={{
+                        textAlign: 'right',
+                        color: 'rgba(180, 210, 200, 0.7)',
+                      }}
+                    >
+                      {action}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div
+                style={{
+                  border: '1px solid rgba(120, 200, 180, 0.2)',
+                  background: 'rgba(0, 8, 10, 0.4)',
+                  padding: '10px 12px 12px',
+                  flexShrink: 0,
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontSize: 10,
                     letterSpacing: '0.18em',
                     color: 'rgba(160, 210, 195, 0.55)',
-                    marginBottom: 14,
-                    paddingBottom: 10,
+                    marginBottom: 8,
+                    paddingBottom: 5,
                     borderBottom: '1px dashed rgba(120, 200, 180, 0.18)',
                   }}
                 >
                   <span>AUDIO</span>
                   <span>GAIN BUS</span>
                 </div>
-                <div style={{ display: 'grid', gap: 16 }}>
+                <div style={{ display: 'grid', gap: 10 }}>
                   <VolumeSlider
                     label="MUSIC"
                     value={audio.music}
@@ -628,76 +699,51 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
                 </div>
               </div>
             </div>
+          </div>
 
-            {/* Controls as MFD list */}
-            <div
+          <div
+            className="pause-mfd-grid"
+            style={{
+              flex: 'none',
+              marginTop: 10,
+              overflow: 'visible',
+            }}
+          >
+            <button
+              type="button"
+              className="cockpit-btn"
+              onClick={onResume}
               style={{
-                border: '1px solid rgba(120, 200, 180, 0.2)',
-                background: 'rgba(0, 8, 10, 0.45)',
-                padding: '12px 12px 10px',
-                height: '100%',
-                boxSizing: 'border-box',
+                appearance: 'none',
+                width: '100%',
+                border: '1px solid rgba(255, 196, 92, 0.75)',
+                background: 'rgba(255, 196, 92, 0.1)',
+                color: '#ffd78a',
+                padding: '11px 20px',
+                fontSize: 15,
+                letterSpacing: '0.22em',
+                textTransform: 'uppercase',
+                fontFamily: font,
+                cursor: 'pointer',
+                boxShadow: 'inset 0 0 0 1px rgba(255, 196, 92, 0.2)',
               }}
             >
-              <div
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  fontSize: 10,
-                  letterSpacing: '0.16em',
-                  color: 'rgba(160, 210, 195, 0.55)',
-                  marginBottom: 8,
-                  paddingBottom: 8,
-                  borderBottom: '1px dashed rgba(120, 200, 180, 0.18)',
-                }}
-              >
-                <span>CTRL MAP</span>
-                <span>INPUT MATRIX</span>
-              </div>
-              {controls.map(([key, action], i) => (
-                <div
-                  key={key}
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: '22px 1fr 1fr',
-                    gap: 8,
-                    fontSize: 'clamp(11px, 0.95vw, 13px)',
-                    lineHeight: 1.75,
-                    color: 'rgba(210, 230, 220, 0.88)',
-                    borderBottom:
-                      i === controls.length - 1
-                        ? 'none'
-                        : '1px solid rgba(120, 200, 180, 0.06)',
-                  }}
-                >
-                  <span style={{ color: 'rgba(160, 210, 195, 0.35)' }}>
-                    {String(i + 1).padStart(2, '0')}
-                  </span>
-                  <span style={{ color: '#ffd078' }}>{key}</span>
-                  <span
-                    style={{
-                      textAlign: 'right',
-                      color: 'rgba(180, 210, 200, 0.7)',
-                    }}
-                  >
-                    {action}
-                  </span>
-                </div>
-              ))}
-            </div>
+              {isPaused ? '▶  Resume flight' : '▶  Engage / Launch'}
+            </button>
+            <div aria-hidden />
           </div>
 
           <div
             style={{
               flexShrink: 0,
-              marginTop: 16,
-              paddingTop: 14,
+              marginTop: 8,
+              paddingTop: 6,
               borderTop: '1px solid rgba(120, 200, 180, 0.12)',
               display: 'flex',
               justifyContent: 'space-between',
               alignItems: 'flex-end',
               gap: 16,
-              fontSize: 13,
+              fontSize: 12,
               letterSpacing: '0.12em',
               color: 'rgba(160, 210, 195, 0.4)',
             }}
@@ -709,7 +755,7 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
               height={1254}
               style={{
                 display: 'block',
-                width: 'clamp(72px, 9vw, 104px)',
+                width: 'clamp(44px, 5vw, 60px)',
                 height: 'auto',
                 animation: 'cockpitLogoIn 0.55s ease-out both',
               }}

@@ -25,10 +25,18 @@ function scaledVolume(base: number) {
   return Math.max(0, base * getSfxVolume())
 }
 
+/** Avoid stacking dozens of Web Audio graphs during sustained fire. */
+let lastLaserSoundAt = 0
+const LASER_SOUND_GAP_MS = 45
+
 /** Short synthesized laser blip (no asset required). */
 export function playLaserSound(volume = 0.2) {
   const level = scaledVolume(volume)
   if (level < 1e-4) return
+  const now = performance.now()
+  if (now - lastLaserSoundAt < LASER_SOUND_GAP_MS) return
+  lastLaserSoundAt = now
+
   const ctx = getAudioContext()
   if (!ctx) return
   if (ctx.state === 'suspended') void ctx.resume()

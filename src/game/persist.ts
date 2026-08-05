@@ -30,6 +30,10 @@ export type GameSave = {
   torpedoAmmo: number
   /** Hull plating tier (0 = stock, 1–3 = upgrades). */
   armorTier: number
+  /** Advanced thruster unlocked at the station. */
+  thrusterOwned: boolean
+  /** Long-range sensors unlocked at the station. */
+  sensorsOwned: boolean
 }
 
 export type HullSnapshot = {
@@ -89,6 +93,8 @@ export function defaultGameSave(): GameSave {
     torpedoOwned: false,
     torpedoAmmo: 0,
     armorTier: 0,
+    thrusterOwned: false,
+    sensorsOwned: false,
   }
 }
 
@@ -146,6 +152,8 @@ export function loadGameSave(): GameSave {
     // Drop orphan ammo if the launcher was never purchased
     torpedoAmmo: torpedoOwned ? clampTorpedoAmmo(torpedoAmmoRaw) : 0,
     armorTier,
+    thrusterOwned: !!raw.thrusterOwned,
+    sensorsOwned: !!raw.sensorsOwned,
   }
 }
 
@@ -165,6 +173,8 @@ export function saveGameSave(save: GameSave) {
     torpedoOwned,
     torpedoAmmo: torpedoOwned ? clampTorpedoAmmo(save.torpedoAmmo) : 0,
     armorTier,
+    thrusterOwned: !!save.thrusterOwned,
+    sensorsOwned: !!save.sensorsOwned,
   } satisfies GameSave)
 }
 

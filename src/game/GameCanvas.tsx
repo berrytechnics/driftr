@@ -29,6 +29,8 @@ export const GameCanvas = memo(function GameCanvas({
   torpedoOwned,
   torpedoAmmo,
   onTorpedoAmmoChange,
+  thrusterOwned,
+  sensorsOwned,
   playerCargoRef,
   jettisonDump,
   onJettisonCargo,
@@ -41,7 +43,7 @@ export const GameCanvas = memo(function GameCanvas({
   suspendRender: boolean
   onLockChange: (locked: boolean) => void
   onTelemetry: (telemetry: OrbitalTelemetry) => void
-  onDockAvailable: (available: boolean) => void
+  onDockAvailable: (available: boolean, stationName?: string) => void
   onMaterialPickup: (pickup: MaterialPickup) => void
   mapSnapshotRef: RefObject<MapSnapshot>
   mapShipRef: RefObject<Group | null>
@@ -52,6 +54,8 @@ export const GameCanvas = memo(function GameCanvas({
   torpedoOwned?: boolean
   torpedoAmmo?: number
   onTorpedoAmmoChange?: (ammo: number) => void
+  thrusterOwned?: boolean
+  sensorsOwned?: boolean
   playerCargoRef: RefObject<PlayerCargoStatus>
   jettisonDump: {
     seq: number
@@ -65,7 +69,7 @@ export const GameCanvas = memo(function GameCanvas({
   return (
     <Canvas
       frameloop={suspendRender ? 'never' : 'always'}
-      camera={{ position: [0, 3, 12], fov: 60, near: 0.1, far: 16000 }}
+      camera={{ position: [0, 3, 12], fov: 60, near: 0.1, far: 24000 }}
       style={{ width: '100vw', height: '100vh' }}
       gl={{
         antialias: false,
@@ -92,6 +96,8 @@ export const GameCanvas = memo(function GameCanvas({
         torpedoOwned={torpedoOwned}
         torpedoAmmo={torpedoAmmo}
         onTorpedoAmmoChange={onTorpedoAmmoChange}
+        thrusterOwned={thrusterOwned}
+        sensorsOwned={sensorsOwned}
         playerCargoRef={playerCargoRef}
         jettisonDump={jettisonDump}
         onJettisonCargo={onJettisonCargo}

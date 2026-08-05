@@ -31,6 +31,10 @@ type MapTrackerProps = {
   shipRef?: RefObject<Group | null>
   banditRefs?: RefObject<Group | null>[]
   patrolRefs?: RefObject<Group | null>[]
+  /** When true, bandit / patrol pips are omitted from the map snapshot */
+  hideNpcsRef?: RefObject<boolean>
+  /** Ship-relative contact radius for NPC pips (world units). */
+  sensorRangeRef?: RefObject<number>
 }
 
 const _pos = new Vector3()
@@ -50,10 +54,13 @@ export function MapTracker({
   shipRef,
   banditRefs,
   patrolRefs,
+  hideNpcsRef,
+  sensorRangeRef,
 }: MapTrackerProps) {
   useFrame(() => {
     const snap = snapshotRef.current
     _sun.set(...sunPosition)
+    const hideNpcs = !!hideNpcsRef?.current
 
     snap.starName = starName
     snap.starSize = sunSize
@@ -107,31 +114,43 @@ export function MapTracker({
       snap.ship = null
     }
 
+    const range = sensorRangeRef?.current
+    const rangeSq =
+      typeof range === 'number' && Number.isFinite(range) && range > 0
+        ? range * range
+        : Infinity
+    const sx = snap.ship?.x ?? 0
+    const sz = snap.ship?.z ?? 0
+
     const bandits = snap.bandits
     bandits.length = 0
-    if (banditRefs) {
+    if (!hideNpcs && banditRefs) {
       for (const ref of banditRefs) {
         const bandit = ref.current
         if (!bandit || !bandit.visible) continue
         bandit.getWorldPosition(_pos)
-        bandits.push({
-          x: _pos.x - _sun.x,
-          z: _pos.z - _sun.z,
-        })
+        const x = _pos.x - _sun.x
+        const z = _pos.z - _sun.z
+        const dx = x - sx
+        const dz = z - sz
+        if (dx * dx + dz * dz > rangeSq) continue
+        bandits.push({ x, z })
       }
     }
 
     const patrols = snap.patrols
     patrols.length = 0
-    if (patrolRefs) {
+    if (!hideNpcs && patrolRefs) {
       for (const ref of patrolRefs) {
         const patrol = ref.current
         if (!patrol || !patrol.visible) continue
         patrol.getWorldPosition(_pos)
-        patrols.push({
-          x: _pos.x - _sun.x,
-          z: _pos.z - _sun.z,
-        })
+        const x = _pos.x - _sun.x
+        const z = _pos.z - _sun.z
+        const dx = x - sx
+        const dz = z - sz
+        if (dx * dx + dz * dz > rangeSq) continue
+        patrols.push({ x, z })
       }
     }
   })

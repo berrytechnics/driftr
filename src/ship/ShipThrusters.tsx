@@ -51,75 +51,81 @@ function Exhaust({
     }
 
     phase.current += dt * (14 + intensity * 10)
-    const flicker =
+    const rawFlicker =
       0.82 +
       0.12 * Math.sin(phase.current * 1.7 + side) +
       0.06 * Math.sin(clock.elapsedTime * 40 + side * 2)
+    // Full burn: freeze plume/light — flicker + bloom reads as sun/star pulse
+    const steadyBlend = Math.max(0, Math.min(1, (intensity - 0.68) / 0.22))
+    const flicker =
+      steadyBlend >= 1
+        ? 1
+        : rawFlicker * (1 - steadyBlend) + 1 * steadyBlend
 
-    const power = intensity * flicker
+    const power = intensity * (steadyBlend >= 1 ? 1 : flicker)
     // Cone is authored along +Y; parent rotates it to aft (+Z)
     jet.current.scale.set(
-      fx * (0.65 + power * 0.7),
-      fx * (0.75 + power * 1.7),
-      fx * (0.65 + power * 0.7),
+      fx * (0.38 + power * 0.38),
+      fx * (0.42 + power * 0.85),
+      fx * (0.38 + power * 0.38),
     )
 
     const coreMat = core.current.material as MeshBasicMaterial
     const midMat = mid.current.material as MeshBasicMaterial
     const glowMat = glow.current.material as MeshBasicMaterial
-    coreMat.opacity = 0.55 + power * 0.4
-    midMat.opacity = 0.28 + power * 0.35
-    glowMat.opacity = 0.12 + power * 0.22
+    coreMat.opacity = 0.5 + power * 0.35
+    midMat.opacity = 0.22 + power * 0.28
+    glowMat.opacity = 0.08 + power * 0.16
 
-    light.current.intensity = power * 2.2
-    light.current.distance = (5 + power * 8) * fx
+    light.current.intensity = intensity * 1.15
+    light.current.distance = (3.5 + intensity * 5) * fx
   })
 
   return (
     <group ref={root} position={[side * x, y, z]} visible={false}>
       <group ref={jet} rotation={[Math.PI / 2, 0, 0]}>
-        <mesh ref={glow} position={[0, 0.55, 0]} frustumCulled={false}>
-          <coneGeometry args={[0.55, 1.1, 16, 1, true]} />
+        <mesh ref={glow} position={[0, 0.32, 0]} frustumCulled={false}>
+          <coneGeometry args={[0.3, 0.62, 14, 1, true]} />
           <meshBasicMaterial
             color="#4ad2ff"
             transparent
-            opacity={0.15}
+            opacity={0.12}
             depthWrite={false}
             blending={AdditiveBlending}
             side={DoubleSide}
             toneMapped={false}
           />
         </mesh>
-        <mesh ref={mid} position={[0, 0.4, 0]} frustumCulled={false}>
-          <coneGeometry args={[0.28, 0.9, 14, 1, true]} />
+        <mesh ref={mid} position={[0, 0.24, 0]} frustumCulled={false}>
+          <coneGeometry args={[0.15, 0.5, 12, 1, true]} />
           <meshBasicMaterial
             color="#7ae7ff"
             transparent
-            opacity={0.35}
+            opacity={0.3}
             depthWrite={false}
             blending={AdditiveBlending}
             side={DoubleSide}
             toneMapped={false}
           />
         </mesh>
-        <mesh ref={core} position={[0, 0.22, 0]} frustumCulled={false}>
-          <coneGeometry args={[0.1, 0.55, 12, 1, true]} />
+        <mesh ref={core} position={[0, 0.13, 0]} frustumCulled={false}>
+          <coneGeometry args={[0.055, 0.3, 10, 1, true]} />
           <meshBasicMaterial
             color="#e8fbff"
             transparent
-            opacity={0.7}
+            opacity={0.65}
             depthWrite={false}
             blending={AdditiveBlending}
             side={DoubleSide}
             toneMapped={false}
           />
         </mesh>
-        <mesh position={[0, 0.02, 0]} frustumCulled={false}>
-          <sphereGeometry args={[0.14, 12, 12]} />
+        <mesh position={[0, 0.015, 0]} frustumCulled={false}>
+          <sphereGeometry args={[0.075, 10, 10]} />
           <meshBasicMaterial
             color="#c8f4ff"
             transparent
-            opacity={0.9}
+            opacity={0.85}
             depthWrite={false}
             blending={AdditiveBlending}
             toneMapped={false}
@@ -130,7 +136,7 @@ function Exhaust({
         ref={light}
         color="#6ad8ff"
         intensity={0}
-        distance={6}
+        distance={4}
         decay={2}
       />
     </group>

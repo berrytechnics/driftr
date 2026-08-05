@@ -284,23 +284,10 @@ export function ProjectileField({
             slot.root = root
           }}
           visible={false}
-          frustumCulled={false}
         >
-          <mesh
-            frustumCulled={false}
-            geometry={shared.glowGeo}
-            material={shared.glowMat}
-          />
-          <mesh
-            frustumCulled={false}
-            geometry={shared.midGeo}
-            material={shared.midMat}
-          />
-          <mesh
-            frustumCulled={false}
-            geometry={shared.coreGeo}
-            material={shared.coreMat}
-          />
+          <mesh geometry={shared.glowGeo} material={shared.glowMat} />
+          <mesh geometry={shared.midGeo} material={shared.midMat} />
+          <mesh geometry={shared.coreGeo} material={shared.coreMat} />
         </group>
       ))}
     </group>

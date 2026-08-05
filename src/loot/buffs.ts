@@ -2,8 +2,8 @@ import { Vector3 } from 'three'
 
 export type BuffKind = 'speed' | 'firerate'
 
-/** Chance a laser-destroyed asteroid leaves a token */
-export const BUFF_DROP_CHANCE = 0.14
+/** Chance a laser-destroyed asteroid leaves a token (else material) */
+export const BUFF_DROP_CHANCE = 0.06
 
 /** How long pickups last on the ship (seconds) */
 export const BUFF_DURATION = 12

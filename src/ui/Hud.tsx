@@ -134,6 +134,22 @@ export function Hud({
               {telemetry.altitude.toFixed(0)}
             </div>
           </div>
+          {telemetry.nearBody ? (
+            <div
+              style={{
+                marginTop: 4,
+                color:
+                  telemetry.nearBodyKind === 'moon' ? '#b8d4e8' : '#9ad8ff',
+                fontSize: 12,
+                letterSpacing: '0.04em',
+              }}
+            >
+              <span style={{ color: 'rgba(201, 209, 217, 0.45)' }}>
+                {telemetry.nearBodyKind === 'moon' ? 'MOON ' : 'NEAR '}
+              </span>
+              {telemetry.nearBody}
+            </div>
+          ) : null}
 
           <div style={{ marginTop: 10, marginBottom: 3 }}>
             <div
@@ -184,6 +200,19 @@ export function Hud({
               TPD — none
             </div>
           )}
+
+          {telemetry.thrusterOwned ? (
+            <div
+              style={{
+                marginTop: 6,
+                color: telemetry.thrusterActive ? '#9ef0c8' : '#7dffc8',
+              }}
+            >
+              {telemetry.thrusterActive
+                ? 'BURN · NO STEER · C cut'
+                : 'THR ready · C'}
+            </div>
+          ) : null}
 
           <div
             style={{

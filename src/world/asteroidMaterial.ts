@@ -20,11 +20,11 @@ export type AsteroidTextureParams = {
 
 /** Tuned defaults from playtest Leva session. */
 export const DEFAULT_ASTEROID_TEXTURE: AsteroidTextureParams = {
-  rockFreq: 4.55,
-  rockBump: 1.65,
-  rockContrast: 0.3,
-  roughness: 0.73,
-  metalness: 0.26,
+  rockFreq: 5.7,
+  rockBump: 2.55,
+  rockContrast: 0.45,
+  roughness: 0.96,
+  metalness: 0.06,
 }
 
 /**
@@ -37,7 +37,8 @@ export function createAsteroidMaterial(
   const material = new MeshStandardMaterial({
     roughness: initial.roughness,
     metalness: initial.metalness,
-    envMapIntensity: 0.16,
+    // Keep env reflections tiny — warm lightformers + metalness = sun halo crawl
+    envMapIntensity: 0.03,
     flatShading: false,
   })
 
@@ -59,13 +60,29 @@ export function createAsteroidMaterial(
         /* glsl */ `
         #include <common>
         varying vec3 vRockPos;
+        varying float vRockLod;
         `,
       )
       .replace(
-        '#include <begin_vertex>',
+        '#include <project_vertex>',
         /* glsl */ `
-        #include <begin_vertex>
-        vRockPos = position;
+        #include <project_vertex>
+        {
+          // Instance scale → world-ish feature size (unit mesh alone densifies
+          // noise on small rocks). Distance LOD kills aliasing far away.
+          float instScale = 1.0;
+          #ifdef USE_INSTANCING
+            instScale = length(vec3(
+              instanceMatrix[0][0],
+              instanceMatrix[1][0],
+              instanceMatrix[2][0]
+            ));
+          #endif
+          vRockPos = position * max(instScale, 0.35);
+          float viewDist = length(mvPosition.xyz);
+          // 1 close / large on screen → 0 far (derivative noise goes wild)
+          vRockLod = smoothstep(140.0, 28.0, viewDist);
+        }
         `,
       )
 
@@ -75,6 +92,7 @@ export function createAsteroidMaterial(
         /* glsl */ `
         #include <common>
         varying vec3 vRockPos;
+        varying float vRockLod;
         uniform float uRockFreq;
         uniform float uRockBump;
         uniform float uRockContrast;
@@ -104,23 +122,26 @@ export function createAsteroidMaterial(
           );
         }
 
-        float rockFbm(vec3 p) {
+        // LOD: drop high octaves far away so dFdx/dFdy bump stays stable
+        float rockFbm(vec3 p, float lod) {
           float a = 0.5 * rockNoise(p);
           a += 0.25 * rockNoise(p * 2.13 + 3.1);
-          a += 0.125 * rockNoise(p * 4.27 - 1.7);
-          a += 0.0625 * rockNoise(p * 8.53 + 5.9);
-          a += 0.04 * rockNoise(p * 17.1 - 2.4);
-          a += 0.025 * rockNoise(p * 34.0 + 8.3);
+          if (lod > 0.2) a += 0.125 * rockNoise(p * 4.27 - 1.7) * lod;
+          if (lod > 0.45) a += 0.0625 * rockNoise(p * 8.53 + 5.9) * lod;
+          if (lod > 0.7) {
+            a += 0.04 * rockNoise(p * 17.1 - 2.4) * lod;
+            a += 0.025 * rockNoise(p * 34.0 + 8.3) * lod;
+          }
           return a;
         }
 
-        float rockRidged(vec3 p) {
-          float n = rockFbm(p);
+        float rockRidged(vec3 p, float lod) {
+          float n = rockFbm(p, lod);
           return 1.0 - abs(n * 2.0 - 1.0);
         }
 
-        float rockHeight(vec3 p) {
-          return rockFbm(p) * 0.55 + rockRidged(p * 1.8) * 0.45;
+        float rockHeight(vec3 p, float lod) {
+          return rockFbm(p, lod) * 0.55 + rockRidged(p * 1.8, lod) * 0.45;
         }
         `,
       )
@@ -129,17 +150,24 @@ export function createAsteroidMaterial(
         /* glsl */ `
         #include <normal_fragment_maps>
         {
-          float h = rockHeight(vRockPos * uRockFreq);
-          float dHdx = dFdx(h);
-          float dHdy = dFdy(h);
-          vec3 sigmaX = dFdx(vViewPosition.xyz);
-          vec3 sigmaY = dFdy(vViewPosition.xyz);
-          vec3 N = normalize(normal);
-          vec3 R1 = cross(sigmaY, N);
-          vec3 R2 = cross(N, sigmaX);
-          float det = dot(sigmaX, R1);
-          vec3 grad = sign(det) * (dHdx * R1 + dHdy * R2);
-          normal = normalize(N - grad * uRockBump);
+          float lod = vRockLod;
+          // Soften bump vs Leva — strong dFdx normals make specular crawl with the camera
+          float bump = uRockBump * lod * lod * 0.55;
+          if (bump > 1e-4) {
+            float h = rockHeight(vRockPos * uRockFreq, lod);
+            float dHdx = dFdx(h);
+            float dHdy = dFdy(h);
+            vec3 sigmaX = dFdx(vViewPosition.xyz);
+            vec3 sigmaY = dFdy(vViewPosition.xyz);
+            vec3 N = normalize(normal);
+            vec3 R1 = cross(sigmaY, N);
+            vec3 R2 = cross(N, sigmaX);
+            float det = dot(sigmaX, R1);
+            vec3 grad = sign(det) * (dHdx * R1 + dHdy * R2);
+            vec3 bumped = normalize(N - grad * bump);
+            // Blend back toward geometric normal to kill ridge specular halos
+            normal = normalize(mix(N, bumped, 0.55));
+          }
         }
         `,
       )
@@ -148,22 +176,34 @@ export function createAsteroidMaterial(
         /* glsl */ `
         #include <map_fragment>
         {
+          float lod = max(vRockLod, 0.15);
           vec3 rp = vRockPos * uRockFreq;
-          float grit = rockFbm(rp);
-          float ridges = rockRidged(rp * 2.4);
-          float pits = rockRidged(rp * 5.1 + 2.0);
-          float shade = mix(1.0 - uRockContrast, 1.0 + uRockContrast * 0.6, grit);
+          float grit = rockFbm(rp, lod);
+          float ridges = rockRidged(rp * 2.4, lod);
+          float pits = rockRidged(rp * 5.1 + 2.0, lod);
+          float contrast = uRockContrast * mix(0.35, 1.0, lod);
+          float shade = mix(1.0 - contrast, 1.0 + contrast * 0.6, grit);
           shade *= mix(0.82, 1.12, ridges);
           shade *= mix(0.9, 1.05, pits);
-          vec3 cool = vec3(0.78, 0.84, 0.9);
-          vec3 warm = vec3(1.1, 1.02, 0.88);
-          diffuseColor.rgb *= mix(cool, warm, saturate(grit * 1.25)) * shade;
+          // Neutral ash ↔ cool slate (no yellow/brown multiply)
+          vec3 ash = vec3(0.92, 0.93, 0.94);
+          vec3 slate = vec3(0.82, 0.86, 0.92);
+          float tint = saturate(ridges * 0.65 + grit * 0.35);
+          diffuseColor.rgb *= mix(ash, slate, tint) * shade;
         }
+        `,
+      )
+      .replace(
+        '#include <roughnessmap_fragment>',
+        /* glsl */ `
+        #include <roughnessmap_fragment>
+        // Break up remaining specular so sun glints don't travel as a sheet
+        roughnessFactor = max(roughnessFactor, 0.88);
         `,
       )
   }
 
-  material.customProgramCacheKey = () => 'asteroid-rock-fbm-v4'
+  material.customProgramCacheKey = () => 'asteroid-rock-fbm-v7-matte'
   return material
 }
 
