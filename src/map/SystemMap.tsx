@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from 'react'
+import { isNyxMapBody, NYX_TRANSIT_MAP_LABEL } from '@/lore/easterEggs'
 import type { MapSnapshot } from '@/map/systemMap'
 
 type SystemMapProps = {
@@ -87,12 +88,25 @@ function drawMap(ctx: CanvasRenderingContext2D, snapshot: MapSnapshot) {
   ctx.stroke()
 
   // Planet orbit guides (circle, or Kepler ellipse when eccentricity is set)
-  ctx.setLineDash([3, 5])
-  ctx.strokeStyle = 'rgba(140, 170, 210, 0.22)'
+  const nyxGlow = Math.max(0, snapshot.nyxOrbitGlow ?? 0)
   for (let i = 0; i < planets.length; i++) {
     const body = planets[i]
     const e = body.eccentricity ?? 0
     const a = body.guideOrbit ?? planetOrbits[i]
+    const highlight = isNyxMapBody(body.name) && nyxGlow > 0
+    const glowT = highlight ? Math.min(1, nyxGlow / 1.2) : 0
+    if (highlight) {
+      ctx.setLineDash([])
+      ctx.strokeStyle = `rgba(210, 220, 255, ${0.35 + glowT * 0.55})`
+      ctx.lineWidth = 1.6 + glowT * 1.4
+      ctx.shadowColor = 'rgba(180, 200, 255, 0.85)'
+      ctx.shadowBlur = 10 + glowT * 14
+    } else {
+      ctx.setLineDash([3, 5])
+      ctx.strokeStyle = 'rgba(140, 170, 210, 0.22)'
+      ctx.lineWidth = 1
+      ctx.shadowBlur = 0
+    }
     if (e > 0.02 && a > 0) {
       const peri = body.periapsisPhase ?? 0
       const ecc2 = 1 - e * e
@@ -113,8 +127,59 @@ function drawMap(ctx: CanvasRenderingContext2D, snapshot: MapSnapshot) {
       ctx.arc(cx, cy, Math.max(a, 1) * scale, 0, Math.PI * 2)
       ctx.stroke()
     }
+    if (highlight) {
+      ctx.shadowBlur = 0
+      ctx.lineWidth = 1
+    }
   }
   ctx.setLineDash([])
+  ctx.shadowBlur = 0
+  ctx.lineWidth = 1
+
+  // Unlocked NYX TRANSIT corridor — faint silver dashed path + label
+  if (snapshot.nyxCorridorUnlocked) {
+    const nyx = planets.find((b) => isNyxMapBody(b.name))
+    if (nyx && (nyx.eccentricity ?? 0) > 0.02 && (nyx.guideOrbit ?? 0) > 0) {
+      const a = nyx.guideOrbit!
+      const e = nyx.eccentricity!
+      const peri = nyx.periapsisPhase ?? 0
+      const ecc2 = 1 - e * e
+      ctx.setLineDash([6, 7])
+      ctx.strokeStyle = 'rgba(170, 160, 220, 0.38)'
+      ctx.lineWidth = 1.25
+      ctx.beginPath()
+      let labelX = cx
+      let labelY = cy
+      for (let s = 0; s <= 72; s++) {
+        const nu = (s / 72) * Math.PI * 2
+        const r = (a * ecc2) / (1 + e * Math.cos(nu))
+        const ang = peri + nu
+        const px = toX(Math.cos(ang) * r)
+        const py = toY(Math.sin(ang) * r)
+        if (s === 0) ctx.moveTo(px, py)
+        else ctx.lineTo(px, py)
+        if (s === 18) {
+          labelX = px
+          labelY = py
+        }
+      }
+      ctx.closePath()
+      ctx.stroke()
+      ctx.setLineDash([])
+      ctx.font = FONT_TINY
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      strokeFillText(
+        ctx,
+        NYX_TRANSIT_MAP_LABEL,
+        labelX,
+        labelY - 12,
+        'rgba(180, 170, 230, 0.75)',
+        'rgba(0, 0, 10, 0.65)',
+        2.5,
+      )
+    }
+  }
 
   // Belt label
   ctx.font = FONT_LABEL
@@ -250,6 +315,33 @@ function drawMap(ctx: CanvasRenderingContext2D, snapshot: MapSnapshot) {
     ctx.textAlign = 'left'
     ctx.textBaseline = 'alphabetic'
     strokeFillText(ctx, 'Patrol', px + 10, py + 4, '#9ad8ff', 'rgba(0, 0, 12, 0.85)', 3)
+  }
+
+  // Lore pings (NT-0 cold beacon, etc.)
+  for (const lore of snapshot.lorePings ?? []) {
+    const lx = toX(lore.x)
+    const ly = toY(lore.z)
+    ctx.beginPath()
+    ctx.arc(lx, ly, 5, 0, Math.PI * 2)
+    ctx.strokeStyle = 'rgba(160, 140, 210, 0.85)'
+    ctx.lineWidth = 1.5
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.arc(lx, ly, 2.2, 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(190, 170, 240, 0.9)'
+    ctx.fill()
+    ctx.font = FONT_TINY
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'alphabetic'
+    strokeFillText(
+      ctx,
+      lore.label,
+      lx + 10,
+      ly + 4,
+      'rgba(200, 185, 240, 0.9)',
+      'rgba(0, 0, 12, 0.85)',
+      3,
+    )
   }
 }
 

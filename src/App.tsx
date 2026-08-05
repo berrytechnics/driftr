@@ -64,6 +64,19 @@ import { DamageFlash } from '@/ui/DamageFlash'
 import { FpsCounter } from '@/ui/FpsCounter'
 import { Hud } from '@/ui/Hud'
 import { LoadingScreen } from '@/ui/LoadingScreen'
+import { LoreToast } from '@/ui/LoreToast'
+import {
+  ASH_FOR_SOL_DUAL_TEXT,
+  ASH_FOR_SOL_TEXT,
+  isAshForSolAltitude,
+  isNearHyperion,
+  isNearNyx,
+  isNyxWhisperAltitude,
+  NYX_HYPERION_RUMOR,
+  NYX_WHISPER_COOLDOWN_S,
+  NYX_WHISPER_TEXT,
+  rollGhostBerth,
+} from '@/lore/easterEggs'
 
 const PauseMenu = lazy(() =>
   import('@/ui/PauseMenu').then((m) => ({ default: m.PauseMenu })),
@@ -91,6 +104,7 @@ export default function App() {
   const [dockStationName, setDockStationName] = useState<string>(
     STATION_NAMES.thalassa,
   )
+  const [beltResetSeed, setBeltResetSeed] = useState(0)
   const [telemetry, setTelemetry] = useState<OrbitalTelemetry | null>(null)
   const [credits, setCredits] = useState(() => saved.credits)
   const [cargo, setCargo] = useState<CargoHold>(() => ({ ...saved.cargo }))
@@ -99,6 +113,28 @@ export default function App() {
   const [armorTier, setArmorTier] = useState(() => saved.armorTier)
   const [thrusterOwned, setThrusterOwned] = useState(() => saved.thrusterOwned)
   const [sensorsOwned, setSensorsOwned] = useState(() => saved.sensorsOwned)
+  const [nightShards, setNightShards] = useState(() => saved.nightShards)
+  const [nyxWhisperHeard, setNyxWhisperHeard] = useState(
+    () => saved.nyxWhisperHeard,
+  )
+  const [nyxCorridorUnlocked, setNyxCorridorUnlocked] = useState(
+    () => saved.nyxCorridorUnlocked,
+  )
+  const [nyxComlogUnlocked, setNyxComlogUnlocked] = useState(
+    () => saved.nyxComlogUnlocked,
+  )
+  const [nyxDerelictSeen, setNyxDerelictSeen] = useState(
+    () => saved.nyxDerelictSeen,
+  )
+  const [nyxDualAshDone, setNyxDualAshDone] = useState(
+    () => saved.nyxDualAshDone,
+  )
+  const [nyxHyperionRumorHeard, setNyxHyperionRumorHeard] = useState(
+    () => saved.nyxHyperionRumorHeard,
+  )
+  const [ghostBerth, setGhostBerth] = useState(false)
+  const [loreToast, setLoreToast] = useState<string | null>(null)
+  const [loreToastKey, setLoreToastKey] = useState(0)
   const [damageFlash, setDamageFlash] = useState(0)
   const [healRequest, setHealRequest] = useState<{
     seq: number
@@ -111,6 +147,7 @@ export default function App() {
     y: number
     z: number
     cargo: CargoHold
+    ashOffering?: boolean
   } | null>(null)
   const startedRef = useRef(saved.docked)
   const dockedRef = useRef(saved.docked)
@@ -123,6 +160,14 @@ export default function App() {
   const armorTierRef = useRef(armorTier)
   const thrusterOwnedRef = useRef(thrusterOwned)
   const sensorsOwnedRef = useRef(sensorsOwned)
+  const nightShardsRef = useRef(nightShards)
+  const nyxWhisperHeardRef = useRef(nyxWhisperHeard)
+  const nyxCorridorUnlockedRef = useRef(nyxCorridorUnlocked)
+  const nyxComlogUnlockedRef = useRef(nyxComlogUnlocked)
+  const nyxDerelictSeenRef = useRef(nyxDerelictSeen)
+  const nyxDualAshDoneRef = useRef(nyxDualAshDone)
+  const nyxHyperionRumorHeardRef = useRef(nyxHyperionRumorHeard)
+  const nyxWhisperCooldown = useRef(0)
   const telemetryRef = useRef<OrbitalTelemetry | null>(null)
   const healSeq = useRef(0)
   const jettisonSeq = useRef(0)
@@ -142,6 +187,13 @@ export default function App() {
   armorTierRef.current = armorTier
   thrusterOwnedRef.current = thrusterOwned
   sensorsOwnedRef.current = sensorsOwned
+  nightShardsRef.current = nightShards
+  nyxWhisperHeardRef.current = nyxWhisperHeard
+  nyxCorridorUnlockedRef.current = nyxCorridorUnlocked
+  nyxComlogUnlockedRef.current = nyxComlogUnlocked
+  nyxDerelictSeenRef.current = nyxDerelictSeen
+  nyxDualAshDoneRef.current = nyxDualAshDone
+  nyxHyperionRumorHeardRef.current = nyxHyperionRumorHeard
 
   const persistNow = useCallback(() => {
     const t = telemetryRef.current
@@ -160,6 +212,13 @@ export default function App() {
       armorTier: armorTierRef.current,
       thrusterOwned: thrusterOwnedRef.current,
       sensorsOwned: sensorsOwnedRef.current,
+      nightShards: nightShardsRef.current,
+      nyxWhisperHeard: nyxWhisperHeardRef.current,
+      nyxCorridorUnlocked: nyxCorridorUnlockedRef.current,
+      nyxComlogUnlocked: nyxComlogUnlockedRef.current,
+      nyxDerelictSeen: nyxDerelictSeenRef.current,
+      nyxDualAshDone: nyxDualAshDoneRef.current,
+      nyxHyperionRumorHeard: nyxHyperionRumorHeardRef.current,
     }
     saveGameSave(snapshot)
   }, [saved.hp, saved.heat, saved.overheated])
@@ -178,6 +237,13 @@ export default function App() {
     armorTier,
     thrusterOwned,
     sensorsOwned,
+    nightShards,
+    nyxWhisperHeard,
+    nyxCorridorUnlocked,
+    nyxComlogUnlocked,
+    nyxDerelictSeen,
+    nyxDualAshDone,
+    nyxHyperionRumorHeard,
     persistNow,
   ])
 
@@ -228,6 +294,32 @@ export default function App() {
     lastHp.current = value.hp
     telemetryRef.current = value
     setTelemetry(value)
+
+    // Nyx apoapsis whisper
+    const now = performance.now() / 1000
+    if (
+      isNearNyx(value.nearBody) &&
+      isNyxWhisperAltitude(value.altitude) &&
+      now >= nyxWhisperCooldown.current
+    ) {
+      nyxWhisperCooldown.current = now + NYX_WHISPER_COOLDOWN_S
+      setNyxWhisperHeard(true)
+      setNyxComlogUnlocked(true)
+      setNyxCorridorUnlocked(true)
+      setLoreToast(NYX_WHISPER_TEXT)
+      setLoreToastKey((k) => k + 1)
+    }
+
+    // Hyperion rumor — once after whisper
+    if (
+      nyxWhisperHeardRef.current &&
+      !nyxHyperionRumorHeardRef.current &&
+      isNearHyperion(value.nearBody)
+    ) {
+      setNyxHyperionRumorHeard(true)
+      setLoreToast(NYX_HYPERION_RUMOR)
+      setLoreToastKey((k) => k + 1)
+    }
   }, [])
 
   const onDockAvailable = useCallback(
@@ -242,6 +334,12 @@ export default function App() {
   )
 
   const onMaterialPickup = useCallback((pickup: MaterialPickup) => {
+    if (pickup.nightShard) {
+      setNightShards((n) => n + 1)
+      setLoreToast('Nyx dust')
+      setLoreToastKey((k) => k + 1)
+      return
+    }
     setCargo((prev) => ({
       ...prev,
       [pickup.kind]: prev[pickup.kind] + pickup.amount,
@@ -296,6 +394,25 @@ export default function App() {
     playerCargoRef.current.units = 0
     setCargo(emptyCargo())
     jettisonSeq.current += 1
+    const altitude = telemetryRef.current?.altitude ?? Infinity
+    if (isAshForSolAltitude(altitude)) {
+      if (nyxWhisperHeardRef.current && !nyxDualAshDoneRef.current) {
+        setNyxDualAshDone(true)
+        setLoreToast(ASH_FOR_SOL_DUAL_TEXT)
+      } else {
+        setLoreToast(ASH_FOR_SOL_TEXT)
+      }
+      setLoreToastKey((k) => k + 1)
+      setJettisonDump({
+        seq: jettisonSeq.current,
+        x,
+        y,
+        z,
+        cargo: dump,
+        ashOffering: true,
+      })
+      return
+    }
     setJettisonDump({
       seq: jettisonSeq.current,
       x,
@@ -389,21 +506,39 @@ export default function App() {
     dockedRef.current = true
     setDocked(true)
     setDockAvailable(false)
+    const showGhost = rollGhostBerth(nyxWhisperHeardRef.current)
+    setGhostBerth(showGhost)
+    if (showGhost) setNyxCorridorUnlocked(true)
+    setBeltResetSeed((seed) => seed + 1)
     setPaused(false)
+    setLoreToast(null)
     tryPlayStation()
     if (document.pointerLockElement) {
       document.exitPointerLock()
     }
   }, [dockAvailable])
 
+  const onNyxDerelictSeen = useCallback((toast: string) => {
+    if (nyxDerelictSeenRef.current) return
+    setNyxDerelictSeen(true)
+    setLoreToast(toast)
+    setLoreToastKey((k) => k + 1)
+  }, [])
+
   const undockFromStation = useCallback(() => {
     dockedRef.current = false
     setDocked(false)
+    setGhostBerth(false)
     setPaused(false)
     setHealRequest(null)
+    setLoreToast(null)
     tryPlayTheme()
     const canvas = document.querySelector('canvas')
     void canvas?.requestPointerLock()
+  }, [])
+
+  const dismissLoreToast = useCallback(() => {
+    setLoreToast(null)
   }, [])
 
   const resumeFlight = useCallback(() => {
@@ -463,6 +598,7 @@ export default function App() {
         started={started}
         paused={worldPaused}
         docked={docked}
+        beltResetSeed={beltResetSeed}
         suspendRender={started && paused && !docked}
         onLockChange={onLockChange}
         onTelemetry={onTelemetry}
@@ -482,7 +618,17 @@ export default function App() {
         playerCargoRef={playerCargoRef}
         jettisonDump={jettisonDump}
         onJettisonCargo={onJettisonCargo}
+        nyxDerelictSeen={nyxDerelictSeen}
+        onNyxDerelictSeen={onNyxDerelictSeen}
+        nyxCorridorUnlockedRef={nyxCorridorUnlockedRef}
       />
+      {started && !booting && (
+        <LoreToast
+          message={loreToast}
+          flashKey={loreToastKey}
+          onDismissed={dismissLoreToast}
+        />
+      )}
       {inFlight && (
         <>
           <Crosshair
@@ -493,6 +639,7 @@ export default function App() {
             }
             torpedoLock={telemetry?.torpedoLock ?? 0}
             torpedoAmmo={telemetry?.torpedoAmmo ?? torpedoAmmo}
+            wobble={isNearHyperion(telemetry?.nearBody ?? null)}
           />
           <CombatChevron hudRef={combatHudRef} active={inFlight} />
           <DamageFlash flashKey={damageFlash} active={inFlight} />
@@ -535,6 +682,8 @@ export default function App() {
             torpedoAmmo={torpedoAmmo}
             thrusterOwned={thrusterOwned}
             sensorsOwned={sensorsOwned}
+            ghostBerth={ghostBerth}
+            nyxWhisperHeard={nyxWhisperHeard}
             onSell={sellMaterial}
             onSellAll={sellAllCargo}
             onRepair={repairShip}
@@ -565,6 +714,8 @@ export default function App() {
               overheated: telemetry?.overheated ?? saved.overheated,
               speed: telemetry?.speed ?? 0,
               altitude: telemetry?.altitude ?? 0,
+              nightShards,
+              nyxComlogUnlocked,
             }}
           />
         </Suspense>

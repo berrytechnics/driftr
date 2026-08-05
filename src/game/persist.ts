@@ -34,6 +34,20 @@ export type GameSave = {
   thrusterOwned: boolean
   /** Long-range sensors unlocked at the station. */
   sensorsOwned: boolean
+  /** Lore — night shards scooped from the omen belt rock. */
+  nightShards: number
+  /** Lore — heard Nyx’s apoapsis whisper at least once. */
+  nyxWhisperHeard: boolean
+  /** Lore — map shows NYX TRANSIT corridor. */
+  nyxCorridorUnlocked: boolean
+  /** Lore — pause COMLOG entry available. */
+  nyxComlogUnlocked: boolean
+  /** Lore — saw the derelict ghost station. */
+  nyxDerelictSeen: boolean
+  /** Lore — dual ash toast used once. */
+  nyxDualAshDone: boolean
+  /** Lore — Hyperion rumor heard once. */
+  nyxHyperionRumorHeard: boolean
 }
 
 export type HullSnapshot = {
@@ -95,6 +109,13 @@ export function defaultGameSave(): GameSave {
     armorTier: 0,
     thrusterOwned: false,
     sensorsOwned: false,
+    nightShards: 0,
+    nyxWhisperHeard: false,
+    nyxCorridorUnlocked: false,
+    nyxComlogUnlocked: false,
+    nyxDerelictSeen: false,
+    nyxDualAshDone: false,
+    nyxHyperionRumorHeard: false,
   }
 }
 
@@ -154,6 +175,16 @@ export function loadGameSave(): GameSave {
     armorTier,
     thrusterOwned: !!raw.thrusterOwned,
     sensorsOwned: !!raw.sensorsOwned,
+    nightShards:
+      typeof raw.nightShards === 'number' && Number.isFinite(raw.nightShards)
+        ? Math.max(0, Math.floor(raw.nightShards))
+        : 0,
+    nyxWhisperHeard: !!raw.nyxWhisperHeard,
+    nyxCorridorUnlocked: !!raw.nyxCorridorUnlocked || !!raw.nyxWhisperHeard,
+    nyxComlogUnlocked: !!raw.nyxComlogUnlocked || !!raw.nyxWhisperHeard,
+    nyxDerelictSeen: !!raw.nyxDerelictSeen,
+    nyxDualAshDone: !!raw.nyxDualAshDone,
+    nyxHyperionRumorHeard: !!raw.nyxHyperionRumorHeard,
   }
 }
 
@@ -175,6 +206,13 @@ export function saveGameSave(save: GameSave) {
     armorTier,
     thrusterOwned: !!save.thrusterOwned,
     sensorsOwned: !!save.sensorsOwned,
+    nightShards: Math.max(0, Math.floor(save.nightShards ?? 0)),
+    nyxWhisperHeard: !!save.nyxWhisperHeard,
+    nyxCorridorUnlocked: !!save.nyxCorridorUnlocked,
+    nyxComlogUnlocked: !!save.nyxComlogUnlocked,
+    nyxDerelictSeen: !!save.nyxDerelictSeen,
+    nyxDualAshDone: !!save.nyxDualAshDone,
+    nyxHyperionRumorHeard: !!save.nyxHyperionRumorHeard,
   } satisfies GameSave)
 }
 

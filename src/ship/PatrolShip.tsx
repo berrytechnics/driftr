@@ -16,12 +16,20 @@ import {
   Vector3,
   type MeshBasicMaterial,
 } from 'three'
-import type { BanditCombatState } from '@/combat/combatHud'
+import type { BanditCombatState, CombatHudState } from '@/combat/combatHud'
 import {
   BELT_INNER,
   BELT_OUTER,
   BELT_PLANET_SIZE,
 } from '@/game/systemConfig'
+import {
+  PATROL_SALUTE_COOLDOWN_S,
+  PATROL_SALUTE_FLASH_S,
+  PATROL_SALUTE_GRACE_S,
+  PATROL_SALUTE_HOLD_S,
+  PATROL_SALUTE_MATCH_RANGE,
+  PATROL_SALUTE_RANGE,
+} from '@/lore/easterEggs'
 import { HitSpark } from '@/ship/HitSpark'
 import { EXPLOSION_LIFETIME, ShipExplosion } from '@/ship/ShipExplosion'
 import { ShipHealthBar } from '@/ship/ShipHealthBar'
@@ -56,6 +64,10 @@ type PatrolShipProps = {
   banditCombatRefs: RefObject<BanditCombatState>[]
   /** So bandits can return fire */
   patrolLaserHitRef: MutableRefObject<LaserTarget | null>
+  /** Player ship — friendly linger salute */
+  playerShipRef?: RefObject<Object3D | null>
+  /** Skip salutes while the pilot is in a bandit scrape */
+  combatHudRef?: RefObject<CombatHudState>
   paused?: boolean
   /** Long-range sensors amplify the contact beacon. */
   sensorsOwned?: boolean
@@ -184,6 +196,8 @@ export function PatrolShip({
   banditLaserHitRefs,
   banditCombatRefs,
   patrolLaserHitRef,
+  playerShipRef,
+  combatHudRef,
   paused = false,
   sensorsOwned = false,
 }: PatrolShipProps) {
@@ -208,11 +222,18 @@ export function PatrolShip({
   const beaconRingMat = useRef<MeshBasicMaterial | null>(null)
   const hpRatio = useRef(1)
   const showHealth = useRef(false)
+  const saluteHold = useRef(0)
+  const saluteGrace = useRef(0)
+  const saluteCooldown = useRef(0)
+  const playerSpeedEst = useRef(22)
+  const prevPlayerPos = useRef(new Vector3())
+  const prevPlayerReady = useRef(false)
   const [hidden, setHidden] = useState(false)
   const [ready, setReady] = useState(false)
   const [bursts, setBursts] = useState<Burst[]>([])
   const [sparks, setSparks] = useState<Spark[]>([])
   const [hurtTint, setHurtTint] = useState(false)
+  const [saluteTint, setSaluteTint] = useState(false)
 
   const visualScale = scale * PATROL_SCALE_MUL
   const shipPad = Math.max(visualScale * 0.9, 0.05)
@@ -269,6 +290,13 @@ export function PatrolShip({
         if (!group) return false
         if (group.position.distanceTo(point) > pad + shipPad) return false
         pendingDamage.current += damage ?? 10
+        saluteHold.current = 0
+        saluteGrace.current = 0
+        saluteCooldown.current = Math.max(
+          saluteCooldown.current,
+          PATROL_SALUTE_COOLDOWN_S * 0.5,
+        )
+        setSaluteTint(false)
         setHurtTint(true)
         window.setTimeout(() => setHurtTint(false), PATROL_DAMAGE_FLASH * 1000)
         const id = ++sparkId.current
@@ -332,6 +360,7 @@ export function PatrolShip({
     if (pendingDamage.current > 0) {
       hp.current = Math.max(0, hp.current - pendingDamage.current)
       pendingDamage.current = 0
+      saluteHold.current = 0
       if (hp.current <= 0) {
         velocity.current.set(0, 0, 0)
         weapons.current?.clear()
@@ -345,6 +374,57 @@ export function PatrolShip({
         ])
         return
       }
+    }
+
+    // Friendly linger — green hull flash when the pilot hangs out nearby
+    saluteCooldown.current = Math.max(0, saluteCooldown.current - dt)
+    const player = playerShipRef?.current
+    let playerDist = Infinity
+    if (player && player.visible !== false) {
+      player.getWorldPosition(_target)
+      if (prevPlayerReady.current) {
+        const moved = prevPlayerPos.current.distanceTo(_target)
+        const inst = moved / Math.max(dt, 1e-4)
+        playerSpeedEst.current +=
+          (Math.min(inst, 80) - playerSpeedEst.current) *
+          (1 - Math.exp(-4 * dt))
+      } else {
+        prevPlayerReady.current = true
+      }
+      prevPlayerPos.current.copy(_target)
+      playerDist = group.position.distanceTo(_target)
+    } else {
+      prevPlayerReady.current = false
+    }
+
+    const peaceful =
+      mode.current === 'patrol' &&
+      !combatHudRef?.current.engaged &&
+      saluteCooldown.current <= 0 &&
+      Number.isFinite(playerDist)
+
+    if (peaceful) {
+      if (playerDist < PATROL_SALUTE_RANGE) {
+        saluteHold.current += dt
+        saluteGrace.current = PATROL_SALUTE_GRACE_S
+        if (saluteHold.current >= PATROL_SALUTE_HOLD_S) {
+          saluteHold.current = 0
+          saluteGrace.current = 0
+          saluteCooldown.current = PATROL_SALUTE_COOLDOWN_S
+          setSaluteTint(true)
+          window.setTimeout(
+            () => setSaluteTint(false),
+            PATROL_SALUTE_FLASH_S * 1000,
+          )
+        }
+      } else if (saluteGrace.current > 0) {
+        saluteGrace.current -= dt
+      } else {
+        saluteHold.current = 0
+      }
+    } else if (mode.current !== 'patrol' || combatHudRef?.current.engaged) {
+      saluteHold.current = 0
+      saluteGrace.current = 0
     }
 
     hpRatio.current = hp.current / PATROL_HP
@@ -445,7 +525,32 @@ export function PatrolShip({
         ? INTERVENE_CRUISE
         : ORBIT_CRUISE
       : BELT_CRUISE * (1 + Math.abs(patrolRadialW) * 2.4)
-    _wish.copy(_dir).multiplyScalar(cruise)
+
+    // Peaceful wingman — ease onto the pilot’s pace so a linger is possible
+    let matchCruise = cruise
+    if (
+      !intervening &&
+      mode.current === 'patrol' &&
+      !combatHudRef?.current.engaged &&
+      Number.isFinite(playerDist) &&
+      playerDist < PATROL_SALUTE_MATCH_RANGE
+    ) {
+      const playerPace = Math.max(14, Math.min(playerSpeedEst.current + 3, 36))
+      const closeness =
+        1 - Math.min(1, playerDist / PATROL_SALUTE_MATCH_RANGE)
+      matchCruise = cruise + (playerPace - cruise) * (0.55 + closeness * 0.45)
+      // Drift toward the pilot if they’re ahead so the pass doesn’t miss
+      if (playerDist > 28 && player) {
+        player.getWorldPosition(_target)
+        dirToward(group.position, _target, _aim)
+        if (_aim.lengthSq() > 1e-8) {
+          _dir.lerp(_aim, 0.22 + closeness * 0.2)
+          if (_dir.lengthSq() > 1e-8) _dir.normalize()
+        }
+      }
+    }
+
+    _wish.copy(_dir).multiplyScalar(matchCruise)
     velocity.current.lerp(_wish, 1 - Math.exp(-5.2 * dt))
     group.position.addScaledVector(velocity.current, dt)
 
@@ -568,7 +673,9 @@ export function PatrolShip({
           metalness={0.45}
           roughness={0.38}
           envMapIntensity={0.6}
-          tint={hurtTint ? '#a8d8ff' : '#3a8ec8'}
+          tint={
+            saluteTint ? '#7dffb3' : hurtTint ? '#a8d8ff' : '#3a8ec8'
+          }
         />
         <GunHardpoints
           scale={visualScale}

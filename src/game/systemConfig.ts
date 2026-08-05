@@ -3,7 +3,7 @@
  * Radii / orbital distances (world units):
  *   Sol 240 | Hermes 8.4 @ 432 | Ares 14.4 @ 773 | Boreas 16.2 @ 1159
  *   Thalassa 18 @ 1500 | belt 1727–2273 (mid ~2000) | Kronos 60 @ 2727 | Ouranos 84 @ 3727
- *   Nyx 5.7 @ a=5600, e=0.32 (peri ≈ 3808, apo ≈ 7392)
+ *   Nyx 5.7 @ a=5600, e=0.55 (peri ≈ 2520, apo ≈ 8680)
  *
  * Body radii are sized so orbital stations (~14u) read as outposts, not giants.
  */
@@ -25,7 +25,8 @@ export const OUTER_GAS_ORBIT = 3727
 /** Distant dwarf — semi-major axis; eccentricity makes a visibly stretched year */
 export const OUTER_DWARF_SIZE = 5.7
 export const OUTER_DWARF_ORBIT = 5600
-export const OUTER_DWARF_ECC = 0.32
+/** High ecc so apo sits far beyond Ouranos (rescue margin for Nyx Transit lore). */
+export const OUTER_DWARF_ECC = 0.55
 export const STAR_NAME = 'Sol'
 export const PLANET_NAMES = {
   mercury: 'Hermes',

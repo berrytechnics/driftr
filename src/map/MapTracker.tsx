@@ -1,7 +1,7 @@
 import { useFrame } from '@react-three/fiber'
 import type { RefObject } from 'react'
 import { Vector3, type Group, type Object3D } from 'three'
-import type { MapBodyKind, MapSnapshot } from '@/map/systemMap'
+import type { MapBodyKind, MapLorePing, MapSnapshot } from '@/map/systemMap'
 
 export type TrackedBody = {
   name: string
@@ -35,6 +35,12 @@ type MapTrackerProps = {
   hideNpcsRef?: RefObject<boolean>
   /** Ship-relative contact radius for NPC pips (world units). */
   sensorRangeRef?: RefObject<number>
+  /** Countdown (seconds) for Nyx orbit highlight — decayed each frame. */
+  nyxOrbitGlowRef?: RefObject<number>
+  /** Persist — draw NYX TRANSIT corridor when true. */
+  nyxCorridorUnlockedRef?: RefObject<boolean>
+  /** Live lore pings (NT-0) written by NyxBeacon. */
+  lorePingsRef?: RefObject<MapLorePing[]>
 }
 
 const _pos = new Vector3()
@@ -56,11 +62,35 @@ export function MapTracker({
   patrolRefs,
   hideNpcsRef,
   sensorRangeRef,
+  nyxOrbitGlowRef,
+  nyxCorridorUnlockedRef,
+  lorePingsRef,
 }: MapTrackerProps) {
-  useFrame(() => {
+  useFrame((_, delta) => {
     const snap = snapshotRef.current
     _sun.set(...sunPosition)
     const hideNpcs = !!hideNpcsRef?.current
+    const dt = Math.min(delta, 0.05)
+
+    if (nyxOrbitGlowRef) {
+      nyxOrbitGlowRef.current = Math.max(0, nyxOrbitGlowRef.current - dt)
+      snap.nyxOrbitGlow = nyxOrbitGlowRef.current
+    } else {
+      snap.nyxOrbitGlow = 0
+    }
+
+    snap.nyxCorridorUnlocked = !!nyxCorridorUnlockedRef?.current
+
+    const srcPings = lorePingsRef?.current
+    const dstPings = snap.lorePings
+    if (!dstPings) {
+      snap.lorePings = []
+    }
+    const out = snap.lorePings
+    out.length = 0
+    if (srcPings) {
+      for (const p of srcPings) out.push({ x: p.x, z: p.z, label: p.label })
+    }
 
     snap.starName = starName
     snap.starSize = sunSize

@@ -41,7 +41,7 @@ import {
   type CargoBait,
   type PlayerCargoStatus,
 } from '@/loot/cargoBait'
-import type { CargoHold } from '@/loot/economy'
+import type { CargoHold, MaterialKind } from '@/loot/economy'
 import {
   MaterialDrops,
   type MaterialDropsHandle,
@@ -71,6 +71,11 @@ import { Planet } from '@/world/Planet'
 import { Starfield } from '@/world/Starfield'
 import { StableGodRays } from '@/world/StableGodRays'
 import { Sun } from '@/world/Sun'
+import { AshFlare } from '@/lore/AshFlare'
+import { NyxBeacon } from '@/lore/NyxBeacon'
+import { NyxDerelict } from '@/lore/NyxDerelict'
+import { NYX_NEAR_PAD } from '@/lore/easterEggs'
+import type { MapLorePing } from '@/map/systemMap'
 import {
   BELT_INNER,
   BELT_ORBIT,
@@ -163,6 +168,7 @@ export const Space = memo(function Space({
   started,
   paused,
   docked,
+  beltResetSeed = 0,
   onLockChange,
   onTelemetry,
   onDockAvailable,
@@ -181,10 +187,14 @@ export const Space = memo(function Space({
   playerCargoRef,
   jettisonDump,
   onJettisonCargo,
+  nyxDerelictSeen = false,
+  onNyxDerelictSeen,
+  nyxCorridorUnlockedRef,
 }: {
   started: boolean
   paused: boolean
   docked: boolean
+  beltResetSeed?: number
   onLockChange: (locked: boolean) => void
   onTelemetry: (telemetry: OrbitalTelemetry) => void
   onDockAvailable: (available: boolean, stationName?: string) => void
@@ -207,8 +217,12 @@ export const Space = memo(function Space({
     y: number
     z: number
     cargo: CargoHold
+    ashOffering?: boolean
   } | null
   onJettisonCargo: (x: number, y: number, z: number) => void
+  nyxDerelictSeen?: boolean
+  onNyxDerelictSeen?: (toast: string) => void
+  nyxCorridorUnlockedRef?: RefObject<boolean>
 }) {
   const sunMesh = useRef<Mesh>(null!)
   const mercuryPlanet = useRef<Group>(null)
@@ -232,6 +246,14 @@ export const Space = memo(function Space({
   const asteroidHazards = useRef<HazardField | null>(null)
   /** True while advanced thruster burn is active — blanks NPC map contacts */
   const mapCloakRef = useRef(false)
+  const nyxOrbitGlowRef = useRef(0)
+  const lorePingsRef = useRef<MapLorePing[]>([])
+  const [ashFlare, setAshFlare] = useState<{
+    seq: number
+    x: number
+    y: number
+    z: number
+  } | null>(null)
   const sensorRangeRef = useRef(sensorRangeForOwned(sensorsOwned))
   sensorRangeRef.current = sensorRangeForOwned(sensorsOwned)
   const buffDrops = useRef<BuffDropsHandle | null>(null)
@@ -301,21 +323,49 @@ export const Space = memo(function Space({
     () => [banditLaserHitRef, bandit2LaserHitRef],
     [],
   )
-  const onRockDestroyed = useCallback((worldPosition: Vector3) => {
-    const x = worldPosition.x
-    const y = worldPosition.y
-    const z = worldPosition.z
-    const buffed = buffDrops.current?.maybeSpawn(x, y, z) ?? false
-    if (!buffed) materialDrops.current?.spawn(x, y, z)
-  }, [])
+  const onRockDestroyed = useCallback(
+    (
+      worldPosition: Vector3,
+      kind: MaterialKind,
+      flags?: { nightShard?: boolean },
+    ) => {
+      const x = worldPosition.x
+      const y = worldPosition.y
+      const z = worldPosition.z
+      if (flags?.nightShard) {
+        materialDrops.current?.spawnNight(x, y, z)
+        return
+      }
+      const buffed = buffDrops.current?.maybeSpawn(x, y, z) ?? false
+      if (!buffed) materialDrops.current?.spawn(x, y, z, kind)
+    },
+    [],
+  )
 
   const onBaitClaimed = useCallback(() => {
     materialDrops.current?.clearScavenge()
   }, [])
 
+  const lastBeltReset = useRef(0)
+  useEffect(() => {
+    if (beltResetSeed <= 0 || beltResetSeed === lastBeltReset.current) return
+    lastBeltReset.current = beltResetSeed
+    materialDrops.current?.clear()
+    buffDrops.current?.clear()
+  }, [beltResetSeed])
+
   useEffect(() => {
     if (!jettisonDump || jettisonDump.seq === lastJettisonSeq.current) return
     lastJettisonSeq.current = jettisonDump.seq
+    if (jettisonDump.ashOffering) {
+      setAshFlare({
+        seq: jettisonDump.seq,
+        x: jettisonDump.x,
+        y: jettisonDump.y,
+        z: jettisonDump.z,
+      })
+      return
+    }
     writeCargoBait(
       cargoBaitRef.current,
       jettisonDump.seq,
@@ -380,6 +430,7 @@ export const Space = memo(function Space({
         radius: OUTER_DWARF_SIZE,
         name: PLANET_NAMES.outerDwarf,
         kind: 'planet',
+        nearPad: NYX_NEAR_PAD,
       },
       // Station is dockable (non-lethal) — see PlayerShip dock offer
       // Moons
@@ -832,7 +883,7 @@ export const Space = memo(function Space({
             {
               size: MOON_SIZES.ares,
               orbitAltitude: 15.6,
-              orbitSpeed: 0.22,
+              orbitSpeed: 0.11,
               inclination: 0.14,
               phase: 1.1,
               map: martian,
@@ -848,7 +899,7 @@ export const Space = memo(function Space({
             planetSize={INNER_PLANET_SIZE}
             modelUrl={stationAresUrl}
             orbitAltitude={12}
-            orbitSpeed={0.16}
+            orbitSpeed={0.08}
             inclination={0.12}
             phase={2.4}
             scale={0.26}
@@ -879,7 +930,7 @@ export const Space = memo(function Space({
             {
               size: MOON_SIZES.boreas,
               orbitAltitude: 19.2,
-              orbitSpeed: 0.16,
+              orbitSpeed: 0.08,
               inclination: -0.2,
               phase: 0.4,
               map: icy,
@@ -910,7 +961,7 @@ export const Space = memo(function Space({
             planetRef={beltPlanet}
             planetSize={BELT_PLANET_SIZE}
             orbitAltitude={13.2}
-            orbitSpeed={0.14}
+            orbitSpeed={0.07}
             inclination={0.22}
             phase={Math.PI * 0.35}
             scale={0.28}
@@ -926,7 +977,7 @@ export const Space = memo(function Space({
             {
               size: MOON_SIZES.thalassa,
               orbitAltitude: 40.8,
-              orbitSpeed: 0.11,
+              orbitSpeed: 0.055,
               inclination: 0.35,
               phase: 2.6,
               map: martian,
@@ -951,6 +1002,7 @@ export const Space = memo(function Space({
           paused={paused}
           hazardRef={asteroidHazards}
           onRockDestroyed={onRockDestroyed}
+          resetSeed={beltResetSeed}
         />
         {/* Gas giant beyond the belt */}
         <Planet
@@ -974,7 +1026,7 @@ export const Space = memo(function Space({
             planetSize={GAS_GIANT_SIZE}
             modelUrl={stationKronosUrl}
             orbitAltitude={55}
-            orbitSpeed={0.09}
+            orbitSpeed={0.045}
             inclination={-0.2}
             phase={4.8}
             scale={0.42}
@@ -990,7 +1042,7 @@ export const Space = memo(function Space({
             {
               size: MOON_SIZES.kronosA,
               orbitAltitude: 22.8,
-              orbitSpeed: 0.28,
+              orbitSpeed: 0.14,
               inclination: 0.08,
               phase: 0.2,
               map: volcanic,
@@ -1001,7 +1053,7 @@ export const Space = memo(function Space({
             {
               size: MOON_SIZES.kronosB,
               orbitAltitude: 43.2,
-              orbitSpeed: 0.17,
+              orbitSpeed: 0.085,
               inclination: -0.12,
               phase: 2.1,
               map: icy,
@@ -1012,7 +1064,7 @@ export const Space = memo(function Space({
             {
               size: MOON_SIZES.kronosC,
               orbitAltitude: 72,
-              orbitSpeed: 0.1,
+              orbitSpeed: 0.05,
               inclination: 0.22,
               phase: 4.0,
               map: martian,
@@ -1046,7 +1098,7 @@ export const Space = memo(function Space({
             {
               size: MOON_SIZES.ouranosA,
               orbitAltitude: 27,
-              orbitSpeed: 0.2,
+              orbitSpeed: 0.1,
               inclination: 0.16,
               phase: 1.4,
               map: icy,
@@ -1057,7 +1109,7 @@ export const Space = memo(function Space({
             {
               size: MOON_SIZES.ouranosB,
               orbitAltitude: 57,
-              orbitSpeed: 0.12,
+              orbitSpeed: 0.06,
               inclination: -0.28,
               phase: 3.3,
               map: icy,
@@ -1074,6 +1126,7 @@ export const Space = memo(function Space({
           sunSize={sunSize}
           orbitRadius={OUTER_DWARF_ORBIT}
           eccentricity={OUTER_DWARF_ECC}
+          startRadiusFraction={0.8}
           mu={mu}
           orbitSpeedScale={0.1}
           map={icy}
@@ -1083,6 +1136,21 @@ export const Space = memo(function Space({
           inclination={0.22}
           spin={0.03}
           paused={paused}
+        />
+        <NyxDerelict
+          nyxRef={outerDwarf}
+          sunPosition={sunPosition}
+          playerRef={mapShipRef}
+          paused={paused || docked}
+          alreadySeen={nyxDerelictSeen}
+          onFirstSight={onNyxDerelictSeen}
+        />
+        <NyxBeacon
+          nyxRef={outerDwarf}
+          sunPosition={sunPosition}
+          playerRef={mapShipRef}
+          lorePingsRef={lorePingsRef}
+          paused={paused || docked}
         />
         <BuffDrops
           handleRef={buffDrops}
@@ -1136,6 +1204,7 @@ export const Space = memo(function Space({
           thrusterOwned={thrusterOwned}
           combatHudRef={combatHudRef}
           mapCloakRef={mapCloakRef}
+          nyxOrbitGlowRef={nyxOrbitGlowRef}
           hasCargoRef={playerCargoRef}
           onJettisonCargo={onJettisonCargo}
         />
@@ -1207,9 +1276,12 @@ export const Space = memo(function Space({
           banditLaserHitRefs={banditLaserHitRefs}
           banditCombatRefs={banditCombatRefs}
           patrolLaserHitRef={patrolLaserHitRef}
+          playerShipRef={mapShipRef}
+          combatHudRef={combatHudRef}
           paused={paused}
           sensorsOwned={sensorsOwned}
         />
+        <AshFlare event={ashFlare} />
       </Suspense>
 
       <CombatTracker
@@ -1233,6 +1305,9 @@ export const Space = memo(function Space({
         patrolRefs={patrolMapRefs}
         hideNpcsRef={mapCloakRef}
         sensorRangeRef={sensorRangeRef}
+        nyxOrbitGlowRef={nyxOrbitGlowRef}
+        nyxCorridorUnlockedRef={nyxCorridorUnlockedRef}
+        lorePingsRef={lorePingsRef}
       />
 
       <Starfield

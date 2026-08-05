@@ -15,6 +15,7 @@ export const GameCanvas = memo(function GameCanvas({
   started,
   paused,
   docked,
+  beltResetSeed = 0,
   suspendRender,
   onLockChange,
   onTelemetry,
@@ -34,11 +35,16 @@ export const GameCanvas = memo(function GameCanvas({
   playerCargoRef,
   jettisonDump,
   onJettisonCargo,
+  nyxDerelictSeen = false,
+  onNyxDerelictSeen,
+  nyxCorridorUnlockedRef,
 }: {
   /** Lazy-load heavy station assets after launch (or docked save). */
   started: boolean
   paused: boolean
   docked: boolean
+  /** Incremented when docking — rebuilds the asteroid belt. */
+  beltResetSeed?: number
   /** Freeze the WebGL loop (Escape pause). Start screen keeps animating. */
   suspendRender: boolean
   onLockChange: (locked: boolean) => void
@@ -63,8 +69,12 @@ export const GameCanvas = memo(function GameCanvas({
     y: number
     z: number
     cargo: CargoHold
+    ashOffering?: boolean
   } | null
   onJettisonCargo: (x: number, y: number, z: number) => void
+  nyxDerelictSeen?: boolean
+  onNyxDerelictSeen?: (toast: string) => void
+  nyxCorridorUnlockedRef?: RefObject<boolean>
 }) {
   return (
     <Canvas
@@ -83,6 +93,7 @@ export const GameCanvas = memo(function GameCanvas({
         started={started}
         paused={paused}
         docked={docked}
+        beltResetSeed={beltResetSeed}
         onLockChange={onLockChange}
         onTelemetry={onTelemetry}
         onDockAvailable={onDockAvailable}
@@ -101,6 +112,9 @@ export const GameCanvas = memo(function GameCanvas({
         playerCargoRef={playerCargoRef}
         jettisonDump={jettisonDump}
         onJettisonCargo={onJettisonCargo}
+        nyxDerelictSeen={nyxDerelictSeen}
+        onNyxDerelictSeen={onNyxDerelictSeen}
+        nyxCorridorUnlockedRef={nyxCorridorUnlockedRef}
       />
     </Canvas>
   )

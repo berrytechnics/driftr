@@ -15,6 +15,7 @@ import {
   TORPEDO_MAX_AMMO,
   armorTierLabel,
 } from '@/loot/shop'
+import { NIGHT_SHARD_STATUS_LABEL, NYX_COMLOG_BODY, NYX_COMLOG_LABEL } from '@/lore/easterEggs'
 
 export type PauseShipStatus = {
   hp: number
@@ -30,6 +31,8 @@ export type PauseShipStatus = {
   overheated: boolean
   speed: number
   altitude: number
+  nightShards?: number
+  nyxComlogUnlocked?: boolean
 }
 
 type PauseMenuProps = {
@@ -139,6 +142,7 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
     ? 'Pilot input suspended · simulation frozen'
     : 'Acquire stick lock to depart Thalassa station'
   const [audio, setAudio] = useState(getAudioSettings)
+  const [comlogOpen, setComlogOpen] = useState(false)
 
   useEffect(() => subscribeAudioSettings(setAudio), [])
 
@@ -554,6 +558,14 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
                           ? 'Long-range'
                           : 'Stock array',
                       ],
+                      ...(ship.nightShards && ship.nightShards > 0
+                        ? ([
+                            [
+                              NIGHT_SHARD_STATUS_LABEL,
+                              String(ship.nightShards),
+                            ],
+                          ] as const)
+                        : []),
                       ...(isPaused
                         ? ([
                             ['Speed', `${ship.speed.toFixed(0)} u/s`],
@@ -585,8 +597,10 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
                                 ? '#9ad8ff'
                                 : label === 'Thruster' && ship.thrusterOwned
                                   ? '#9ef0c8'
-                                  : label === 'Sensors' && ship.sensorsOwned
-                                    ? '#9ef0c8'
+                                : label === 'Sensors' && ship.sensorsOwned
+                                  ? '#9ef0c8'
+                                  : label === NIGHT_SHARD_STATUS_LABEL
+                                    ? 'rgba(180, 160, 220, 0.9)'
                                   : 'rgba(210, 230, 220, 0.88)',
                         }}
                       >
@@ -594,6 +608,40 @@ export function PauseMenu({ mode, onResume, ship = null }: PauseMenuProps) {
                       </span>
                     </div>
                   ))}
+                  {ship.nyxComlogUnlocked && (
+                    <button
+                      type="button"
+                      onClick={() => setComlogOpen((v) => !v)}
+                      style={{
+                        marginTop: 8,
+                        width: '100%',
+                        textAlign: 'left',
+                        border: '1px solid rgba(140, 120, 180, 0.35)',
+                        background: 'rgba(12, 8, 18, 0.45)',
+                        color: 'rgba(190, 175, 230, 0.85)',
+                        fontFamily: font,
+                        fontSize: 12,
+                        letterSpacing: '0.1em',
+                        padding: '8px 10px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <div>{NYX_COMLOG_LABEL}</div>
+                      {comlogOpen && (
+                        <div
+                          style={{
+                            marginTop: 6,
+                            fontSize: 12,
+                            letterSpacing: '0.04em',
+                            color: 'rgba(170, 160, 210, 0.75)',
+                            lineHeight: 1.4,
+                          }}
+                        >
+                          {NYX_COMLOG_BODY}
+                        </div>
+                      )}
+                    </button>
+                  )}
                 </div>
               )}
             </div>

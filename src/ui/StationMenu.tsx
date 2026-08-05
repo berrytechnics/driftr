@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import {
   MATERIAL_KINDS,
   MATERIAL_LABEL,
@@ -31,6 +31,12 @@ import {
   torpedoReloadSlots,
   type StationDesk,
 } from '@/loot/shop'
+import {
+  GHOST_BERTH_LABEL,
+  GHOST_BERTH_PLAQUE,
+  NYX_COM_GHOST,
+  rollNyxComGhost,
+} from '@/lore/easterEggs'
 
 type StationMenuProps = {
   stationName?: string
@@ -43,6 +49,10 @@ type StationMenuProps = {
   torpedoAmmo: number
   thrusterOwned: boolean
   sensorsOwned: boolean
+  /** Rare decommissioned Nyx transit pad ghost label */
+  ghostBerth?: boolean
+  /** Whisper unlocks COM ghost eligibility even without ghost berth */
+  nyxWhisperHeard?: boolean
   onSell: (kind: MaterialKind) => void
   onSellAll: () => void
   onRepair: () => void
@@ -99,6 +109,8 @@ export function StationMenu({
   torpedoAmmo,
   thrusterOwned,
   sensorsOwned,
+  ghostBerth = false,
+  nyxWhisperHeard = false,
   onSell,
   onSellAll,
   onRepair,
@@ -106,6 +118,8 @@ export function StationMenu({
   onUndock,
 }: StationMenuProps) {
   const [desk, setDesk] = useState<StationDesk>('cargo')
+  const [plaqueOpen, setPlaqueOpen] = useState(false)
+  const [comGhost, setComGhost] = useState<string | null>(null)
   const units = cargoUnits(cargo)
   const holdValue = cargoValue(cargo)
   const damage = missingHp(hp, maxHp)
@@ -113,6 +127,14 @@ export function StationMenu({
   const hullPct = maxHp > 0 ? Math.round((hp / maxHp) * 100) : 0
   const canRepair = damage > 0 && credits >= cost
   const reloadSlots = torpedoReloadSlots(torpedoAmmo)
+
+  useEffect(() => {
+    if (!(ghostBerth || nyxWhisperHeard)) return
+    if (!rollNyxComGhost()) return
+    setComGhost(NYX_COM_GHOST)
+    const hide = window.setTimeout(() => setComGhost(null), 6500)
+    return () => window.clearTimeout(hide)
+  }, [ghostBerth, nyxWhisperHeard])
 
   return (
     <div
@@ -327,6 +349,24 @@ export function StationMenu({
             <span>ATC CLEAR</span>
           </div>
 
+          {comGhost && (
+            <div
+              style={{
+                flexShrink: 0,
+                marginBottom: 14,
+                padding: '8px 12px',
+                border: '1px solid rgba(140, 120, 180, 0.35)',
+                background: 'rgba(12, 8, 20, 0.55)',
+                fontSize: 11,
+                letterSpacing: '0.08em',
+                color: 'rgba(190, 175, 230, 0.78)',
+                fontStyle: 'italic',
+              }}
+            >
+              COM · INTERCEPT — {comGhost}
+            </div>
+          )}
+
           <div className="station-mfd-grid">
             <div>
               <div
@@ -353,7 +393,7 @@ export function StationMenu({
               </h1>
               <p
                 style={{
-                  margin: '0 0 28px',
+                  margin: ghostBerth ? '0 0 16px' : '0 0 28px',
                   fontSize: 'clamp(14px, 1.4vw, 17px)',
                   lineHeight: 1.5,
                   color: 'rgba(180, 210, 230, 0.75)',
@@ -364,6 +404,58 @@ export function StationMenu({
                 Sell haulage, repair the hull, outfit weapons, then undock when
                 ready.
               </p>
+
+              {ghostBerth && (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 8,
+                    marginBottom: 28,
+                    fontSize: 10,
+                    letterSpacing: '0.14em',
+                  }}
+                >
+                  {(['01', '02', '03'] as const).map((pad) => (
+                    <span
+                      key={pad}
+                      style={{
+                        border: '1px solid rgba(120, 190, 230, 0.28)',
+                        padding: '5px 10px',
+                        color: 'rgba(160, 200, 230, 0.65)',
+                        background: 'rgba(0, 0, 0, 0.22)',
+                      }}
+                    >
+                      BERTH {pad} · OPEN
+                    </span>
+                  ))}
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setPlaqueOpen((v) => !v)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setPlaqueOpen((v) => !v)
+                      }
+                    }}
+                    style={{
+                      border: '1px solid rgba(120, 100, 160, 0.28)',
+                      padding: '5px 10px',
+                      background: 'rgba(12, 8, 20, 0.35)',
+                      color: 'rgba(150, 130, 190, 0.55)',
+                      textDecoration: plaqueOpen ? 'none' : 'line-through',
+                      textDecorationColor: 'rgba(120, 100, 160, 0.35)',
+                      animation: 'stationBlink 2.4s step-end infinite',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {plaqueOpen
+                      ? `BERTH 04 · ${GHOST_BERTH_PLAQUE}`
+                      : `BERTH 04 · ${GHOST_BERTH_LABEL}`}
+                  </span>
+                </div>
+              )}
 
               <div
                 style={{

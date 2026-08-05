@@ -178,18 +178,25 @@ export function createAsteroidMaterial(
         {
           float lod = max(vRockLod, 0.15);
           vec3 rp = vRockPos * uRockFreq;
+          // Surface mottling — darker clefts, dusty ridges; keep instance hue
           float grit = rockFbm(rp, lod);
           float ridges = rockRidged(rp * 2.4, lod);
           float pits = rockRidged(rp * 5.1 + 2.0, lod);
-          float contrast = uRockContrast * mix(0.35, 1.0, lod);
-          float shade = mix(1.0 - contrast, 1.0 + contrast * 0.6, grit);
-          shade *= mix(0.82, 1.12, ridges);
-          shade *= mix(0.9, 1.05, pits);
-          // Neutral ash ↔ cool slate (no yellow/brown multiply)
-          vec3 ash = vec3(0.92, 0.93, 0.94);
-          vec3 slate = vec3(0.82, 0.86, 0.92);
-          float tint = saturate(ridges * 0.65 + grit * 0.35);
-          diffuseColor.rgb *= mix(ash, slate, tint) * shade;
+          float contrast = uRockContrast * mix(0.45, 1.15, lod);
+          float shade = mix(1.0 - contrast * 0.85, 1.0 + contrast * 0.45, grit);
+          shade *= mix(0.78, 1.14, ridges);
+          shade *= mix(0.86, 1.06, pits);
+
+          vec3 base = diffuseColor.rgb;
+          float lum = dot(base, vec3(0.299, 0.587, 0.114));
+          // Cool ash in pits, warm dust on ridges — breaks flat paint
+          vec3 cool = mix(base, vec3(lum * 0.92), 0.45);
+          vec3 warm = base * vec3(1.08, 1.02, 0.94);
+          float coolMix = (1.0 - smoothstep(0.3, 0.7, grit)) * 0.5;
+          float warmMix = smoothstep(0.4, 0.85, ridges) * 0.35;
+          vec3 mottled = mix(base, cool, coolMix);
+          mottled = mix(mottled, warm, warmMix);
+          diffuseColor.rgb = mottled * shade;
         }
         `,
       )
@@ -203,7 +210,7 @@ export function createAsteroidMaterial(
       )
   }
 
-  material.customProgramCacheKey = () => 'asteroid-rock-fbm-v7-matte'
+  material.customProgramCacheKey = () => 'asteroid-rock-fbm-v9-mottle'
   return material
 }
 

@@ -3,9 +3,8 @@ import { useFrame } from '@react-three/fiber'
 import { useLayoutEffect, useRef, type RefObject } from 'react'
 import { Group, SRGBColorSpace, Vector3 } from 'three'
 import {
-  circularOrbitTangent,
   gravityAcceleration,
-  orbitalSpeed,
+  placeEllipticalOrbit,
 } from '@/world/gravity'
 
 type PlanetProps = {
@@ -17,10 +16,15 @@ type PlanetProps = {
    */
   orbitRadius: number
   /**
-   * Orbital eccentricity (0 = circle). Planet starts at periapsis with
-   * the matching vis-viva speed so gravity keeps a closed ellipse.
+   * Orbital eccentricity (0 = circle). Default start is periapsis unless
+   * `startRadiusFraction` is set.
    */
   eccentricity?: number
+  /**
+   * Where on the ellipse to seed (0 = periapsis, 1 = apoapsis) by radius.
+   * Only meaningful when eccentricity > 0.
+   */
+  startRadiusFraction?: number
   mu: number
   /**
    * Scales circular-orbit speed (and matching gravity).
@@ -44,43 +48,14 @@ type PlanetProps = {
 }
 
 const _body = new Vector3()
-const _radial = new Vector3()
-const _tangent = new Vector3()
 const _gravity = new Vector3()
-const _tilt = new Vector3()
-
-function placeInOrbit(
-  group: Group,
-  velocity: Vector3,
-  body: Vector3,
-  semiMajor: number,
-  eccentricity: number,
-  effectiveMu: number,
-  phase: number,
-  inclination: number,
-) {
-  const e = Math.min(Math.max(eccentricity, 0), 0.95)
-  const periapsis = semiMajor * (1 - e)
-
-  // Start in the XZ plane at periapsis, then tilt around X
-  _radial.set(Math.cos(phase), 0, Math.sin(phase))
-  if (inclination !== 0) {
-    _tilt.set(1, 0, 0)
-    _radial.applyAxisAngle(_tilt, inclination)
-  }
-  _radial.normalize()
-
-  group.position.copy(body).addScaledVector(_radial, periapsis)
-  const speed = orbitalSpeed(effectiveMu, periapsis, semiMajor)
-  circularOrbitTangent(_radial, _tangent)
-  velocity.copy(_tangent).multiplyScalar(speed)
-}
 
 export function Planet({
   sunPosition,
   sunSize,
   orbitRadius,
   eccentricity = 0,
+  startRadiusFraction = 0,
   mu,
   orbitSpeedScale = 0.12,
   map,
@@ -109,8 +84,8 @@ export function Planet({
   // Re-seed orbit when sun / μ / elements change via Leva
   useLayoutEffect(() => {
     _body.set(...sunPosition)
-    placeInOrbit(
-      group.current,
+    placeEllipticalOrbit(
+      group.current.position,
       velocity.current,
       _body,
       orbitRadius,
@@ -118,8 +93,17 @@ export function Planet({
       effectiveMu,
       phase,
       inclination,
+      eccentricity > 0.02 ? startRadiusFraction : 0,
     )
-  }, [sunPosition, orbitRadius, eccentricity, effectiveMu, phase, inclination])
+  }, [
+    sunPosition,
+    orbitRadius,
+    eccentricity,
+    startRadiusFraction,
+    effectiveMu,
+    phase,
+    inclination,
+  ])
 
   useFrame((_, delta) => {
     if (paused) return
@@ -150,9 +134,8 @@ export function Planet({
           <meshStandardMaterial
             map={texture}
             color={color}
-            roughness={0.88}
-            metalness={0}
-            envMapIntensity={0}
+            roughness={0.85}
+            metalness={0.05}
           />
         </mesh>
       </group>

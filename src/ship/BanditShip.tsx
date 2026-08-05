@@ -16,7 +16,10 @@ import {
   Vector3,
   type MeshBasicMaterial,
 } from 'three'
-import type { BanditCombatState } from '@/combat/combatHud'
+import {
+  COMBAT_ENGAGE_RANGE,
+  type BanditCombatState,
+} from '@/combat/combatHud'
 import {
   BELT_INNER,
   BELT_OUTER,
@@ -705,7 +708,8 @@ export function BanditShip({
       !!rivalLive &&
       rivalDist < FIRE_RANGE * 1.8
     showHealth.current = chasing || skirmishing
-    writeCombatState(chasing, true)
+    const inCombatRange = Number.isFinite(preyDist) && preyDist < COMBAT_ENGAGE_RANGE
+    writeCombatState(chasing && inCombatRange, true)
 
     let patrolRadialW = 0
     let combatSep = preyDist

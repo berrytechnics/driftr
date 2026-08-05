@@ -1,7 +1,11 @@
 import { useFrame, useThree } from '@react-three/fiber'
 import type { RefObject } from 'react'
 import { Vector3, type Group } from 'three'
-import type { BanditCombatState, CombatHudState } from '@/combat/combatHud'
+import {
+  COMBAT_ENGAGE_RANGE,
+  type BanditCombatState,
+  type CombatHudState,
+} from '@/combat/combatHud'
 
 type CombatTrackerProps = {
   banditRefs: RefObject<Group | null>[]
@@ -16,6 +20,7 @@ const _pos = new Vector3()
 const ON_SCREEN = 0.82
 /** Pixel inset so the chevron sits fully on-screen at the rim. */
 const EDGE_INSET_PX = 22
+const engageRangeSq = COMBAT_ENGAGE_RANGE * COMBAT_ENGAGE_RANGE
 
 /**
  * Projects the nearest engaged bandit to screen space and writes edge-chevron
@@ -46,6 +51,7 @@ export function CombatTracker({
       if (!combat?.alive || !combat.engaged || !bandit) continue
       bandit.getWorldPosition(_pos)
       const distSq = camera.position.distanceToSquared(_pos)
+      if (distSq > engageRangeSq) continue
       if (distSq < bestDistSq) {
         bestDistSq = distSq
         bestIndex = i

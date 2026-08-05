@@ -68,7 +68,7 @@ export function SpaceStation({
   planetSize,
   modelUrl = STATION_MODEL_URLS.thalassa,
   orbitAltitude = 2.4,
-  orbitSpeed = 0.14,
+  orbitSpeed = 0.07,
   inclination = 0.18,
   phase = Math.PI * 0.35,
   scale = 0.28,

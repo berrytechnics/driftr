@@ -34,6 +34,18 @@ export type MapSnapshot = {
   bandits: { x: number; z: number }[]
   /** Friendly patrol pips (sun-relative XZ) */
   patrols: { x: number; z: number }[]
+  /** Seconds remaining — bright silver Nyx ellipse (cruise into night) */
+  nyxOrbitGlow: number
+  /** Persist-driven — draw faint NYX TRANSIT corridor on Nyx’s ellipse */
+  nyxCorridorUnlocked: boolean
+  /** Ephemeral lore map pings (NT-0, etc.) */
+  lorePings: MapLorePing[]
+}
+
+export type MapLorePing = {
+  x: number
+  z: number
+  label: string
 }
 
 export function createEmptyMapSnapshot(): MapSnapshot {
@@ -47,5 +59,8 @@ export function createEmptyMapSnapshot(): MapSnapshot {
     ship: null,
     bandits: [],
     patrols: [],
+    nyxOrbitGlow: 0,
+    nyxCorridorUnlocked: false,
+    lorePings: [],
   }
 }

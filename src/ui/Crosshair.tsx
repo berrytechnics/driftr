@@ -5,6 +5,8 @@ export function Crosshair({
   torpedoOwned = false,
   torpedoLock = 0,
   torpedoAmmo = 0,
+  /** Hyperion proximity — chaotic moon nudges the pip */
+  wobble = false,
 }: {
   overheated: boolean
   dead: boolean
@@ -12,6 +14,7 @@ export function Crosshair({
   /** 0–1 seeker lock progress */
   torpedoLock?: number
   torpedoAmmo?: number
+  wobble?: boolean
 }) {
   const color = dead ? '#ff7b72' : overheated ? '#ff7b72' : '#ff6a4a'
   const opacity = dead ? 0.25 : overheated ? 0.45 : 0.85
@@ -35,11 +38,29 @@ export function Crosshair({
         zIndex: 5,
       }}
     >
+      {wobble && (
+        <style>{`
+          @keyframes hyperionWobble {
+            0%, 100% { transform: translate(0px, 0px); }
+            18% { transform: translate(1.6px, -1.1px); }
+            36% { transform: translate(-1.4px, 0.9px); }
+            54% { transform: translate(1.1px, 1.5px); }
+            72% { transform: translate(-1.8px, -0.6px); }
+            88% { transform: translate(0.7px, -1.4px); }
+          }
+        `}</style>
+      )}
       <svg
         width="44"
         height="44"
         viewBox="0 0 44 44"
-        style={{ opacity, overflow: 'visible' }}
+        style={{
+          opacity,
+          overflow: 'visible',
+          animation: wobble
+            ? 'hyperionWobble 0.55s steps(2, end) infinite'
+            : undefined,
+        }}
       >
         {locking && (
           <circle

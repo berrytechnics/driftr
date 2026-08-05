@@ -1,6 +1,6 @@
 /** Mutable combat HUD snapshot written each frame for the DOM overlay. */
 export type CombatHudState = {
-  /** Bandit is in chase / gunfight */
+  /** Bandit is in close gunfight range */
   engaged: boolean
   /** Off-screen (or near edge) — show the edge chevron */
   showChevron: boolean
@@ -12,6 +12,9 @@ export type CombatHudState = {
   hp: number
   maxHp: number
 }
+
+/** Bandits closer than this (world units) count as in combat — blocks adv. thruster. */
+export const COMBAT_ENGAGE_RANGE = 100
 
 export function createEmptyCombatHud(): CombatHudState {
   return {

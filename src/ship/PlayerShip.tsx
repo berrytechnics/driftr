@@ -10,6 +10,10 @@ import {
 } from 'react'
 import { Group, Object3D, Quaternion, Vector3 } from 'three'
 import { circularOrbitSpeed } from '@/world/gravity'
+import {
+  isPastKronos,
+  NYX_ORBIT_GLOW_S,
+} from '@/lore/easterEggs'
 import { OrbitGuide } from '@/ship/OrbitGuide'
 import { HitSpark } from '@/ship/HitSpark'
 import { EXPLOSION_LIFETIME, ShipExplosion } from '@/ship/ShipExplosion'
@@ -146,6 +150,8 @@ export type CollisionHazard = {
   /** Display name for proximity HUD (optional). */
   name?: string
   kind?: 'planet' | 'moon'
+  /** Extra near-body cue range beyond the default pad (tiny distant bodies). */
+  nearPad?: number
 }
 
 /** Dense field of lethal spheres (asteroid belt, debris, …). */
@@ -240,6 +246,8 @@ type PlayerShipProps = {
   combatHudRef?: RefObject<CombatHudState>
   /** True while ballistic burn is active — blanks NPC map contacts */
   mapCloakRef?: MutableRefObject<boolean>
+  /** Seconds remaining — cruise into night lights Nyx’s orbit on the map */
+  nyxOrbitGlowRef?: MutableRefObject<number>
   /** True while the hold has anything to dump (App-owned cargo). */
   hasCargoRef?: RefObject<{ units: number }>
   /** Dump the hold at the ship — bandits peel off to scavenge. */
@@ -290,7 +298,10 @@ function findNearBody(
     if (!obj) continue
     obj.getWorldPosition(scratch)
     const dist = position.distanceTo(scratch)
-    const range = hazard.radius * NEAR_BODY_RADIUS_FACTOR + NEAR_BODY_PAD
+    const range =
+      hazard.radius * NEAR_BODY_RADIUS_FACTOR +
+      NEAR_BODY_PAD +
+      (hazard.nearPad ?? 0)
     if (dist < range && dist < bestDist) {
       bestDist = dist
       bestName = hazard.name
@@ -425,6 +436,7 @@ export function PlayerShip({
   thrusterOwned = false,
   combatHudRef,
   mapCloakRef,
+  nyxOrbitGlowRef,
   hasCargoRef,
   onJettisonCargo,
 }: PlayerShipProps) {
@@ -892,8 +904,10 @@ export function PlayerShip({
         .copy(group.position)
         .addScaledVector(_forward, lookAhead)
         .addScaledVector(_up, camHeight)
-      camera.position.lerp(_camPos, 1 - Math.exp(-6 * dt))
-      camera.up.lerp(_up, 1 - Math.exp(-6 * dt)).normalize()
+      // Hard-lock like flight — soft lerp lagged the orbiting berth and
+      // made view-dir wobble against the stars (frame-time dependent).
+      camera.position.copy(_camPos)
+      camera.up.copy(_up)
       camera.lookAt(_lookAt)
 
       telemetryAge.current += dt
@@ -1034,8 +1048,20 @@ export function PlayerShip({
       }
     }
     thrusterKeyWasDown.current = cDown
+    if (thrusterActive.current && combatHudRef?.current.engaged) {
+      thrusterActive.current = false
+    }
     const ballistic = thrusterActive.current
     if (mapCloakRef) mapCloakRef.current = ballistic
+    if (ballistic && nyxOrbitGlowRef) {
+      const sunDist = group.position.distanceTo(_body)
+      if (isPastKronos(sunDist)) {
+        nyxOrbitGlowRef.current = Math.max(
+          nyxOrbitGlowRef.current,
+          NYX_ORBIT_GLOW_S,
+        )
+      }
+    }
 
     let yaw = ballistic ? 0 : -mouse.current.x * mouseSensitivity * turnSpeed
     let pitch = ballistic ? 0 : -mouse.current.y * mouseSensitivity * turnSpeed
