@@ -8,11 +8,15 @@ const rootDir = path.dirname(fileURLToPath(import.meta.url))
 
 // https://vite.dev/config/
 // Production builds use /driftr/ for GitHub Pages; `vite`/preview locally stay at /.
-export default defineConfig(({ command }) => ({
+export default defineConfig(({ command, mode }) => ({
   base: command === 'build' ? '/driftr/' : '/',
   resolve: {
     alias: {
       '@': path.resolve(rootDir, 'src'),
+      // Drop leva from the production bundle; schemas resolve to defaults
+      ...(mode === 'production'
+        ? { leva: path.resolve(rootDir, 'src/dev/levaStub.ts') }
+        : {}),
     },
   },
   build: {
@@ -37,8 +41,9 @@ export default defineConfig(({ command }) => ({
     VitePWA({
       registerType: 'autoUpdate',
       includeAssets: [
-        'favicon.svg',
-        'icons.svg',
+        'driftr.ico',
+        'driftr.png',
+        'apple-touch-icon.png',
         'pwa-192.png',
         'pwa-512.png',
         'pwa-maskable-512.png',
@@ -48,7 +53,7 @@ export default defineConfig(({ command }) => ({
         short_name: 'Driftr',
         description: 'Fly the Sol system — dock, fight asteroids, and chase buffs.',
         theme_color: '#060c0e',
-        background_color: '#000008',
+        background_color: '#000000',
         display: 'standalone',
         orientation: 'any',
         // Relative so GitHub Pages subdirectory (/driftr/) resolves correctly
@@ -72,12 +77,18 @@ export default defineConfig(({ command }) => ({
             type: 'image/png',
             purpose: 'maskable',
           },
+          {
+            src: 'driftr.png',
+            sizes: '1254x1254',
+            type: 'image/png',
+            purpose: 'any',
+          },
         ],
       },
       workbox: {
         // App shell + hashed assets; heavy models/textures use runtime cache
         globPatterns: ['**/*.{js,css,html,ico,svg,png,woff2}'],
-        // Station GLB alone is ~50MB — keep precache lean
+        // Keep precache lean — heavy glb/mp3 use runtime CacheFirst below
         maximumFileSizeToCacheInBytes: 8 * 1024 * 1024,
         runtimeCaching: [
           {

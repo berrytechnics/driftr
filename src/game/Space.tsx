@@ -2,6 +2,7 @@ import { Environment, Lightformer } from '@react-three/drei'
 import { Bloom, EffectComposer } from '@react-three/postprocessing'
 import { useControls } from 'leva'
 import {
+  lazy,
   memo,
   Suspense,
   useCallback,
@@ -13,12 +14,12 @@ import {
 import { Group, Vector3, type Mesh } from 'three'
 import { BanditShip } from '@/ship/BanditShip'
 import type { LaserTarget } from '@/ship/ShipWeapons'
-import gaseous from '@/assets/textures/planets/Gaseous2.png'
-import gaseousOuter from '@/assets/textures/planets/Gaseous4.png'
-import icy from '@/assets/textures/planets/Icy.png'
-import martian from '@/assets/textures/planets/Martian.png'
-import tropical from '@/assets/textures/planets/Tropical.png'
-import volcanic from '@/assets/textures/planets/Volcanic.png'
+import gaseous from '@/assets/textures/planets/Gaseous2.webp'
+import gaseousOuter from '@/assets/textures/planets/Gaseous4.webp'
+import icy from '@/assets/textures/planets/Icy.webp'
+import martian from '@/assets/textures/planets/Martian.webp'
+import tropical from '@/assets/textures/planets/Tropical.webp'
+import volcanic from '@/assets/textures/planets/Volcanic.webp'
 import { BuffDrops, type BuffDropsHandle } from '@/loot/BuffDrops'
 import {
   MaterialDrops,
@@ -43,7 +44,6 @@ import {
 import { AsteroidBelt } from '@/world/AsteroidBelt'
 import { PlanetMoons } from '@/world/Moons'
 import { Planet } from '@/world/Planet'
-import { SpaceStation } from '@/world/SpaceStation'
 import { Starfield } from '@/world/Starfield'
 import { StableGodRays } from '@/world/StableGodRays'
 import { Sun } from '@/world/Sun'
@@ -68,7 +68,12 @@ import {
   SUN_SIZE,
 } from '@/game/systemConfig'
 
+const SpaceStation = lazy(() =>
+  import('@/world/SpaceStation').then((m) => ({ default: m.SpaceStation })),
+)
+
 export const Space = memo(function Space({
+  started,
   paused,
   docked,
   onLockChange,
@@ -80,6 +85,7 @@ export const Space = memo(function Space({
   combatHudRef,
   initialHull,
 }: {
+  started: boolean
   paused: boolean
   docked: boolean
   onLockChange: (locked: boolean) => void
@@ -278,8 +284,8 @@ export const Space = memo(function Space({
     bloomThreshold,
     godRays,
   } = useControls('Sun', {
-    sunColor: '#ffaa44',
-    sunIntensity: { value: 1.35, min: 0, max: 5, step: 0.05 },
+    sunColor: '#ffdfb9',
+    sunIntensity: { value: 4.15, min: 0, max: 5, step: 0.05 },
     sunDistance: { value: 200, min: 40, max: 400, step: 5 },
     elevation: { value: 18, min: -60, max: 80, step: 1 },
     azimuth: { value: 35, min: 0, max: 360, step: 1 },
@@ -503,16 +509,18 @@ export const Space = memo(function Space({
           spin={0.06}
           paused={paused}
         />
-        <SpaceStation
-          planetRef={beltPlanet}
-          planetSize={BELT_PLANET_SIZE}
-          orbitAltitude={2.2}
-          orbitSpeed={0.14}
-          inclination={0.22}
-          scale={0.28}
-          paused={paused}
-          stationRef={thalassaStation}
-        />
+        {started && (
+          <SpaceStation
+            planetRef={beltPlanet}
+            planetSize={BELT_PLANET_SIZE}
+            orbitAltitude={2.2}
+            orbitSpeed={0.14}
+            inclination={0.22}
+            scale={0.28}
+            paused={paused}
+            stationRef={thalassaStation}
+          />
+        )}
         <PlanetMoons
           planetRef={beltPlanet}
           planetSize={BELT_PLANET_SIZE}

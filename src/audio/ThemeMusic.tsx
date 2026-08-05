@@ -1,7 +1,10 @@
-import { useControls } from 'leva'
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import musicUrl from '@/assets/audio/music_the_mountain_space.mp3?url'
 import stationUrl from '@/assets/audio/station.mp3?url'
+import {
+  getMusicVolume,
+  subscribeAudioSettings,
+} from '@/audio/audioSettings'
 import { unlockAudio } from '@/audio/gameAudio'
 
 let themeAudio: HTMLAudioElement | null = null
@@ -17,7 +20,16 @@ export function tryPlayTheme() {
 export function tryPlayStation() {
   unlockAudio()
   themeAudio?.pause()
-  void stationAudio?.play().catch(() => {})
+  void ensureStationAudio().play().catch(() => {})
+}
+
+function ensureStationAudio() {
+  if (stationAudio) return stationAudio
+  const station = new Audio(stationUrl)
+  station.loop = true
+  station.preload = 'auto'
+  stationAudio = station
+  return station
 }
 
 type ThemeMusicProps = {
@@ -27,15 +39,13 @@ type ThemeMusicProps = {
   docked?: boolean
 }
 
-/** Looping theme / station tracks with Leva play/volume controls. */
+/** Looping theme / station tracks driven by pause-menu volume. */
 export function ThemeMusic({ playing, docked = false }: ThemeMusicProps) {
   const themeRef = useRef<HTMLAudioElement | null>(null)
   const stationRef = useRef<HTMLAudioElement | null>(null)
+  const [volume, setVolume] = useState(getMusicVolume)
 
-  const { enabled, volume } = useControls('Music', {
-    enabled: { value: true, label: 'Play theme' },
-    volume: { value: 0.4, min: 0, max: 1, step: 0.01 },
-  })
+  useEffect(() => subscribeAudioSettings((s) => setVolume(s.music)), [])
 
   useEffect(() => {
     const theme = new Audio(musicUrl)
@@ -44,51 +54,59 @@ export function ThemeMusic({ playing, docked = false }: ThemeMusicProps) {
     themeRef.current = theme
     themeAudio = theme
 
-    const station = new Audio(stationUrl)
-    station.loop = true
-    station.preload = 'auto'
-    stationRef.current = station
-    stationAudio = station
-
     return () => {
       theme.pause()
       theme.removeAttribute('src')
       theme.load()
-      station.pause()
-      station.removeAttribute('src')
-      station.load()
       if (themeAudio === theme) themeAudio = null
-      if (stationAudio === station) stationAudio = null
       themeRef.current = null
+
+      const station = stationRef.current ?? stationAudio
+      if (station) {
+        station.pause()
+        station.removeAttribute('src')
+        station.load()
+        if (stationAudio === station) stationAudio = null
+      }
       stationRef.current = null
     }
   }, [])
 
+  // Station track is only fetched when the player docks
+  useEffect(() => {
+    if (!docked) return
+    const station = ensureStationAudio()
+    station.volume = volume
+    stationRef.current = station
+  }, [docked, volume])
+
   useEffect(() => {
     const theme = themeRef.current
-    const station = stationRef.current
     if (theme) theme.volume = volume
-    if (station) station.volume = volume
+    if (stationRef.current) stationRef.current.volume = volume
+    else if (stationAudio) stationAudio.volume = volume
   }, [volume])
 
   useEffect(() => {
     const theme = themeRef.current
-    const station = stationRef.current
-    if (!theme || !station) return
+    if (!theme) return
 
-    if (!enabled) {
+    if (volume < 1e-3) {
       theme.pause()
-      station.pause()
+      stationAudio?.pause()
       return
     }
 
     if (docked) {
       theme.pause()
+      const station = ensureStationAudio()
+      stationRef.current = station
+      station.volume = volume
       void station.play().catch(() => {
         // Unlocked via tryPlayStation() on the Dock click.
       })
     } else {
-      station.pause()
+      stationAudio?.pause()
       if (playing) {
         void theme.play().catch(() => {
           // Autoplay blocked until Launch/Resume click calls tryPlayTheme().
@@ -97,7 +115,7 @@ export function ThemeMusic({ playing, docked = false }: ThemeMusicProps) {
         theme.pause()
       }
     }
-  }, [enabled, playing, docked])
+  }, [playing, docked, volume])
 
   return null
 }

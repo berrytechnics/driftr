@@ -63,7 +63,8 @@ export function SpaceStation({
 }: SpaceStationProps) {
   const group = useRef<Group>(null!)
   const angle = useRef(Math.PI * 0.35)
-  const { scene } = useGLTF(stationUrl)
+  // meshopt + webp (compressed station asset); decoder enabled via useMeshopt
+  const { scene } = useGLTF(stationUrl, true, true)
 
   const model = useMemo(() => {
     const clone = scene.clone(true)
@@ -113,5 +114,3 @@ export function SpaceStation({
     </group>
   )
 }
-
-useGLTF.preload(stationUrl)

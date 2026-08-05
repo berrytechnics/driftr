@@ -89,6 +89,8 @@ const CONTACT_RANGE = 36
 const FIRE_RANGE = 30
 const FIRE_COS = Math.cos((55 * Math.PI) / 180)
 const SEARCH_TIME = 8
+/** Keep chase briefly through a flicker of occlusion, then investigate last seen */
+const LOS_GRACE = 0.45
 const PATROL_CRUISE = 16
 /** Close the gap from long range */
 const CHASE_APPROACH_CRUISE = 20
@@ -233,6 +235,7 @@ export function BanditShip({
   const velocity = useRef(new Vector3())
   const mode = useRef<BanditMode>('patrol')
   const searchTimer = useRef(0)
+  const losGrace = useRef(0)
   const hp = useRef(BANDIT_HP)
   const pendingDamage = useRef(0)
   const respawnTimer = useRef(-1)
@@ -481,20 +484,27 @@ export function BanditShip({
       }
     }
 
-    // Spot → chase; stay on them until LOSE_RANGE (don't drop chase on one blocked frame)
+    // Spot → chase. Without LOS, freeze on last seen (never track live prey).
+    // Brief grace so one occluded frame doesn't dump chase → search.
     if (dockSafe && (mode.current === 'chase' || mode.current === 'search')) {
       mode.current = 'patrol'
       searchTimer.current = 0
+      losGrace.current = 0
     } else if (spotted) {
       mode.current = 'chase'
       _lastSeen.copy(_target)
       searchTimer.current = SEARCH_TIME
+      losGrace.current = LOS_GRACE
     } else if (mode.current === 'chase') {
       if (preyDist > LOSE_RANGE) {
         mode.current = 'search'
         searchTimer.current = SEARCH_TIME
-      } else if (prey) {
-        _lastSeen.copy(_target)
+        losGrace.current = 0
+      } else {
+        losGrace.current -= dt
+        if (losGrace.current <= 0) {
+          mode.current = 'search'
+        }
       }
     } else if (mode.current === 'search') {
       searchTimer.current -= dt
@@ -510,24 +520,24 @@ export function BanditShip({
 
     let patrolRadialW = 0
     let combatSep = preyDist
+    // Live track only while actually spotted; otherwise chase grace uses last seen
+    const trackLive = chasing && spotted
 
     // Chase: orbit at standoff (do NOT fly into the player — that one-shot rams)
     if (chasing && prey) {
-      combatSep = steerCombatOrbit(group.position, _target, _dir)
+      combatSep = steerCombatOrbit(
+        group.position,
+        trackLive ? _target : _lastSeen,
+        _dir,
+      )
     } else if (mode.current === 'search') {
       dirToward(group.position, _lastSeen, _dir)
       if (group.position.distanceTo(_lastSeen) < 4) {
         mode.current = 'patrol'
       }
     } else {
-      // Dock sanctuary: cruise the belt freely — don't hunt the player's
-      // sector (that parks the bandit against Thalassa's keep-out).
-      const patrol = steerBeltPatrol(
-        group.position,
-        _sun,
-        _dir,
-        prey && !dockSafe ? _target : null,
-      )
+      // Belt cruise only — no live sector hunt (that cheats LOS across the ring).
+      const patrol = steerBeltPatrol(group.position, _sun, _dir, null)
       patrolRadialW = patrol.radialW
     }
 
@@ -552,17 +562,20 @@ export function BanditShip({
     velocity.current.lerp(_wish, 1 - Math.exp(-5.5 * dt))
     group.position.addScaledVector(velocity.current, dt)
 
-    // Hard floor: never overlap the player (hostile collision = instant death)
-    if (chasing && prey && combatSep < COMBAT_ORBIT * 0.55) {
-      _radial.copy(group.position).sub(_target)
-      if (_radial.lengthSq() < 1e-6) _radial.set(1, 0, 0)
-      else _radial.normalize()
-      group.position
-        .copy(_target)
-        .addScaledVector(_radial, COMBAT_ORBIT * 0.75)
-      const toward = velocity.current.dot(_radial)
-      if (toward < 0) velocity.current.addScaledVector(_radial, -toward + 2)
-      combatSep = COMBAT_ORBIT * 0.75
+    // Hard floor: never overlap the live player (hostile collision = instant death)
+    if (chasing && prey) {
+      const liveSep = group.position.distanceTo(_target)
+      if (liveSep < COMBAT_ORBIT * 0.55) {
+        _radial.copy(group.position).sub(_target)
+        if (_radial.lengthSq() < 1e-6) _radial.set(1, 0, 0)
+        else _radial.normalize()
+        group.position
+          .copy(_target)
+          .addScaledVector(_radial, COMBAT_ORBIT * 0.75)
+        const toward = velocity.current.dot(_radial)
+        if (toward < 0) velocity.current.addScaledVector(_radial, -toward + 2)
+        combatSep = COMBAT_ORBIT * 0.75
+      }
     }
 
     // Hard sun shell + outward kick if we ever touch it
@@ -597,7 +610,7 @@ export function BanditShip({
     // Face after move. Mesh lookAt aims +Z at the point, but ship nose is −Z
     // (same as player), so look at a point behind the desired heading.
     if (chasing && prey) {
-      dirToward(group.position, _target, _aim)
+      dirToward(group.position, trackLive ? _target : _lastSeen, _aim)
       if (_aim.lengthSq() > 1e-8) {
         _steer.copy(group.position).sub(_aim)
         group.lookAt(_steer)
@@ -621,13 +634,13 @@ export function BanditShip({
       (1 - Math.exp(-8 * dt))
 
     fireCooldown.current = Math.max(0, fireCooldown.current - dt)
-    if (chasing && prey) {
+    if (trackLive) {
       dirToward(group.position, _target, _aim)
     }
     const aimDot =
-      chasing && _aim.lengthSq() > 1e-8 ? _forward.dot(_aim) : null
+      trackLive && _aim.lengthSq() > 1e-8 ? _forward.dot(_aim) : null
     if (
-      chasing &&
+      trackLive &&
       !dockSafe &&
       preyDist < FIRE_RANGE &&
       fireCooldown.current <= 0 &&

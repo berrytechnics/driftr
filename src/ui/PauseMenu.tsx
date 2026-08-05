@@ -1,3 +1,11 @@
+import { useEffect, useState } from 'react'
+import {
+  getAudioSettings,
+  setMusicVolume,
+  setSfxVolume,
+  subscribeAudioSettings,
+} from '@/audio/audioSettings'
+
 type PauseMenuProps = {
   mode: 'start' | 'paused'
   onResume: () => void
@@ -14,6 +22,52 @@ const controls = [
 ] as const
 
 const font = "'Share Tech Mono', ui-monospace, monospace"
+const logoUrl = `${import.meta.env.BASE_URL}driftr.png`
+
+function VolumeSlider({
+  label,
+  value,
+  onChange,
+}: {
+  label: string
+  value: number
+  onChange: (value: number) => void
+}) {
+  const pct = Math.round(value * 100)
+  return (
+    <label
+      style={{
+        display: 'grid',
+        gridTemplateColumns: '72px 1fr 44px',
+        alignItems: 'center',
+        gap: 12,
+        fontSize: 13,
+        letterSpacing: '0.12em',
+      }}
+    >
+      <span style={{ color: 'rgba(160, 210, 195, 0.65)' }}>{label}</span>
+      <input
+        type="range"
+        className="cockpit-slider"
+        min={0}
+        max={1}
+        step={0.01}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        aria-label={`${label} volume`}
+      />
+      <span
+        style={{
+          textAlign: 'right',
+          color: pct === 0 ? 'rgba(160, 210, 195, 0.4)' : '#9ef0c8',
+          fontVariantNumeric: 'tabular-nums',
+        }}
+      >
+        {pct === 0 ? 'OFF' : `${pct}%`}
+      </span>
+    </label>
+  )
+}
 
 function Corner({
   top,
@@ -53,6 +107,9 @@ export function PauseMenu({ mode, onResume }: PauseMenuProps) {
   const subtitle = isPaused
     ? 'Pilot input suspended · simulation frozen'
     : 'Acquire stick lock to depart Thalassa station'
+  const [audio, setAudio] = useState(getAudioSettings)
+
+  useEffect(() => subscribeAudioSettings(setAudio), [])
 
   return (
     <div
@@ -89,6 +146,43 @@ export function PauseMenu({ mode, onResume }: PauseMenuProps) {
         }
         .cockpit-btn:active {
           background: rgba(255, 196, 92, 0.28) !important;
+        }
+        .cockpit-slider {
+          -webkit-appearance: none;
+          appearance: none;
+          width: 100%;
+          height: 4px;
+          border-radius: 0;
+          background: rgba(120, 200, 180, 0.18);
+          outline: none;
+          cursor: pointer;
+        }
+        .cockpit-slider::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          appearance: none;
+          width: 14px;
+          height: 18px;
+          background: #ffd078;
+          border: 1px solid rgba(255, 196, 92, 0.9);
+          box-shadow: 0 0 10px rgba(255, 196, 92, 0.35);
+          cursor: pointer;
+        }
+        .cockpit-slider::-moz-range-thumb {
+          width: 14px;
+          height: 18px;
+          background: #ffd078;
+          border: 1px solid rgba(255, 196, 92, 0.9);
+          box-shadow: 0 0 10px rgba(255, 196, 92, 0.35);
+          border-radius: 0;
+          cursor: pointer;
+        }
+        .cockpit-slider::-moz-range-track {
+          height: 4px;
+          background: rgba(120, 200, 180, 0.18);
+        }
+        @keyframes cockpitLogoIn {
+          from { opacity: 0; transform: translateY(8px); }
+          to { opacity: 1; transform: translateY(0); }
         }
         .pause-mfd-grid {
           display: grid;
@@ -346,6 +440,43 @@ export function PauseMenu({ mode, onResume }: PauseMenuProps) {
               >
                 {isPaused ? '▶  Resume flight' : '▶  Engage / Launch'}
               </button>
+
+              <div
+                style={{
+                  marginTop: 22,
+                  border: '1px solid rgba(120, 200, 180, 0.2)',
+                  background: 'rgba(0, 8, 10, 0.4)',
+                  padding: '14px 16px 16px',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    fontSize: 11,
+                    letterSpacing: '0.18em',
+                    color: 'rgba(160, 210, 195, 0.55)',
+                    marginBottom: 14,
+                    paddingBottom: 10,
+                    borderBottom: '1px dashed rgba(120, 200, 180, 0.18)',
+                  }}
+                >
+                  <span>AUDIO</span>
+                  <span>GAIN BUS</span>
+                </div>
+                <div style={{ display: 'grid', gap: 14 }}>
+                  <VolumeSlider
+                    label="MUSIC"
+                    value={audio.music}
+                    onChange={setMusicVolume}
+                  />
+                  <VolumeSlider
+                    label="SFX"
+                    value={audio.sfx}
+                    onChange={setSfxVolume}
+                  />
+                </div>
+              </div>
             </div>
 
             {/* Controls as MFD list */}
@@ -408,15 +539,29 @@ export function PauseMenu({ mode, onResume }: PauseMenuProps) {
 
           <div
             style={{
-              marginTop: 18,
+              marginTop: 'auto',
+              paddingTop: 18,
               display: 'flex',
               justifyContent: 'space-between',
+              alignItems: 'flex-end',
+              gap: 16,
               fontSize: 11,
               letterSpacing: '0.12em',
               color: 'rgba(160, 210, 195, 0.4)',
             }}
           >
-            <span>DRIFTR · THALASSA DOCK</span>
+            <img
+              src={logoUrl}
+              alt="Driftr"
+              width={1254}
+              height={1254}
+              style={{
+                display: 'block',
+                width: 'clamp(88px, 12vw, 128px)',
+                height: 'auto',
+                animation: 'cockpitLogoIn 0.55s ease-out both',
+              }}
+            />
             <span>v0.1 FLT-OS</span>
           </div>
         </div>

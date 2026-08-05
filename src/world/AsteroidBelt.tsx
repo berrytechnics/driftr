@@ -3,10 +3,12 @@ import { useLayoutEffect, useMemo, useRef, type RefObject } from 'react'
 import {
   Color,
   DynamicDrawUsage,
+  IcosahedronGeometry,
   InstancedMesh,
   Object3D,
   Sphere,
   Vector3,
+  type BufferGeometry,
 } from 'three'
 import { beltLocalToWorld } from '@/loot/buffs'
 import { circularOrbitSpeed } from '@/world/gravity'
@@ -78,6 +80,10 @@ const _local = new Vector3()
 const _impactDir = new Vector3()
 const _dropWorld = new Vector3()
 
+/** Angular sectors for belt hazard queries (thin torus → 1D hash). */
+const BUCKET_COUNT = 64
+const BUCKET_SPAN = (Math.PI * 2) / BUCKET_COUNT
+
 /** Deterministic PRNG so the belt layout stays stable across remounts. */
 function mulberry32(seed: number) {
   return () => {
@@ -87,6 +93,36 @@ function mulberry32(seed: number) {
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296
   }
+}
+
+/** Cheap 3D hash in [0, 1) for rocky vertex displacement. */
+function hashNoise(x: number, y: number, z: number) {
+  const n = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453
+  return n - Math.floor(n)
+}
+
+/**
+ * Higher-detail icosahedron with lumpy radial displacement.
+ * Shared by every instance; per-rock stretch/rotation keeps variety.
+ */
+function createAsteroidGeometry(detail = 2): BufferGeometry {
+  const geo = new IcosahedronGeometry(1, detail)
+  const pos = geo.attributes.position
+  const v = new Vector3()
+  for (let i = 0; i < pos.count; i++) {
+    v.fromBufferAttribute(pos, i)
+    const n1 = hashNoise(v.x * 1.7, v.y * 1.7, v.z * 1.7)
+    const n2 = hashNoise(v.x * 4.1 + 3.1, v.y * 4.1, v.z * 4.1 + 1.7)
+    const n3 = hashNoise(v.x * 9.3, v.y * 9.3 + 2.4, v.z * 9.3)
+    const bump =
+      (n1 - 0.5) * 0.28 + (n2 - 0.5) * 0.14 + (n3 - 0.5) * 0.07
+    v.multiplyScalar(1 + bump)
+    pos.setXYZ(i, v.x, v.y, v.z)
+  }
+  pos.needsUpdate = true
+  geo.computeVertexNormals()
+  geo.computeBoundingSphere()
+  return geo
 }
 
 function rockColor(rand: () => number, base?: Color) {
@@ -229,6 +265,14 @@ function worldDirToLocal(dir: Vector3, tilt: number, out: Vector3) {
   out.set(dir.x, dir.y * cosI + dir.z * sinI, -dir.y * sinI + dir.z * cosI)
 }
 
+function angleBucket(x: number, z: number) {
+  const angle = Math.atan2(z, x) // −π..π
+  let idx = Math.floor(((angle + Math.PI) / (Math.PI * 2)) * BUCKET_COUNT)
+  if (idx < 0) idx = 0
+  if (idx >= BUCKET_COUNT) idx = BUCKET_COUNT - 1
+  return idx
+}
+
 export function AsteroidBelt({
   sunPosition,
   mu,
@@ -244,6 +288,8 @@ export function AsteroidBelt({
 }: AsteroidBeltProps) {
   const capacity = useMemo(() => Math.max(count * 3, count + 64), [count])
   const mesh = useRef<InstancedMesh>(null!)
+  const geometry = useMemo(() => createAsteroidGeometry(2), [])
+  useLayoutEffect(() => () => geometry.dispose(), [geometry])
   const rocks = useMemo(
     () => makePool(count, capacity, innerRadius, outerRadius, thickness),
     [count, capacity, innerRadius, outerRadius, thickness],
@@ -275,6 +321,56 @@ export function AsteroidBelt({
   const splitRockRef = useRef<(index: number, impactLocal: Vector3) => void>(
     () => {},
   )
+  const spatialRef = useRef({
+    dirty: true,
+    buckets: Array.from({ length: BUCKET_COUNT }, () => [] as number[]),
+  })
+
+  const markSpatialDirty = () => {
+    spatialRef.current.dirty = true
+  }
+
+  const ensureBuckets = () => {
+    const spatial = spatialRef.current
+    if (!spatial.dirty) return
+    spatial.dirty = false
+    const { buckets } = spatial
+    for (let b = 0; b < BUCKET_COUNT; b++) buckets[b].length = 0
+    const list = rocksRef.current
+    for (let i = 0; i < list.length; i++) {
+      const rock = list[i]
+      if (!rock.alive) continue
+      buckets[angleBucket(rock.x, rock.z)].push(i)
+    }
+  }
+
+  /** Visit rocks near a local XZ point; returns false to stop early. */
+  const forNearbyRocks = (
+    lx: number,
+    lz: number,
+    searchPad: number,
+    visit: (index: number, rock: Rock) => boolean | void,
+  ) => {
+    ensureBuckets()
+    const { buckets } = spatialRef.current
+    const radial = Math.hypot(lx, lz)
+    const halfWidth = searchPad / Math.max(radial, 8)
+    const span = Math.min(
+      BUCKET_COUNT >> 1,
+      1 + Math.ceil(halfWidth / BUCKET_SPAN),
+    )
+    const center = angleBucket(lx, lz)
+    for (let d = -span; d <= span; d++) {
+      let b = center + d
+      if (b < 0) b += BUCKET_COUNT
+      else if (b >= BUCKET_COUNT) b -= BUCKET_COUNT
+      const cell = buckets[b]
+      for (let i = 0; i < cell.length; i++) {
+        const index = cell[i]
+        if (visit(index, rocksRef.current[index]) === false) return
+      }
+    }
+  }
 
   const findFreeSlot = () => {
     const list = rocksRef.current
@@ -289,6 +385,7 @@ export function AsteroidBelt({
     rock.alive = false
     rock.orbiting = false
     rock.hitRadius = 0
+    markSpatialDirty()
     const inst = mesh.current
     if (!inst) return
     writeInstance(inst, index, rock)
@@ -424,17 +521,19 @@ export function AsteroidBelt({
           if (!anyDebris) return false
         }
 
-        const list = rocksRef.current
-        for (let i = 0; i < list.length; i++) {
-          const rock = list[i]
-          if (!rock.alive) continue
+        let hit = false
+        // +12 covers the largest rock radii when computing angular span
+        forNearbyRocks(_local.x, _local.z, pad + 12, (_index, rock) => {
           const dx = rock.x - _local.x
           const dy = rock.y - _local.y
           const dz = rock.z - _local.z
           const hitR = rock.hitRadius + pad
-          if (dx * dx + dy * dy + dz * dz < hitR * hitR) return true
-        }
-        return false
+          if (dx * dx + dy * dy + dz * dz < hitR * hitR) {
+            hit = true
+            return false
+          }
+        })
+        return hit
       },
 
       impact(point, pad, direction) {
@@ -465,12 +564,9 @@ export function AsteroidBelt({
           if (!anyDebris) return false
         }
 
-        const list = rocksRef.current
         let best = -1
         let bestDist = Infinity
-        for (let i = 0; i < list.length; i++) {
-          const rock = list[i]
-          if (!rock.alive) continue
+        forNearbyRocks(_local.x, _local.z, pad + 12, (index, rock) => {
           const dx = rock.x - _local.x
           const dy = rock.y - _local.y
           const dz = rock.z - _local.z
@@ -478,9 +574,9 @@ export function AsteroidBelt({
           const hitR = rock.hitRadius + pad
           if (distSq < hitR * hitR && distSq < bestDist) {
             bestDist = distSq
-            best = i
+            best = index
           }
-        }
+        })
 
         if (best < 0) return false
         splitRockRef.current(best, _impactDir)
@@ -549,6 +645,7 @@ export function AsteroidBelt({
         ) {
           rock.alive = false
           rock.hitRadius = 0
+          markSpatialDirty()
           writeMatrix(inst, i, rock)
           dirty = true
           continue
@@ -560,19 +657,22 @@ export function AsteroidBelt({
       dirty = true
     }
 
-    if (dirty) inst.instanceMatrix.needsUpdate = true
+    // Positions moved — rebuild angular hash before next hazard query
+    if (dirty) {
+      markSpatialDirty()
+      inst.instanceMatrix.needsUpdate = true
+    }
   })
 
   return (
     <group position={sunPosition} rotation={[inclination, 0, 0]}>
       <instancedMesh
         ref={mesh}
-        args={[undefined, undefined, capacity]}
+        args={[geometry, undefined, capacity]}
         castShadow={false}
         receiveShadow={false}
         frustumCulled={false}
       >
-        <icosahedronGeometry args={[1, 1]} />
         <meshStandardMaterial
           roughness={0.96}
           metalness={0.04}

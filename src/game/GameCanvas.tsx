@@ -10,6 +10,7 @@ import { Space } from '@/game/Space'
 
 /** Keeps Canvas props stable so HUD state updates don't reconcile the R3F tree. */
 export const GameCanvas = memo(function GameCanvas({
+  started,
   paused,
   docked,
   suspendRender,
@@ -22,6 +23,8 @@ export const GameCanvas = memo(function GameCanvas({
   combatHudRef,
   initialHull,
 }: {
+  /** Lazy-load heavy station assets after launch (or docked save). */
+  started: boolean
   paused: boolean
   docked: boolean
   /** Freeze the WebGL loop (Escape pause). Start screen keeps animating. */
@@ -49,6 +52,7 @@ export const GameCanvas = memo(function GameCanvas({
       dpr={[1, 1.25]}
     >
       <Space
+        started={started}
         paused={paused}
         docked={docked}
         onLockChange={onLockChange}

@@ -39,6 +39,7 @@ import { CombatChevron } from '@/ui/CombatChevron'
 import { Crosshair } from '@/ui/Crosshair'
 import { DamageFlash } from '@/ui/DamageFlash'
 import { Hud } from '@/ui/Hud'
+import { LoadingScreen } from '@/ui/LoadingScreen'
 
 const PauseMenu = lazy(() =>
   import('@/ui/PauseMenu').then((m) => ({ default: m.PauseMenu })),
@@ -58,6 +59,7 @@ export default function App() {
   const initialHull = useMemo(() => hullFromSave(saved), [saved])
 
   const [, setLocked] = useState(false)
+  const [booting, setBooting] = useState(true)
   const [paused, setPaused] = useState(false)
   const [started, setStarted] = useState(() => saved.docked)
   const [docked, setDocked] = useState(() => saved.docked)
@@ -143,12 +145,20 @@ export default function App() {
     ) {
       setDamageFlash((n) => n + 1)
     }
+    // Death — dump cargo (credits keep); no docking while wrecked
+    if (value.hp <= 0 && (lastHp.current === null || lastHp.current > 0)) {
+      setCargo(emptyCargo())
+      setDockAvailable(false)
+    }
     lastHp.current = value.hp
     telemetryRef.current = value
     setTelemetry(value)
   }, [])
 
   const onDockAvailable = useCallback((available: boolean) => {
+    if (available && telemetryRef.current && telemetryRef.current.hp <= 0) {
+      return
+    }
     setDockAvailable(available)
   }, [])
 
@@ -180,6 +190,7 @@ export default function App() {
   }, [])
 
   const dockAtStation = useCallback(() => {
+    if (telemetryRef.current && telemetryRef.current.hp <= 0) return
     if (!dockAvailable && !dockedRef.current) return
     dockedRef.current = true
     setDocked(true)
@@ -220,7 +231,15 @@ export default function App() {
   }, [started, paused, docked, resumeFlight])
 
   useEffect(() => {
-    if (!started || paused || docked || !dockAvailable) return
+    if (
+      !started ||
+      paused ||
+      docked ||
+      !dockAvailable ||
+      (telemetry && telemetry.hp <= 0)
+    ) {
+      return
+    }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.code !== 'KeyF' || event.repeat) return
       event.preventDefault()
@@ -228,22 +247,25 @@ export default function App() {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [started, paused, docked, dockAvailable, dockAtStation])
+  }, [started, paused, docked, dockAvailable, dockAtStation, telemetry])
 
-  const showMenu = (!started || paused) && !docked
+  const showMenu = !booting && (!started || paused) && !docked
   const menuMode = started || paused ? 'paused' : 'start'
   const worldPaused = !started || paused
-  const inFlight = started && !paused && !docked
+  const inFlight = !booting && started && !paused && !docked
+
+  const onBootFinished = useCallback(() => setBooting(false), [])
 
   return (
     <>
-      {/* Debug panel — hidden in production builds (GitHub Pages, etc.) */}
-      <Leva collapsed hidden={import.meta.env.PROD} />
+      {/* Debug panel — leva is stubbed out of production builds */}
+      {import.meta.env.DEV && <Leva collapsed />}
       <ThemeMusic
-        playing={started && !paused && !docked}
+        playing={!booting && started && !paused && !docked}
         docked={docked}
       />
       <GameCanvas
+        started={started}
         paused={worldPaused}
         docked={docked}
         suspendRender={started && paused && !docked}
@@ -265,7 +287,7 @@ export default function App() {
           <CombatChevron hudRef={combatHudRef} active={inFlight} />
           <DamageFlash flashKey={damageFlash} active={inFlight} />
           <Hud telemetry={telemetry} credits={credits} cargo={cargo} />
-          {dockAvailable && (
+          {dockAvailable && !(telemetry && telemetry.hp <= 0) && (
             <Suspense fallback={null}>
               <DockPrompt stationName={STATION_NAME} onDock={dockAtStation} />
             </Suspense>
@@ -294,6 +316,7 @@ export default function App() {
           <PauseMenu mode={menuMode} onResume={resumeFlight} />
         </Suspense>
       )}
+      {booting && <LoadingScreen onFinished={onBootFinished} />}
     </>
   )
 }

@@ -45,10 +45,32 @@ const _qRoll = new Quaternion()
 const _body = new Vector3()
 const _radial = new Vector3()
 const _hazardPos = new Vector3()
+const _prevPos = new Vector3()
+const _seg = new Vector3()
+const _closest = new Vector3()
 const _deathPos = new Vector3()
 const _deathCamPos = new Vector3()
 const _deathCamUp = new Vector3()
 const _muzzle = new Vector3()
+
+/** True if segment a→b intersects a sphere (covers fast tunneling). */
+function segmentHitsSphere(
+  a: Vector3,
+  b: Vector3,
+  center: Vector3,
+  radius: number,
+) {
+  const r2 = radius * radius
+  _seg.copy(b).sub(a)
+  const abLenSq = _seg.lengthSq()
+  if (abLenSq < 1e-12) return a.distanceToSquared(center) < r2
+  _closest.copy(center).sub(a)
+  let t = _closest.dot(_seg) / abLenSq
+  if (t < 0) t = 0
+  else if (t > 1) t = 1
+  _closest.copy(a).addScaledVector(_seg, t)
+  return _closest.distanceToSquared(center) < r2
+}
 
 const MAX_HP = 100
 /** Damage taken from a pirate laser bolt (~8 hits to hull break) */
@@ -564,6 +586,10 @@ export function PlayerShip({
       thrustEngaged.current = 0
       // Buff timers freeze while paused (don't tick down)
       if (dead) {
+        if (dockAvailableRef.current) {
+          dockAvailableRef.current = false
+          onDockAvailable?.(false)
+        }
         camera.position.copy(_deathCamPos)
         camera.up.copy(_deathCamUp)
         camera.lookAt(_deathPos)
@@ -686,6 +712,10 @@ export function PlayerShip({
       mouse.current.y = 0
       thrustGlow.current = 0
       thrustEngaged.current = 0
+      if (dockAvailableRef.current) {
+        dockAvailableRef.current = false
+        onDockAvailable?.(false)
+      }
 
       camera.position.copy(_deathCamPos)
       camera.up.copy(_deathCamUp)
@@ -832,6 +862,7 @@ export function PlayerShip({
       velocity.current.multiplyScalar(Math.exp(-damping * dt))
     }
 
+    _prevPos.copy(group.position)
     group.position.addScaledVector(velocity.current, dt)
 
     // Dock offer — station is non-lethal; proximity opens the berth prompt
@@ -861,24 +892,36 @@ export function PlayerShip({
       if (hp.current <= 0) hit = true
     }
 
-    if (spawnGrace.current <= 0) {
-      hit = hit || altitude < sunSize + shipPad
+    // Planets / sun always collide (spawn grace only softens belt + hostiles)
+    hit =
+      hit ||
+      segmentHitsSphere(
+        _prevPos,
+        group.position,
+        _body,
+        sunSize + shipPad,
+      )
 
-      if (!hit && hazards) {
-        for (const hazard of hazards) {
-          const obj = hazard.object.current
-          if (!obj) continue
-          obj.getWorldPosition(_hazardPos)
-          if (
-            group.position.distanceTo(_hazardPos) <
-            hazard.radius + shipPad
-          ) {
-            hit = true
-            break
-          }
+    if (!hit && hazards) {
+      for (const hazard of hazards) {
+        const obj = hazard.object.current
+        if (!obj) continue
+        obj.getWorldPosition(_hazardPos)
+        if (
+          segmentHitsSphere(
+            _prevPos,
+            group.position,
+            _hazardPos,
+            hazard.radius + shipPad,
+          )
+        ) {
+          hit = true
+          break
         }
       }
+    }
 
+    if (spawnGrace.current <= 0) {
       if (!hit && hostiles) {
         for (const hostileRef of hostiles) {
           const hazard = hostileRef.current
@@ -886,8 +929,12 @@ export function PlayerShip({
           if (!hazard || !obj) continue
           obj.getWorldPosition(_hazardPos)
           if (
-            group.position.distanceTo(_hazardPos) <
-            hazard.radius + shipPad
+            segmentHitsSphere(
+              _prevPos,
+              group.position,
+              _hazardPos,
+              hazard.radius + shipPad,
+            )
           ) {
             hit = true
             break
@@ -927,6 +974,10 @@ export function PlayerShip({
       setHidden(true)
       respawnTimer.current = RESPAWN_DELAY
       telemetryAge.current = 0
+      if (dockAvailableRef.current) {
+        dockAvailableRef.current = false
+        onDockAvailable?.(false)
+      }
 
       onTelemetry?.({
         speed: 0,

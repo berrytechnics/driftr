@@ -9,15 +9,35 @@ type SystemMapProps = {
 
 const VIEW = 960
 const PAD = 48
+const FONT = '600 15px ui-monospace, SFMono-Regular, Menlo, monospace'
+const FONT_SM = '600 14px ui-monospace, SFMono-Regular, Menlo, monospace'
+const FONT_TINY = '600 11px ui-monospace, SFMono-Regular, Menlo, monospace'
+const FONT_LABEL = '14px ui-monospace, SFMono-Regular, Menlo, monospace'
 
 function mapRadius(size: number, isStar: boolean, isMoon = false) {
-  // Keep the star clearly larger than any planet on the map
   if (isStar) return Math.min(30, 10 + size * 0.35)
   if (isMoon) return Math.min(8, 2.8 + size * 1.35)
   return Math.min(16, 3 + size * 0.5)
 }
 
-function SystemMapView({ snapshot }: { snapshot: MapSnapshot }) {
+function strokeFillText(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  x: number,
+  y: number,
+  fill: string,
+  stroke = 'rgba(0, 0, 10, 0.75)',
+  lineWidth = 3,
+) {
+  ctx.lineWidth = lineWidth
+  ctx.strokeStyle = stroke
+  ctx.strokeText(text, x, y)
+  ctx.fillStyle = fill
+  ctx.fillText(text, x, y)
+}
+
+/** Imperative canvas map — mutates every frame while held (no React reconciliation). */
+function drawMap(ctx: CanvasRenderingContext2D, snapshot: MapSnapshot) {
   const planets = snapshot.bodies.filter((b) => b.kind !== 'moon')
   const moons = snapshot.bodies.filter((b) => b.kind === 'moon')
   const planetOrbits = planets.map((b) => Math.hypot(b.x, b.z))
@@ -27,216 +47,173 @@ function SystemMapView({ snapshot }: { snapshot: MapSnapshot }) {
     120,
   )
   const scale = (VIEW / 2 - PAD) / maxOrbit
-  const toX = (x: number) => VIEW / 2 + x * scale
-  const toY = (z: number) => VIEW / 2 + z * scale
+  const cx = VIEW / 2
+  const cy = VIEW / 2
+  const toX = (x: number) => cx + x * scale
+  const toY = (z: number) => cy + z * scale
 
-  return (
-    <svg
-      width="100%"
-      height="100%"
-      viewBox={`0 0 ${VIEW} ${VIEW}`}
-      style={{ display: 'block' }}
-    >
-      {/* Soft grid */}
-      {[0.25, 0.5, 0.75, 1].map((t) => (
-        <circle
-          key={t}
-          cx={VIEW / 2}
-          cy={VIEW / 2}
-          r={maxOrbit * t * scale}
-          fill="none"
-          stroke="rgba(120, 150, 190, 0.1)"
-          strokeWidth={1}
-        />
-      ))}
+  ctx.clearRect(0, 0, VIEW, VIEW)
 
-      {/* Asteroid belt annulus */}
-      <path
-        fillRule="evenodd"
-        fill="rgba(180, 160, 130, 0.16)"
-        stroke="rgba(200, 180, 140, 0.4)"
-        strokeWidth={1}
-        d={[
-          `M ${VIEW / 2 - snapshot.beltOuter * scale} ${VIEW / 2}`,
-          `a ${snapshot.beltOuter * scale} ${snapshot.beltOuter * scale} 0 1 0 ${snapshot.beltOuter * scale * 2} 0`,
-          `a ${snapshot.beltOuter * scale} ${snapshot.beltOuter * scale} 0 1 0 ${-snapshot.beltOuter * scale * 2} 0`,
-          `M ${VIEW / 2 - snapshot.beltInner * scale} ${VIEW / 2}`,
-          `a ${snapshot.beltInner * scale} ${snapshot.beltInner * scale} 0 1 1 ${snapshot.beltInner * scale * 2} 0`,
-          `a ${snapshot.beltInner * scale} ${snapshot.beltInner * scale} 0 1 1 ${-snapshot.beltInner * scale * 2} 0`,
-        ].join(' ')}
-      />
+  // Soft grid
+  for (const t of [0.25, 0.5, 0.75, 1]) {
+    ctx.beginPath()
+    ctx.arc(cx, cy, maxOrbit * t * scale, 0, Math.PI * 2)
+    ctx.strokeStyle = 'rgba(120, 150, 190, 0.1)'
+    ctx.lineWidth = 1
+    ctx.stroke()
+  }
 
-      {/* Planet orbit guides (moons omit heliocentric rings) */}
-      {planetOrbits.map((r, i) => (
-        <circle
-          key={`orbit-${i}`}
-          cx={VIEW / 2}
-          cy={VIEW / 2}
-          r={Math.max(r, 1) * scale}
-          fill="none"
-          stroke="rgba(140, 170, 210, 0.22)"
-          strokeWidth={1}
-          strokeDasharray="3 5"
-        />
-      ))}
+  // Asteroid belt annulus
+  const outerR = snapshot.beltOuter * scale
+  const innerR = snapshot.beltInner * scale
+  ctx.beginPath()
+  ctx.arc(cx, cy, outerR, 0, Math.PI * 2, false)
+  ctx.arc(cx, cy, innerR, 0, Math.PI * 2, true)
+  ctx.fillStyle = 'rgba(180, 160, 130, 0.16)'
+  ctx.fill('evenodd')
+  ctx.beginPath()
+  ctx.arc(cx, cy, outerR, 0, Math.PI * 2)
+  ctx.strokeStyle = 'rgba(200, 180, 140, 0.4)'
+  ctx.lineWidth = 1
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.arc(cx, cy, innerR, 0, Math.PI * 2)
+  ctx.stroke()
 
-      {/* Belt label */}
-      <text
-        x={VIEW / 2}
-        y={VIEW / 2 - ((snapshot.beltInner + snapshot.beltOuter) / 2) * scale}
-        textAnchor="middle"
-        fill="rgba(200, 180, 140, 0.8)"
-        fontSize={14}
-        fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-      >
-        Asteroid Belt
-      </text>
+  // Planet orbit guides
+  ctx.setLineDash([3, 5])
+  ctx.strokeStyle = 'rgba(140, 170, 210, 0.22)'
+  for (const r of planetOrbits) {
+    ctx.beginPath()
+    ctx.arc(cx, cy, Math.max(r, 1) * scale, 0, Math.PI * 2)
+    ctx.stroke()
+  }
+  ctx.setLineDash([])
 
-      {/* Star */}
-      <circle
-        cx={VIEW / 2}
-        cy={VIEW / 2}
-        r={mapRadius(snapshot.starSize, true) + 8}
-        fill={snapshot.starColor}
-        opacity={0.2}
-      />
-      <circle
-        cx={VIEW / 2}
-        cy={VIEW / 2}
-        r={mapRadius(snapshot.starSize, true)}
-        fill={snapshot.starColor}
-      />
-      <text
-        x={VIEW / 2}
-        y={VIEW / 2 + mapRadius(snapshot.starSize, true) + 22}
-        textAnchor="middle"
-        fill="#ffe6a8"
-        fontSize={18}
-        fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-        fontWeight={600}
-      >
-        {snapshot.starName}
-      </text>
-
-      {/* Planets */}
-      {planets.map((body) => {
-        const cx = toX(body.x)
-        const cy = toY(body.z)
-        const r = mapRadius(body.size, false)
-        const labelAway = Math.hypot(body.x, body.z) > 1e-3
-        const lx = labelAway ? body.x / Math.hypot(body.x, body.z) : 1
-        const lz = labelAway ? body.z / Math.hypot(body.x, body.z) : 0
-        const labelX = toX(body.x + lx * (body.size + 36))
-        const labelY = toY(body.z + lz * (body.size + 36))
-
-        return (
-          <g key={body.name}>
-            <circle cx={cx} cy={cy} r={r + 3} fill={body.color} opacity={0.25} />
-            <circle cx={cx} cy={cy} r={r} fill={body.color} />
-            <text
-              x={labelX}
-              y={labelY}
-              textAnchor="middle"
-              dominantBaseline="middle"
-              fill="#e8eef6"
-              fontSize={15}
-              fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-              fontWeight={600}
-              stroke="rgba(0, 0, 10, 0.75)"
-              strokeWidth={3}
-              paintOrder="stroke fill"
-            >
-              {body.name}
-            </text>
-          </g>
-        )
-      })}
-
-      {/* Moons — readable labels with halo stroke */}
-      {moons.map((body, i) => {
-        const cx = toX(body.x)
-        const cy = toY(body.z)
-        const r = mapRadius(body.size, false, true)
-        // Alternate label side so clustered moons stay legible
-        const side = i % 2 === 0 ? 1 : -1
-        const labelAway = Math.hypot(body.x, body.z) > 1e-3
-        const lx = labelAway ? body.x / Math.hypot(body.x, body.z) : 1
-        const lz = labelAway ? body.z / Math.hypot(body.x, body.z) : 0
-        // Perpendicular nudge + outward offset
-        const labelX = toX(body.x + lx * (body.size + 22) + -lz * side * 18)
-        const labelY = toY(body.z + lz * (body.size + 22) + lx * side * 18)
-
-        return (
-          <g key={body.name}>
-            <circle cx={cx} cy={cy} r={r + 2} fill={body.color} opacity={0.35} />
-            <circle cx={cx} cy={cy} r={r} fill={body.color} />
-            <text
-              x={labelX}
-              y={labelY}
-              textAnchor="middle"
-              dominantBaseline="middle"
-              fill="#f2f6fc"
-              fontSize={14}
-              fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-              fontWeight={600}
-              stroke="rgba(0, 0, 12, 0.85)"
-              strokeWidth={3.5}
-              paintOrder="stroke fill"
-            >
-              {body.name}
-            </text>
-          </g>
-        )
-      })}
-
-      {/* Ship — triangle tip is forward */}
-      {snapshot.ship && (
-        <g
-          transform={`translate(${toX(snapshot.ship.x)} ${toY(snapshot.ship.z)}) rotate(${snapshot.ship.heading})`}
-        >
-          <polygon
-            points="0,-8 7,8 -7,8"
-            fill="#7ee787"
-            stroke="#0a120c"
-            strokeWidth={1}
-          />
-        </g>
-      )}
-
-      {/* Bandit */}
-      {snapshot.bandit && (
-        <g
-          transform={`translate(${toX(snapshot.bandit.x)} ${toY(snapshot.bandit.z)})`}
-        >
-          <circle
-            r={7}
-            fill="#ff2a3a"
-            stroke="#3a0008"
-            strokeWidth={1.5}
-          />
-          <text
-            x={10}
-            y={4}
-            fill="#ff8a94"
-            fontSize={11}
-            fontFamily="ui-monospace, SFMono-Regular, Menlo, monospace"
-            fontWeight={600}
-            stroke="rgba(0, 0, 12, 0.85)"
-            strokeWidth={3}
-            paintOrder="stroke fill"
-          >
-            Bandit
-          </text>
-        </g>
-      )}
-    </svg>
+  // Belt label
+  ctx.font = FONT_LABEL
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'alphabetic'
+  ctx.fillStyle = 'rgba(200, 180, 140, 0.8)'
+  ctx.fillText(
+    'Asteroid Belt',
+    cx,
+    cy - ((snapshot.beltInner + snapshot.beltOuter) / 2) * scale,
   )
+
+  // Star
+  const starR = mapRadius(snapshot.starSize, true)
+  ctx.beginPath()
+  ctx.arc(cx, cy, starR + 8, 0, Math.PI * 2)
+  ctx.fillStyle = snapshot.starColor
+  ctx.globalAlpha = 0.2
+  ctx.fill()
+  ctx.globalAlpha = 1
+  ctx.beginPath()
+  ctx.arc(cx, cy, starR, 0, Math.PI * 2)
+  ctx.fillStyle = snapshot.starColor
+  ctx.fill()
+  ctx.font = '600 18px ui-monospace, SFMono-Regular, Menlo, monospace'
+  ctx.fillStyle = '#ffe6a8'
+  ctx.fillText(snapshot.starName, cx, cy + starR + 22)
+
+  // Planets
+  ctx.textBaseline = 'middle'
+  for (const body of planets) {
+    const px = toX(body.x)
+    const py = toY(body.z)
+    const r = mapRadius(body.size, false)
+    const hyp = Math.hypot(body.x, body.z)
+    const lx = hyp > 1e-3 ? body.x / hyp : 1
+    const lz = hyp > 1e-3 ? body.z / hyp : 0
+    const labelX = toX(body.x + lx * (body.size + 36))
+    const labelY = toY(body.z + lz * (body.size + 36))
+
+    ctx.beginPath()
+    ctx.arc(px, py, r + 3, 0, Math.PI * 2)
+    ctx.fillStyle = body.color
+    ctx.globalAlpha = 0.25
+    ctx.fill()
+    ctx.globalAlpha = 1
+    ctx.beginPath()
+    ctx.arc(px, py, r, 0, Math.PI * 2)
+    ctx.fillStyle = body.color
+    ctx.fill()
+
+    ctx.font = FONT
+    strokeFillText(ctx, body.name, labelX, labelY, '#e8eef6')
+  }
+
+  // Moons
+  moons.forEach((body, i) => {
+    const px = toX(body.x)
+    const py = toY(body.z)
+    const r = mapRadius(body.size, false, true)
+    const side = i % 2 === 0 ? 1 : -1
+    const hyp = Math.hypot(body.x, body.z)
+    const lx = hyp > 1e-3 ? body.x / hyp : 1
+    const lz = hyp > 1e-3 ? body.z / hyp : 0
+    const labelX = toX(body.x + lx * (body.size + 22) + -lz * side * 18)
+    const labelY = toY(body.z + lz * (body.size + 22) + lx * side * 18)
+
+    ctx.beginPath()
+    ctx.arc(px, py, r + 2, 0, Math.PI * 2)
+    ctx.fillStyle = body.color
+    ctx.globalAlpha = 0.35
+    ctx.fill()
+    ctx.globalAlpha = 1
+    ctx.beginPath()
+    ctx.arc(px, py, r, 0, Math.PI * 2)
+    ctx.fillStyle = body.color
+    ctx.fill()
+
+    ctx.font = FONT_SM
+    strokeFillText(ctx, body.name, labelX, labelY, '#f2f6fc', 'rgba(0, 0, 12, 0.85)', 3.5)
+  })
+
+  // Ship — triangle tip is forward
+  if (snapshot.ship) {
+    const sx = toX(snapshot.ship.x)
+    const sy = toY(snapshot.ship.z)
+    const rad = (snapshot.ship.heading * Math.PI) / 180
+    ctx.save()
+    ctx.translate(sx, sy)
+    ctx.rotate(rad)
+    ctx.beginPath()
+    ctx.moveTo(0, -8)
+    ctx.lineTo(7, 8)
+    ctx.lineTo(-7, 8)
+    ctx.closePath()
+    ctx.fillStyle = '#7ee787'
+    ctx.strokeStyle = '#0a120c'
+    ctx.lineWidth = 1
+    ctx.fill()
+    ctx.stroke()
+    ctx.restore()
+  }
+
+  // Bandit
+  if (snapshot.bandit) {
+    const bx = toX(snapshot.bandit.x)
+    const by = toY(snapshot.bandit.z)
+    ctx.beginPath()
+    ctx.arc(bx, by, 7, 0, Math.PI * 2)
+    ctx.fillStyle = '#ff2a3a'
+    ctx.strokeStyle = '#3a0008'
+    ctx.lineWidth = 1.5
+    ctx.fill()
+    ctx.stroke()
+    ctx.font = FONT_TINY
+    ctx.textAlign = 'left'
+    ctx.textBaseline = 'alphabetic'
+    strokeFillText(ctx, 'Bandit', bx + 10, by + 4, '#ff8a94', 'rgba(0, 0, 12, 0.85)', 3)
+  }
 }
 
 export function SystemMap({ snapshotRef, active }: SystemMapProps) {
   const [holding, setHolding] = useState(false)
-  const [, setTick] = useState(0)
   const holdingRef = useRef(false)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
     if (!active) {
@@ -273,18 +250,21 @@ export function SystemMap({ snapshotRef, active }: SystemMapProps) {
 
   useEffect(() => {
     if (!holding) return
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
     let frame = 0
     const loop = () => {
-      setTick((t) => t + 1)
+      drawMap(ctx, snapshotRef.current)
       frame = requestAnimationFrame(loop)
     }
     frame = requestAnimationFrame(loop)
     return () => cancelAnimationFrame(frame)
-  }, [holding])
+  }, [holding, snapshotRef])
 
   if (!active || !holding) return null
-
-  const snapshot = snapshotRef.current
 
   return (
     <div
@@ -338,7 +318,12 @@ export function SystemMap({ snapshotRef, active }: SystemMapProps) {
           </div>
         </div>
         <div style={{ width: '100%', height: 'calc(100% - 36px)' }}>
-          <SystemMapView snapshot={snapshot} />
+          <canvas
+            ref={canvasRef}
+            width={VIEW}
+            height={VIEW}
+            style={{ display: 'block', width: '100%', height: '100%' }}
+          />
         </div>
       </div>
     </div>

@@ -1,3 +1,5 @@
+import { getSfxVolume } from '@/audio/audioSettings'
+
 let audioCtx: AudioContext | null = null
 
 export function getAudioContext() {
@@ -19,8 +21,14 @@ export function unlockAudio() {
   void ctx.resume()
 }
 
+function scaledVolume(base: number) {
+  return Math.max(0, base * getSfxVolume())
+}
+
 /** Short synthesized laser blip (no asset required). */
 export function playLaserSound(volume = 0.2) {
+  const level = scaledVolume(volume)
+  if (level < 1e-4) return
   const ctx = getAudioContext()
   if (!ctx) return
   if (ctx.state === 'suspended') void ctx.resume()
@@ -38,7 +46,7 @@ export function playLaserSound(volume = 0.2) {
   filter.frequency.setValueAtTime(2400, t0)
   filter.frequency.exponentialRampToValueAtTime(400, t0 + 0.09)
 
-  gain.gain.setValueAtTime(Math.max(0.0001, volume), t0)
+  gain.gain.setValueAtTime(Math.max(0.0001, level), t0)
   gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.1)
 
   osc.connect(filter)
@@ -50,13 +58,15 @@ export function playLaserSound(volume = 0.2) {
 
 /** Bright two-note chime when collecting a buff token. */
 export function playBuffPickupSound(volume = 0.28) {
+  const level = scaledVolume(volume)
+  if (level < 1e-4) return
   const ctx = getAudioContext()
   if (!ctx) return
   if (ctx.state === 'suspended') void ctx.resume()
 
   const t0 = ctx.currentTime
   const master = ctx.createGain()
-  master.gain.setValueAtTime(Math.max(0.0001, volume), t0)
+  master.gain.setValueAtTime(Math.max(0.0001, level), t0)
   master.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.45)
   master.connect(ctx.destination)
 
@@ -101,6 +111,8 @@ export function playBuffPickupSound(volume = 0.28) {
 
 /** Soft clink when scooping a material shard. */
 export function playMaterialPickupSound(volume = 0.2) {
+  const level = scaledVolume(volume)
+  if (level < 1e-4) return
   const ctx = getAudioContext()
   if (!ctx) return
   if (ctx.state === 'suspended') void ctx.resume()
@@ -118,7 +130,7 @@ export function playMaterialPickupSound(volume = 0.2) {
   filter.frequency.setValueAtTime(900, t0)
   filter.Q.value = 2.2
 
-  gain.gain.setValueAtTime(Math.max(0.0001, volume), t0)
+  gain.gain.setValueAtTime(Math.max(0.0001, level), t0)
   gain.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.14)
 
   osc.connect(filter)
