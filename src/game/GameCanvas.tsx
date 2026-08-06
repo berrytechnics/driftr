@@ -58,6 +58,7 @@ export const GameCanvas = memo(function GameCanvas({
   onNyxCassiniSeen,
   nyxGateSeen = false,
   onNyxGateSeen,
+  gatePortalUsed = false,
   vesperSiphonRepaired = [],
   gatePowered = false,
   onGatePortalEnter,
@@ -114,6 +115,8 @@ export const GameCanvas = memo(function GameCanvas({
   onNyxCassiniSeen?: (toast: string) => void
   nyxGateSeen?: boolean
   onNyxGateSeen?: (toast: string) => void
+  /** Chart renames the ring to Space Gate after the first throat hop. */
+  gatePortalUsed?: boolean
   vesperSiphonRepaired?: readonly number[]
   gatePowered?: boolean
   onGatePortalEnter?: () => void
@@ -168,6 +171,7 @@ export const GameCanvas = memo(function GameCanvas({
           onPortalEnter={onGatePortalEnter}
           gateArrival={gateArrival}
           adminWarpTarget={adminWarpTarget}
+          gatePortalUsed={gatePortalUsed}
         />
       ) : sky === 'vesper' ? (
         <NyxAltSpace
@@ -201,6 +205,7 @@ export const GameCanvas = memo(function GameCanvas({
           onNyxCassiniSeen={onNyxCassiniSeen}
           nyxGateSeen={nyxGateSeen}
           onNyxGateSeen={onNyxGateSeen}
+          gatePortalUsed={gatePortalUsed}
           vesperSiphonRepaired={vesperSiphonRepaired}
           gatePowered={gatePowered}
           onPortalEnter={onGatePortalEnter}

@@ -1511,8 +1511,23 @@ export function PlayerShip({
       if (!hit && hazardFields) {
         // Tight pad — rock fields use surface-near ellipsoids; shipPad is for planets
         const rockPad = Math.max(scale * 0.16, 0.012)
+        // Prospective chase eye for this frame (camera updates later in the loop)
+        _forward.set(0, 0, -1).applyQuaternion(group.quaternion)
+        _up.set(0, 1, 0).applyQuaternion(group.quaternion)
+        _camPos
+          .copy(group.position)
+          .addScaledVector(_forward, -camDistance)
+          .addScaledVector(_up, camHeight)
         for (const fieldRef of hazardFields) {
-          if (fieldRef.current?.test(group.position, rockPad)) {
+          const field = fieldRef.current
+          if (!field) continue
+          // Hull + chase cam: die before the eye clips into plating / bays
+          if (
+            field.test(group.position, rockPad) ||
+            field.test(_camPos, rockPad) ||
+            field.occludes?.(_prevPos, group.position) ||
+            field.occludes?.(group.position, _camPos)
+          ) {
             hit = true
             break
           }

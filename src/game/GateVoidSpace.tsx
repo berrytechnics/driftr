@@ -1,13 +1,29 @@
 import { Environment, Lightformer } from '@react-three/drei'
 import { Bloom, EffectComposer } from '@react-three/postprocessing'
 import { folder, useControls } from 'leva'
-import { memo, useMemo, useRef, type RefObject } from 'react'
-import { Group, type Object3D } from 'three'
+import { memo, useCallback, useMemo, useRef, type RefObject } from 'react'
+import { Group, Vector3, type Object3D } from 'three'
 import type { CombatHudState } from '@/combat/combatHud'
 import type { AdminWarpRequest, GateArrivalRequest } from '@/dev/adminTypes'
 import type { HullSnapshot } from '@/game/persist'
-import { VOID_STAR_NAME } from '@/game/systemConfig'
-import { ALT_GATE_MAP_LABEL } from '@/lore/easterEggs'
+import {
+  VOID_BELT_INNER,
+  VOID_BELT_OUTER,
+  VOID_GATE_ORBIT_INCLINATION,
+  VOID_GATE_ORBIT_SPEED,
+  VOID_MOTHERSHIP_MAP_SIZE,
+  VOID_MU,
+  VOID_NEBULA_FADE_END,
+  VOID_NEBULA_FADE_START,
+  VOID_NEBULA_INNER,
+  VOID_NEBULA_OUTER,
+  VOID_STAR_NAME,
+  VOID_SUN_COLOR,
+  VOID_SUN_INTENSITY,
+  VOID_SUN_SIZE,
+} from '@/game/systemConfig'
+import { altGateMapLabel, VOID_MOTHERSHIP_MAP_LABEL } from '@/lore/easterEggs'
+import { Mothership } from '@/lore/Mothership'
 import {
   GATE_MAP_SIZE,
   MisplantedGate,
@@ -16,7 +32,12 @@ import {
   gatePortalExitWorld,
 } from '@/lore/MisplantedGate'
 import type { PlayerCargoStatus } from '@/loot/cargoBait'
-import type { MaterialPickup } from '@/loot/MaterialDrops'
+import type { MaterialKind } from '@/loot/economy'
+import {
+  MaterialDrops,
+  type MaterialDropsHandle,
+  type MaterialPickup,
+} from '@/loot/MaterialDrops'
 import { MapTracker, type TrackedBody } from '@/map/MapTracker'
 import { MapWaypointTracker } from '@/map/MapWaypointTracker'
 import type { MapWaypointState } from '@/map/mapWaypoint'
@@ -27,16 +48,17 @@ import {
   type HazardField,
   type OrbitalTelemetry,
 } from '@/ship/PlayerShip'
-import { Nebula } from '@/world/Nebula'
+import { AsteroidBelt } from '@/world/AsteroidBelt'
+import { Nebula, DEFAULT_QUADRANT_COLORS } from '@/world/Nebula'
 import { Starfield } from '@/world/Starfield'
+import { Sun } from '@/world/Sun'
 
-/** Far virtual attractor so the HUD altitude read stays nonsense / non-colliding. */
-const VOID_SUN_POSITION: [number, number, number] = [0, 0, -8000]
-const VOID_SUN_SIZE = 1
+/** Black dwarf at the hollow remnant core — gate orbits this. */
+const VOID_SUN_POSITION: [number, number, number] = [0, 0, 0]
 
 /**
- * Liminal pocket past the misplanted gate — distant nebulae and stars,
- * nothing local but the matching powered ring.
+ * Supernova remnant pocket past the misplanted gate —
+ * cooled black dwarf, empty cavity, dense outer nebula, and the matching ring.
  */
 export const GateVoidSpace = memo(function GateVoidSpace({
   started,
@@ -64,6 +86,7 @@ export const GateVoidSpace = memo(function GateVoidSpace({
   onPortalEnter,
   gateArrival = null,
   adminWarpTarget = null,
+  gatePortalUsed = false,
 }: {
   started: boolean
   paused: boolean
@@ -90,13 +113,21 @@ export const GateVoidSpace = memo(function GateVoidSpace({
   onPortalEnter?: () => void
   gateArrival?: GateArrivalRequest | null
   adminWarpTarget?: AdminWarpRequest | null
+  gatePortalUsed?: boolean
 }) {
   const misplantedGate = useRef<Group>(null)
+  const mothership = useRef<Group>(null)
   const gateHazards = useRef<HazardField | null>(null)
+  const asteroidHazards = useRef<HazardField | null>(null)
+  const mothershipHazards = useRef<HazardField | null>(null)
+  const materialDrops = useRef<MaterialDropsHandle | null>(null)
   const mapCloakRef = useRef(false)
   const emptyBerths = useMemo(() => [], [])
   const emptyHazards = useMemo(() => [], [])
-  const hazardFields = useMemo(() => [gateHazards], [])
+  const hazardFields = useMemo(
+    () => [asteroidHazards, gateHazards, mothershipHazards],
+    [],
+  )
 
   const {
     ambient,
@@ -111,72 +142,122 @@ export const GateVoidSpace = memo(function GateVoidSpace({
     fade,
     speed,
     shellIntensity,
-  } = useControls('Env · Void', {
-    lighting: folder(
-      {
-        ambient: {
-          value: 0.08,
-          min: 0,
-          max: 1,
-          step: 0.01,
-          label: 'Ambient',
+    wispCount,
+    wispOpacity,
+    sunIntensity,
+    flowSpeed,
+    mu,
+  } = useControls(
+    'Env · Void',
+    {
+      lighting: folder(
+        {
+          ambient: {
+            value: 0.07,
+            min: 0,
+            max: 1,
+            step: 0.01,
+            label: 'Ambient',
+          },
+          envFill: {
+            value: 0.85,
+            min: 0,
+            max: 2.5,
+            step: 0.05,
+            label: 'Env fill',
+          },
         },
-        envFill: {
-          value: 0.28,
-          min: 0,
-          max: 2,
-          step: 0.05,
-          label: 'Env fill',
+        { collapsed: true },
+      ),
+      cinder: folder(
+        {
+          sunIntensity: {
+            value: VOID_SUN_INTENSITY,
+            min: 0,
+            max: 2,
+            step: 0.02,
+            label: 'Coal glow',
+          },
+          flowSpeed: {
+            value: 0.18,
+            min: 0,
+            max: 2,
+            step: 0.02,
+            label: 'Ash crawl',
+          },
+          mu: {
+            value: VOID_MU,
+            min: 200,
+            max: 20000,
+            step: 100,
+            label: 'μ (GM)',
+          },
         },
-      },
-      { collapsed: true },
-    ),
-    post: folder(
-      {
-        bloomIntensity: {
-          value: 0.42,
-          min: 0,
-          max: 4,
-          step: 0.05,
-          label: 'Bloom',
+        { collapsed: true },
+      ),
+      post: folder(
+        {
+          bloomIntensity: {
+            value: 0.85,
+            min: 0,
+            max: 4,
+            step: 0.05,
+            label: 'Bloom',
+          },
+          bloomThreshold: {
+            value: 0.48,
+            min: 0,
+            max: 1,
+            step: 0.01,
+            label: 'Bloom threshold',
+          },
         },
-        bloomThreshold: {
-          value: 0.7,
-          min: 0,
-          max: 1,
-          step: 0.01,
-          label: 'Bloom threshold',
+        { collapsed: true },
+      ),
+      stars: folder(
+        {
+          count: { value: 4200, min: 500, max: 12000, step: 100 },
+          depth: { value: 95, min: 10, max: 200, step: 1 },
+          radius: { value: 1600, min: 20, max: 2000, step: 5 },
+          factor: { value: 2.8, min: 1, max: 12, step: 0.1 },
+          saturation: { value: 0.18, min: 0, max: 1, step: 0.01 },
+          fade: true,
+          speed: { value: 0.12, min: 0, max: 4, step: 0.05 },
         },
-      },
-      { collapsed: true },
-    ),
-    stars: folder(
-      {
-        count: { value: 5600, min: 500, max: 12000, step: 100 },
-        depth: { value: 110, min: 10, max: 200, step: 1 },
-        radius: { value: 1600, min: 20, max: 2000, step: 5 },
-        factor: { value: 3.4, min: 1, max: 12, step: 0.1 },
-        saturation: { value: 0.28, min: 0, max: 1, step: 0.01 },
-        fade: true,
-        speed: { value: 0.22, min: 0, max: 4, step: 0.05 },
-      },
-      { collapsed: true },
-    ),
-    nebula: folder(
-      {
-        shellIntensity: {
-          value: 0.55,
-          min: 0,
-          max: 1.2,
-          step: 0.02,
-          label: 'Shell',
+        { collapsed: true },
+      ),
+      nebula: folder(
+        {
+          shellIntensity: {
+            value: 1.85,
+            min: 0,
+            max: 3,
+            step: 0.02,
+            label: 'Shell',
+          },
+          wispCount: {
+            value: 560,
+            min: 0,
+            max: 900,
+            step: 2,
+            label: 'Wisps (per layer)',
+          },
+          wispOpacity: {
+            value: 0.68,
+            min: 0.05,
+            max: 1,
+            step: 0.01,
+            label: 'Wisp opacity',
+          },
         },
-      },
-      { collapsed: false },
-    ),
-  }, { order: 1 })
+        { collapsed: false },
+      ),
+    },
+    { order: 1 },
+  )
 
   const sunPosition = VOID_SUN_POSITION
+  const sunSize = VOID_SUN_SIZE
 
   const spawnWarpRequest = useMemo(() => {
     if (gateArrival) {
@@ -191,30 +272,59 @@ export const GateVoidSpace = memo(function GateVoidSpace({
         z: sunPosition[2] + VOID_GATE_OFFSET[2],
       }
     }
-    return null
+    // Non-gate admin warps leave placement alone (sun / belt cheats, etc.).
+    if (adminWarpTarget) return null
+    // Reload into the remnant — no pad to undock from; start at the throat.
+    const exit = gatePortalExitWorld(sunPosition, VOID_GATE_OFFSET)
+    return { seq: 1, ...exit }
   }, [gateArrival, adminWarpTarget, sunPosition])
 
   const mapBodies = useMemo<TrackedBody[]>(
     () => [
       {
-        name: ALT_GATE_MAP_LABEL,
+        name: altGateMapLabel(gatePortalUsed),
         object: misplantedGate,
         size: GATE_MAP_SIZE,
         color: '#6b5cff',
         kind: 'moon',
       },
+      {
+        name: VOID_MOTHERSHIP_MAP_LABEL,
+        object: mothership,
+        size: VOID_MOTHERSHIP_MAP_SIZE,
+        color: '#9a9588',
+        kind: 'planet',
+      },
     ],
-    [],
+    [gatePortalUsed],
   )
 
   const emptyBandits = useMemo(() => [], [])
   const emptyPatrols = useMemo(() => [], [])
   const emptyStations = useMemo(() => [], [])
 
+  const onRockDestroyed = useCallback(
+    (
+      worldPosition: Vector3,
+      kind: MaterialKind,
+      flags?: { nightShard?: boolean },
+    ) => {
+      // Remnant field has no omen rocks — never mint night shards here.
+      if (flags?.nightShard) return
+      materialDrops.current?.spawn(
+        worldPosition.x,
+        worldPosition.y,
+        worldPosition.z,
+        kind,
+      )
+    },
+    [],
+  )
+
   return (
     <>
-      <color attach="background" args={['#010008']} />
-      <ambientLight intensity={ambient} color="#5a6898" />
+      <color attach="background" args={['#030108']} />
+      <ambientLight intensity={ambient} color="#804870" />
 
       <Environment
         background={false}
@@ -222,30 +332,66 @@ export const GateVoidSpace = memo(function GateVoidSpace({
         environmentIntensity={envFill}
       >
         <Lightformer
-          intensity={0.35}
-          color="#6070b8"
-          scale={32}
-          position={[-50, 20, 30]}
+          intensity={1.15}
+          color="#ff4f9a"
+          scale={60}
+          position={[-60, 10, 40]}
         />
         <Lightformer
-          intensity={0.18}
-          color="#281830"
-          scale={40}
-          position={[40, -25, -40]}
+          intensity={1.05}
+          color="#20f0ff"
+          scale={62}
+          position={[55, -30, -35]}
         />
         <Lightformer
-          intensity={0.2}
-          color="#8870c8"
-          scale={24}
-          position={[10, 40, -20]}
+          intensity={0.9}
+          color="#ffc238"
+          scale={48}
+          position={[15, 50, -25]}
+        />
+        <Lightformer
+          intensity={0.75}
+          color="#b84dff"
+          scale={54}
+          position={[-25, -45, 30]}
+        />
+        <Lightformer
+          intensity={0.65}
+          color="#6dff4a"
+          scale={46}
+          position={[40, 20, 50]}
+        />
+        <Lightformer
+          intensity={0.45}
+          color="#ff6a30"
+          scale={70}
+          position={[0, -40, 20]}
         />
       </Environment>
+
+      <Sun
+        position={sunPosition}
+        size={sunSize}
+        color={VOID_SUN_COLOR}
+        intensity={sunIntensity}
+        flowSpeed={flowSpeed}
+        palette="tint"
+      />
+
+      <Mothership
+        sunPosition={sunPosition}
+        paused={paused}
+        shipRef={mothership}
+        hazardRef={mothershipHazards}
+      />
 
       {started && (
         <>
           <MisplantedGate
             sunPosition={sunPosition}
             offset={VOID_GATE_OFFSET}
+            orbitAngularSpeed={VOID_GATE_ORBIT_SPEED}
+            orbitInclination={VOID_GATE_ORBIT_INCLINATION}
             playerRef={mapShipRef as RefObject<Object3D | null>}
             paused={paused}
             gateRef={misplantedGate}
@@ -254,20 +400,47 @@ export const GateVoidSpace = memo(function GateVoidSpace({
             onPortalEnter={onPortalEnter}
           />
 
+          <AsteroidBelt
+            sunPosition={sunPosition}
+            mu={mu}
+            orbitSpeedScale={0.055}
+            innerRadius={VOID_BELT_INNER}
+            outerRadius={VOID_BELT_OUTER}
+            count={52}
+            thickness={160}
+            sizeScale={0.92}
+            inclination={0.38}
+            nightFraction={0}
+            // A few dense rubble piles = former worlds; rest of the annulus stays thin.
+            clumpCount={5}
+            clumpSpread={48}
+            looseRatio={0.28}
+            paused={paused}
+            hazardRef={asteroidHazards}
+            onRockDestroyed={onRockDestroyed}
+          />
+
+          <MaterialDrops
+            handleRef={materialDrops}
+            magnetTargetRef={mapShipRef}
+            paused={paused}
+          />
+
           <PlayerShip
             scale={0.08}
             metalness={0.38}
             roughness={0.42}
             envMapIntensity={0.55}
             sunPosition={sunPosition}
-            sunSize={VOID_SUN_SIZE}
-            mu={1}
+            sunSize={sunSize}
+            mu={mu}
             hazards={emptyHazards}
             hostiles={[]}
             hazardFields={hazardFields}
             laserTargets={[]}
             shipRef={mapShipRef}
             onMaterialPickup={onMaterialPickup}
+            materialDropsRef={materialDrops}
             spawnAnchorRef={misplantedGate}
             spawnClearance={PORTAL_EXIT_CLEARANCE}
             dockBerths={emptyBerths}
@@ -305,11 +478,11 @@ export const GateVoidSpace = memo(function GateVoidSpace({
       <MapTracker
         snapshotRef={mapSnapshotRef}
         sunPosition={sunPosition}
-        sunSize={VOID_SUN_SIZE}
-        sunColor="#4a3a78"
+        sunSize={sunSize}
+        sunColor={VOID_SUN_COLOR}
         starName={VOID_STAR_NAME}
-        beltInner={0}
-        beltOuter={0}
+        beltInner={VOID_BELT_INNER}
+        beltOuter={VOID_BELT_OUTER}
         bodies={mapBodies}
         shipRef={mapShipRef}
         banditRefs={emptyBandits}
@@ -318,14 +491,36 @@ export const GateVoidSpace = memo(function GateVoidSpace({
         hideNpcsRef={mapCloakRef}
       />
 
+      {/* One SNR veil — quadrants gradient magenta→cyan→gold→violet. */}
       <Nebula
-        origin={VOID_GATE_OFFSET}
+        origin={sunPosition}
         shellIntensity={shellIntensity}
-        colorA="#2a1a58"
-        colorB="#142848"
-        colorC="#4a2048"
-        wispCount={0}
+        quadrantColors={DEFAULT_QUADRANT_COLORS}
+        wispInner={VOID_NEBULA_INNER}
+        wispOuter={VOID_NEBULA_OUTER}
+        wispCount={wispCount}
+        wispMinScale={220}
+        wispMaxScale={620}
+        wispOpacity={wispOpacity}
+        fadeStart={VOID_NEBULA_FADE_START}
+        fadeEnd={VOID_NEBULA_FADE_END}
         seed={41}
+        paused={paused}
+      />
+      {/* Depth layer — same azimuthal field, softer / slightly larger. */}
+      <Nebula
+        origin={sunPosition}
+        shellIntensity={shellIntensity * 0.35}
+        quadrantColors={DEFAULT_QUADRANT_COLORS}
+        wispInner={VOID_NEBULA_INNER + 60}
+        wispOuter={VOID_NEBULA_OUTER + 160}
+        wispCount={Math.round(wispCount * 0.55)}
+        wispMinScale={280}
+        wispMaxScale={720}
+        wispOpacity={wispOpacity * 0.55}
+        fadeStart={VOID_NEBULA_FADE_START}
+        fadeEnd={VOID_NEBULA_FADE_END}
+        seed={119}
         paused={paused}
       />
 

@@ -54,8 +54,8 @@ import {
   ALT_CASSINI_MAP_LABEL,
   ALT_CASSINI_TOAST,
   ALT_DYSON_MAP_LABEL,
-  ALT_GATE_MAP_LABEL,
   ALT_GATE_TOAST,
+  altGateMapLabel,
   ALT_TUG_TOAST,
 } from '@/lore/easterEggs'
 import { FloatingWreck } from '@/lore/FloatingWreck'
@@ -178,6 +178,7 @@ export const NyxAltSpace = memo(function NyxAltSpace({
   onNyxCassiniSeen,
   nyxGateSeen = false,
   onNyxGateSeen,
+  gatePortalUsed = false,
   vesperSiphonRepaired = [],
   gatePowered = false,
   onPortalEnter,
@@ -213,6 +214,7 @@ export const NyxAltSpace = memo(function NyxAltSpace({
   onNyxCassiniSeen?: (toast: string) => void
   nyxGateSeen?: boolean
   onNyxGateSeen?: (toast: string) => void
+  gatePortalUsed?: boolean
   vesperSiphonRepaired?: readonly number[]
   gatePowered?: boolean
   onPortalEnter?: () => void
@@ -644,7 +646,7 @@ export const NyxAltSpace = memo(function NyxAltSpace({
         kind: 'moon',
       },
       {
-        name: ALT_GATE_MAP_LABEL,
+        name: altGateMapLabel(gatePortalUsed),
         object: misplantedGate,
         size: GATE_MAP_SIZE,
         color: '#6b5cff',
@@ -660,7 +662,7 @@ export const NyxAltSpace = memo(function NyxAltSpace({
         inclination: siphonInclination,
       },
     ],
-    [siphonInclination],
+    [siphonInclination, gatePortalUsed],
   )
 
   const mapStations = useMemo<TrackedStation[]>(

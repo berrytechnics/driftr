@@ -29,6 +29,8 @@ type SystemMapProps = {
   snapshotRef: RefObject<MapSnapshot>
   /** Only listen for M while the player can open the map */
   active: boolean
+  /** When true, M toggles the map; in flight, hold M to peek. */
+  paused?: boolean
   /** Re-lock flight when closing the map after opening from pointer-lock. */
   onRequestResume?: () => void
   /**
@@ -518,24 +520,34 @@ function LiveShip({
 function LiveNpcs({
   snapshotRef,
   scaleRef,
+  showPatrols,
 }: {
   snapshotRef: RefObject<MapSnapshot>
   scaleRef: RefObject<number>
+  /** Sol-only friendly pips — Html labels otherwise stick to the star origin. */
+  showPatrols: boolean
 }) {
   /** Pool meshes — update transforms each frame (no React lag). */
   const MAX = 8
   const banditRefs = useRef<(Group | null)[]>(Array(MAX).fill(null))
   const patrolRefs = useRef<(Group | null)[]>(Array(MAX).fill(null))
+  const banditLabelRefs = useRef<(HTMLSpanElement | null)[]>(
+    Array(MAX).fill(null),
+  )
+  const patrolLabelRefs = useRef<(HTMLSpanElement | null)[]>(
+    Array(MAX).fill(null),
+  )
 
   useFrame(() => {
     const snap = snapshotRef.current
     const s = scaleRef.current
     const bandits = snap.bandits
-    const patrols = snap.patrols
+    const patrols = showPatrols ? snap.patrols : []
     for (let i = 0; i < MAX; i++) {
       const bg = banditRefs.current[i]
+      const banditOn = i < bandits.length
       if (bg) {
-        if (i < bandits.length) {
+        if (banditOn) {
           const b = bandits[i]
           bg.visible = true
           bg.position.set(b.x * s, b.y * s, b.z * s)
@@ -543,9 +555,13 @@ function LiveNpcs({
           bg.visible = false
         }
       }
+      const bLabel = banditLabelRefs.current[i]
+      if (bLabel) bLabel.style.display = banditOn ? '' : 'none'
+
       const pg = patrolRefs.current[i]
+      const patrolOn = i < patrols.length
       if (pg) {
-        if (i < patrols.length) {
+        if (patrolOn) {
           const p = patrols[i]
           pg.visible = true
           pg.position.set(p.x * s, p.y * s, p.z * s)
@@ -553,6 +569,8 @@ function LiveNpcs({
           pg.visible = false
         }
       }
+      const pLabel = patrolLabelRefs.current[i]
+      if (pLabel) pLabel.style.display = patrolOn ? '' : 'none'
     }
   })
 
@@ -570,24 +588,44 @@ function LiveNpcs({
             <sphereGeometry args={[0.05, 10, 8]} />
             <meshBasicMaterial color="#ff2a3a" />
           </mesh>
-          <MapLabel color="#ff8a94">Bandit</MapLabel>
+          <MapLabel color="#ff8a94">
+            <span
+              ref={(node) => {
+                banditLabelRefs.current[i] = node
+              }}
+              style={{ display: 'none' }}
+            >
+              Bandit
+            </span>
+          </MapLabel>
         </group>
       ))}
-      {Array.from({ length: MAX }, (_, i) => (
-        <group
-          key={`p-${i}`}
-          ref={(node) => {
-            patrolRefs.current[i] = node
-          }}
-          visible={false}
-        >
-          <mesh>
-            <sphereGeometry args={[0.045, 10, 8]} />
-            <meshBasicMaterial color="#4ec4ff" />
-          </mesh>
-          <MapLabel color="#9ad8ff">Patrol</MapLabel>
-        </group>
-      ))}
+      {showPatrols
+        ? Array.from({ length: MAX }, (_, i) => (
+            <group
+              key={`p-${i}`}
+              ref={(node) => {
+                patrolRefs.current[i] = node
+              }}
+              visible={false}
+            >
+              <mesh>
+                <sphereGeometry args={[0.045, 10, 8]} />
+                <meshBasicMaterial color="#4ec4ff" />
+              </mesh>
+              <MapLabel color="#9ad8ff">
+                <span
+                  ref={(node) => {
+                    patrolLabelRefs.current[i] = node
+                  }}
+                  style={{ display: 'none' }}
+                >
+                  Patrol
+                </span>
+              </MapLabel>
+            </group>
+          ))
+        : null}
     </group>
   )
 }
@@ -1030,7 +1068,11 @@ function MapScene({
         selectedName={selectedName}
         onSelect={(name) => onSelectBody(name, 'station')}
       />
-      <LiveNpcs snapshotRef={snapshotRef} scaleRef={scaleRef} />
+      <LiveNpcs
+        snapshotRef={snapshotRef}
+        scaleRef={scaleRef}
+        showPatrols={layout.starName === 'Sol'}
+      />
       <LiveLorePings
         snapshotRef={snapshotRef}
         scaleRef={scaleRef}
@@ -1046,6 +1088,7 @@ function MapScene({
 export function SystemMap({
   snapshotRef,
   active,
+  paused = false,
   onRequestResume,
   onOpenChange,
   waypointRef,
@@ -1053,6 +1096,8 @@ export function SystemMap({
   const [open, setOpen] = useState(false)
   const openRef = useRef(false)
   const openedFromLockRef = useRef(false)
+  const pausedRef = useRef(paused)
+  pausedRef.current = paused
   const [selectedName, setSelectedName] = useState<string | null>(
     () => waypointRef?.current.name ?? null,
   )
@@ -1117,7 +1162,14 @@ export function SystemMap({
       if (event.code === 'KeyM') {
         if (event.repeat) return
         event.preventDefault()
-        openMap()
+        // Pause: toggle so trackpads work (no key held → no OS mute).
+        // Flight: hold to peek (release closes via keyup).
+        if (pausedRef.current) {
+          if (openRef.current) closeMap(false)
+          else openMap()
+        } else {
+          openMap()
+        }
         return
       }
       if (event.code === 'Escape' && openRef.current) {
@@ -1130,11 +1182,11 @@ export function SystemMap({
 
     const onUp = (event: KeyboardEvent) => {
       if (event.code !== 'KeyM') return
+      if (pausedRef.current) return
       event.preventDefault()
       closeMap(true)
     }
 
-    // Hold M — works in flight and while paused (active = started).
     window.addEventListener('keydown', onDown, true)
     window.addEventListener('keyup', onUp, true)
     return () => {
@@ -1195,7 +1247,7 @@ export function SystemMap({
             System Map
           </div>
           <div style={{ fontSize: 12, color: 'rgba(201, 209, 217, 0.55)' }}>
-            hold M · click body · drag orbit
+            {paused ? 'M toggle' : 'hold M'} · click body · drag orbit
             {selectedName ? ` · mark ${selectedName}` : ''}
           </div>
         </div>

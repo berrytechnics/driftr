@@ -31,6 +31,7 @@ import {
   type Texture,
 } from 'three'
 import type { HazardField } from '@/ship/PlayerShip'
+import { VOID_GATE_ORBIT } from '@/game/systemConfig'
 
 /** Centerline of the truss ring (world units). */
 export const GATE_RING_RADIUS = 42
@@ -51,8 +52,12 @@ export const PORTAL_EXIT_CLEARANCE = 24
 export const MISPLANTED_GATE_OFFSET: [number, number, number] = [
   580, 70, -220,
 ]
-/** Matching gate in the liminal void — near the scene origin. */
-export const VOID_GATE_OFFSET: [number, number, number] = [0, 0, 0]
+/** Matching gate in the liminal void — phase-0 offset from Cinder. */
+export const VOID_GATE_OFFSET: [number, number, number] = [
+  VOID_GATE_ORBIT,
+  42,
+  0,
+]
 /** Grace after mount / hop so arrival doesn’t immediately re-fire. */
 const PORTAL_ARM_DELAY = 2.4
 
@@ -75,6 +80,8 @@ const INNER_R = 33
 const OUTER_R = 51
 const RING_DEPTH = 11
 const _sun = new Vector3()
+const _orbit = new Vector3()
+const _orbitTilt = new Vector3(1, 0, 0)
 const _player = new Vector3()
 
 const COL_ACCENT = '#6b5cff'
@@ -97,6 +104,12 @@ type MisplantedGateProps = {
   powered?: boolean
   /** Fired once when the player flies the powered throat (portal hop). */
   onPortalEnter?: () => void
+  /**
+   * When set, `offset` is the phase-0 radius vector from `sunPosition` and the
+   * gate drifts on a circular (optionally inclined) orbit.
+   */
+  orbitAngularSpeed?: number
+  orbitInclination?: number
 }
 
 type LocalSphere = { x: number; y: number; z: number; r: number }
@@ -1648,15 +1661,22 @@ export function MisplantedGate({
   hazardRef,
   powered = false,
   onPortalEnter,
+  orbitAngularSpeed = 0,
+  orbitInclination = 0,
 }: MisplantedGateProps) {
   const root = useRef<Group>(null!)
   const yaw = useRef(0)
+  const orbitPhase = useRef(0)
   const seenRef = useRef(alreadySeen)
   seenRef.current = alreadySeen
   const poweredRef = useRef(powered)
   poweredRef.current = powered
   const onPortalEnterRef = useRef(onPortalEnter)
   onPortalEnterRef.current = onPortalEnter
+  const orbitSpeedRef = useRef(orbitAngularSpeed)
+  orbitSpeedRef.current = orbitAngularSpeed
+  const orbitInclRef = useRef(orbitInclination)
+  orbitInclRef.current = orbitInclination
   /** Counts down before throat entry can fire (arrival grace + post-fire). */
   const portalArm = useRef(PORTAL_ARM_DELAY)
   const portalFired = useRef(false)
@@ -1791,11 +1811,23 @@ export function MisplantedGate({
     if (!group) return
 
     _sun.set(...sunPosition)
-    group.position.set(
-      _sun.x + offset[0],
-      _sun.y + offset[1],
-      _sun.z + offset[2],
-    )
+    const orbitSpeed = orbitSpeedRef.current
+    if (orbitSpeed !== 0) {
+      if (!paused) orbitPhase.current += dt * orbitSpeed
+      const phase0 = Math.atan2(offset[2], offset[0])
+      const r = Math.hypot(offset[0], offset[2])
+      const theta = phase0 + orbitPhase.current
+      _orbit.set(Math.cos(theta) * r, offset[1], Math.sin(theta) * r)
+      const incl = orbitInclRef.current
+      if (incl !== 0) _orbit.applyAxisAngle(_orbitTilt, incl)
+      group.position.copy(_sun).add(_orbit)
+    } else {
+      group.position.set(
+        _sun.x + offset[0],
+        _sun.y + offset[1],
+        _sun.z + offset[2],
+      )
+    }
 
     if (!paused) {
       const spinRate = poweredRef.current ? 0.085 : 0.014

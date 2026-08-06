@@ -95,6 +95,13 @@ export const ALT_CASSINI_MAP_LABEL = 'Probe husk'
 export const ALT_GATE_TOAST =
   'Survey lattice. Ring empty. No Transit signature — the pad was never meant for this sky.'
 export const ALT_GATE_MAP_LABEL = 'Unknown structure'
+/** Chart label after the player has flown the powered throat. */
+export const ALT_GATE_KNOWN_MAP_LABEL = 'Space Gate'
+export function altGateMapLabel(traveled: boolean) {
+  return traveled ? ALT_GATE_KNOWN_MAP_LABEL : ALT_GATE_MAP_LABEL
+}
+/** Chart pip for the void mothership parked beyond Cinder. */
+export const VOID_MOTHERSHIP_MAP_LABEL = 'Mothership'
 export const ALT_GATE_JOURNAL_TITLE = 'Unknown structure'
 export const ALT_GATE_JOURNAL_BODY =
   'Tilted survey ring past the ashen dwarf. Hollow throat, unfinished struts, tick marks in a dead hand. Nothing answers. Looks like the Transit pad that was raised to meet Nyx — dropped here when the ellipse lied.'
@@ -130,7 +137,7 @@ export const NYX_DUST_KEY_TOAST = 'Nyx dust — keys the Transit pads'
 export const NYX_ALT_TRANSPORT_TOAST = 'The berth slips you into another sky.'
 /** Fired when flying a powered gate throat into the matching ring. */
 export const GATE_PORTAL_TRANSPORT_TOAST =
-  'The throat takes you. Same ring — wrong empty.'
+  'The throat takes you. Same ring — dead star’s hollow.'
 
 export const NYX_ASK_LABEL = 'Ask about Nyx'
 /** Thalassa / Ares / Nyx Transit — no lead, just dismissal. */

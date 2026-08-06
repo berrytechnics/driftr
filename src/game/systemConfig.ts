@@ -78,18 +78,61 @@ export const MOON_SIZES = {
 
 /**
  * Which sky the player is in —
- * Nyx pads (dust) slip Sol ↔ Vesper; a powered gate slips Vesper ↔ liminal void.
+ * Nyx pads (dust) slip Sol ↔ Vesper; a powered gate slips Vesper ↔ Cinder remnant.
  */
 export const SYSTEM_IDS = {
   sol: 'sol',
   nyxAlt: 'nyxAlt',
-  /** Sparse liminal pocket reachable only through the misplanted gate. */
+  /** Sparse remnant pocket reachable only through the misplanted gate. */
   gateVoid: 'gateVoid',
 } as const
 export type SystemId = (typeof SYSTEM_IDS)[keyof typeof SYSTEM_IDS]
 
-/** Chart label for the liminal void (no catalog star). */
-export const VOID_STAR_NAME = '—'
+/**
+ * Cool black dwarf at the hollow center of a supernova remnant —
+ * the star died; builders later hung the matching gate on a tight orbit.
+ */
+export const VOID_STAR_NAME = 'Cinder'
+export const VOID_SUN_SIZE = 34
+export const VOID_SUN_COLOR = '#4a4248'
+export const VOID_SUN_INTENSITY = 0.2
+/** Soft residual gravity — enough to fall, not Sol-scale. */
+export const VOID_MU = 1800
+/** Gate semi-major radius around Cinder (world units). */
+export const VOID_GATE_ORBIT = 268
+export const VOID_GATE_ORBIT_INCLINATION = 0.22
+/** Visual orbit rate (rad/s) — dramatic drift inside the remnant cavity. */
+export const VOID_GATE_ORBIT_SPEED = 0.038
+/**
+ * Sparse remnant rubble beyond the gate’s orbit, into the nebula wall.
+ * Occasional clumps stand in for worlds destroyed with the star.
+ * No night-omen rocks — regular ore only if broken up.
+ */
+export const VOID_BELT_INNER = 340
+export const VOID_BELT_OUTER = 980
+/**
+ * Alien mothership — longest span ~3× prior (960→2880); Sol’s diameter is 480.
+ * Native saucer AABB ≈ 3638 × 767 × 3638 (see mothership.obj bounds).
+ */
+export const VOID_MOTHERSHIP_NATIVE_LONGEST = 3637.98
+export const VOID_MOTHERSHIP_NATIVE_HEIGHT = 767.472
+export const VOID_MOTHERSHIP_LENGTH = 2880
+/** Far enough that the huge saucer clears the belt / gate cavity. */
+export const VOID_MOTHERSHIP_ORBIT = 4200
+/** Yaw spin while parked (rad/s). */
+export const VOID_MOTHERSHIP_SPIN_SPEED = 0.045
+/** Elevated berth angle off the ecliptic. */
+export const VOID_MOTHERSHIP_INCLINATION = 0.16
+export const VOID_MOTHERSHIP_MAP_SIZE = 480
+/**
+ * Dense SNR gas — hollow past the belt cavity, engulfs the mothership
+ * (orbit + ~1× saucer length), then soft-fades if you fly out the wall.
+ */
+export const VOID_NEBULA_INNER = 920
+export const VOID_NEBULA_OUTER =
+  VOID_MOTHERSHIP_ORBIT + VOID_MOTHERSHIP_LENGTH
+export const VOID_NEBULA_FADE_START = VOID_NEBULA_OUTER
+export const VOID_NEBULA_FADE_END = VOID_NEBULA_OUTER + VOID_MOTHERSHIP_LENGTH * 1.25
 
 /** Compact alternate sky — small indigo Vesper, cooler and dimmer than Sol. */
 export const ALT_STAR_NAME = 'Vesper'

@@ -46,7 +46,7 @@ npm run preview  # serve the build locally (use this to test the PWA)
 | `T` | Torpedo (locks nearest foe ahead; requires station unlock) |
 | `C` | Advanced thruster — toggle ballistic cruise (requires unlock; blocked in combat) |
 | `J` | Jettison cargo (bandits race you for it) |
-| Hold `M` | System map (release to close; drag to orbit, scroll to zoom; click a body to mark a waypoint) |
+| Hold `M` / `M` | System map — hold in flight (release to close); toggle while paused. Drag to orbit, scroll to zoom; click a body to mark a waypoint |
 | `F` (near a station) | Dock |
 | `Esc` | Pause / resume (also closes the map) |
 
@@ -64,7 +64,7 @@ Near a station berth, `F` docks. Elsewhere (and with LMB) it fires the cannons.
 
 ## The system
 
-Named bodies orbit Sol: Hermes, Ares, Boreas, Thalassa, Kronos, Ouranos, and the distant elliptical dwarf **Nyx**, plus moons and orbital stations. Orbits tilt slightly off the ecliptic; moons and stations drift slowly around their hosts. Soft nebula gas hangs in the lanes. The dense asteroid belt sits outside Thalassa (~2000 from Sol). Hold `M` for a live **3D system map** — drag to orbit, scroll to zoom, click a star / planet / moon / station to set a flight waypoint — with your ship, planet/moon paths, unlabeled station rings, contacts, and Nyx’s stretched ellipse.
+Named bodies orbit Sol: Hermes, Ares, Boreas, Thalassa, Kronos, Ouranos, and the distant elliptical dwarf **Nyx**, plus moons and orbital stations. Orbits tilt slightly off the ecliptic; moons and stations drift slowly around their hosts. Soft nebula gas hangs in the lanes. The dense asteroid belt sits outside Thalassa (~2000 from Sol). Hold `M` in flight (or toggle `M` while paused) for a live **3D system map** — drag to orbit, scroll to zoom, click a star / planet / moon / station to set a flight waypoint — with your ship, planet/moon paths, unlabeled station rings, contacts, and Nyx’s stretched ellipse.
 
 Three outposts share the same economy and outfitters:
 
@@ -95,7 +95,7 @@ Pilots who push the outer lanes can piece the story together:
 
 Dust-keyed Transit docks can drop you under a small indigo star — **Vesper** — a compact, quieter chart (catalog worlds **V-1**–**V-3**, an ashen **Nyx**, sparse belt, denser nebula). A live **Nyx Station** orbits the dwarf here with limited services (cargo sell + hull repair; outfit desks are dark). Farther out, a cold **derelict tug** holds a recovered crew log, a silent **probe husk** marks the black, and a tilted **Misplanted Gate** — an empty survey ring you can thread — waits between Nyx and V-3.
 
-Outside every catalog orbit hangs a dense **satellite ring** of alien siphons. Present pads are dockable berths (`Siphon 00`…): live nodes already hum, while a few dormant ones take **Nyx dust** to revive. Repair every dark siphon and the gate wakes — lattice brightens, arcs crackle between the struts, and a dark portal spheres in the throat. The aperture is damaged and unsteady: it flickers and throws short ripples, a reminder the ring was never meant to sit here. Fly the powered throat and you slip into a liminal void with a matching gate — return the same way. Dock Nyx Station with dust aboard to spend another shard and hop skies again. Which system you are in (and which siphons you’ve repaired) survives reload; map waypoints clear on transport.
+Outside every catalog orbit hangs a dense **satellite ring** of alien siphons. Present pads are dockable berths (`Siphon 00`…): live nodes already hum, while a few dormant ones take **Nyx dust** to revive. Repair every dark siphon and the gate wakes — lattice brightens, arcs crackle between the struts, and a dark portal spheres in the throat. The aperture is damaged and unsteady: it flickers and throws short ripples, a reminder the ring was never meant to sit here. Fly the powered throat and you slip into a **supernova remnant**: black dwarf **Cinder** sits in a clear central cavity while a dense nebula wall closes in beyond, the matching gate drifts on a tight orbit, sparse **remnant rubble** (mineable clumps where worlds used to be) rings the outer cavity, and a vast alien **mothership husk** (larger than Sol) hangs farther out, slowly spinning in place — solid plating if you fly into it. Someone built the gate here after the star died; the nebula engulfs the saucer and soft-fades if you push past the wall. Return through the same aperture. Dock Nyx Station with dust aboard to spend another shard and hop skies again. Which system you are in (and which siphons you’ve repaired) survives reload; map waypoints clear on transport.
 
 Recovered leads also land in the pause-menu **Signal Journal**. The first-load briefing tells the vanishing story; **Reset progress** clears the “don’t show again” flag (and all lore flags) so it can return.
 
@@ -132,19 +132,19 @@ Cargo desk sells ore, ice, and alloy for credits. **Nyx Station** in Vesper only
 - Procedural asteroid belt (shader rock detail, mining, and loot)
 - Soft nebula volumes in Sol and denser wisps under Vesper
 - Multi-station world (Thalassa, Ares, Kronos) with shared shops and ATC portraits
-- Interactive 3D system map (hold `M`) with inclined orbits, station rings, and remembered camera
+- Interactive 3D system map (hold `M` in flight, toggle while paused) with inclined orbits, station rings, and remembered camera
 - Bandit AI, seeking torpedoes, combat HUD, and layered ship-explosion VFX
 - Cargo jettison bait that pulls bandits off your trail
 - Advanced thruster cruise and sensor upgrades from the station
 - Nyx questline — Ask ATC, Hyperion lead, apo ghost pad, dust-keyed hard dock, pause journal
 - Dust-gated sky hop into Vesper (Nyx Station, derelict tug log, probe husk, Misplanted Gate, satellite siphon ring)
 - Siphon berths you can repair with Nyx dust — full ring powers the gate’s unstable portal and charge arcs
-- Fly the powered gate throat into a liminal void pocket (matching ring; return hop through the same aperture)
+- Fly the powered gate throat into a supernova remnant (black dwarf Cinder, remnant rubble belt, dense nebula shell, matching orbiting ring, Sol-dwarfing spinning mothership husk with solid collision; return hop through the same aperture)
 - Theme music in flight, station ambience when docked, separate volume sliders
 - Reset progress control on the start / pause menu (confirmed wipe of the local save)
 - Installable PWA with offline-ready assets (service worker on production builds)
 - Optional cheat / admin panel from the start / pause menu (sky hops including gate void, warps, grant outfits, siphon / gate cheats)
-- Leva world-tuning folders in the same panel while cheats are open (Env · Vesper includes siphon ring controls; Env · Void tunes the liminal pocket)
+- Leva world-tuning folders in the same panel while cheats are open (Env · Vesper includes siphon ring controls; Env · Void tunes the Cinder remnant)
 
 ## Stack
 

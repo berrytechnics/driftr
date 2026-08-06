@@ -111,6 +111,8 @@ export type GameSave = {
   nyxCassiniSeen: boolean
   /** Lore — approached the Unknown structure (alt gate) in alt Nyx space. */
   nyxGateSeen: boolean
+  /** Lore — flew the powered gate throat at least once. */
+  gatePortalUsed: boolean
   /**
    * Indices of collector-ring siphons revived with Nyx dust
    * (subset of SIPHON_INITIAL_DEAD).
@@ -202,6 +204,7 @@ export function defaultGameSave(): GameSave {
     nyxTugSeen: false,
     nyxCassiniSeen: false,
     nyxGateSeen: false,
+    gatePortalUsed: false,
     vesperSiphonRepaired: [],
     nyxDualAshDone: false,
     nyxHyperionRumorHeard: false,
@@ -294,6 +297,8 @@ export function loadGameSave(): GameSave {
     nyxTugSeen: !!raw.nyxTugSeen,
     nyxCassiniSeen: !!raw.nyxCassiniSeen,
     nyxGateSeen: !!raw.nyxGateSeen,
+    // Prior void sessions imply the throat was flown (or admin-hopped).
+    gatePortalUsed: !!raw.gatePortalUsed || systemId === SYSTEM_IDS.gateVoid,
     vesperSiphonRepaired: sanitizeSiphonRepaired(raw.vesperSiphonRepaired),
     nyxDualAshDone: !!raw.nyxDualAshDone,
     nyxHyperionRumorHeard: !!raw.nyxHyperionRumorHeard,
@@ -359,6 +364,7 @@ export function saveGameSave(save: GameSave) {
     nyxTugSeen: !!save.nyxTugSeen,
     nyxCassiniSeen: !!save.nyxCassiniSeen,
     nyxGateSeen: !!save.nyxGateSeen,
+    gatePortalUsed: !!save.gatePortalUsed,
     vesperSiphonRepaired: sanitizeSiphonRepaired(save.vesperSiphonRepaired),
     nyxDualAshDone: !!save.nyxDualAshDone,
     nyxHyperionRumorHeard: !!save.nyxHyperionRumorHeard,

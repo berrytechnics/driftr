@@ -157,7 +157,10 @@ export default function App() {
   const [, setLocked] = useState(false)
   const [booting, setBooting] = useState(true)
   const [paused, setPaused] = useState(false)
-  const [started, setStarted] = useState(() => saved.docked)
+  /** Void has no berth — resume in flight instead of the launch / undock menu. */
+  const [started, setStarted] = useState(
+    () => saved.docked || saved.systemId === SYSTEM_IDS.gateVoid,
+  )
   const [cheatsEnabled, setCheatsEnabled] = useState(loadCheatsEnabled)
   const [docked, setDocked] = useState(() => saved.docked)
   const [dockAvailable, setDockAvailable] = useState(false)
@@ -195,6 +198,9 @@ export default function App() {
     () => saved.nyxCassiniSeen,
   )
   const [nyxGateSeen, setNyxGateSeen] = useState(() => saved.nyxGateSeen)
+  const [gatePortalUsed, setGatePortalUsed] = useState(
+    () => saved.gatePortalUsed,
+  )
   const [vesperSiphonRepaired, setVesperSiphonRepaired] = useState<number[]>(
     () => saved.vesperSiphonRepaired,
   )
@@ -234,7 +240,9 @@ export default function App() {
     cargo: CargoHold
     ashOffering?: boolean
   } | null>(null)
-  const startedRef = useRef(saved.docked)
+  const startedRef = useRef(
+    saved.docked || saved.systemId === SYSTEM_IDS.gateVoid,
+  )
   const dockedRef = useRef(saved.docked)
   const systemIdRef = useRef<SystemId>(saved.systemId)
   const lastHp = useRef<number | null>(saved.hp)
@@ -255,6 +263,7 @@ export default function App() {
   const nyxTugSeenRef = useRef(nyxTugSeen)
   const nyxCassiniSeenRef = useRef(nyxCassiniSeen)
   const nyxGateSeenRef = useRef(nyxGateSeen)
+  const gatePortalUsedRef = useRef(gatePortalUsed)
   const vesperSiphonRepairedRef = useRef(vesperSiphonRepaired)
   const nyxDualAshDoneRef = useRef(nyxDualAshDone)
   const nyxHyperionRumorHeardRef = useRef(nyxHyperionRumorHeard)
@@ -296,6 +305,7 @@ export default function App() {
   nyxTugSeenRef.current = nyxTugSeen
   nyxCassiniSeenRef.current = nyxCassiniSeen
   nyxGateSeenRef.current = nyxGateSeen
+  gatePortalUsedRef.current = gatePortalUsed
   vesperSiphonRepairedRef.current = vesperSiphonRepaired
   nyxDualAshDoneRef.current = nyxDualAshDone
   nyxHyperionRumorHeardRef.current = nyxHyperionRumorHeard
@@ -332,6 +342,7 @@ export default function App() {
       nyxTugSeen: nyxTugSeenRef.current,
       nyxCassiniSeen: nyxCassiniSeenRef.current,
       nyxGateSeen: nyxGateSeenRef.current,
+      gatePortalUsed: gatePortalUsedRef.current,
       vesperSiphonRepaired: [...vesperSiphonRepairedRef.current],
       nyxDualAshDone: nyxDualAshDoneRef.current,
       nyxHyperionRumorHeard: nyxHyperionRumorHeardRef.current,
@@ -367,6 +378,7 @@ export default function App() {
     nyxTugSeen,
     nyxCassiniSeen,
     nyxGateSeen,
+    gatePortalUsed,
     vesperSiphonRepaired,
     nyxDualAshDone,
     nyxHyperionRumorHeard,
@@ -406,7 +418,7 @@ export default function App() {
       !mapOpenRef.current
     ) {
       // Pointer unlock while docked is intentional (station MFD needs the mouse)
-      // Unlock for the hold-M map is also intentional — don't pause.
+      // Unlock for the hold-M / pause-toggle map is also intentional — don't pause.
       setPaused(true)
       ignoreEscResume.current = true
       window.setTimeout(() => {
@@ -862,15 +874,22 @@ export default function App() {
     void canvas?.requestPointerLock()
   }, [])
 
-  const gateArrivalSeq = useRef(0)
+  const gateArrivalSeq = useRef(
+    saved.systemId === SYSTEM_IDS.gateVoid ? 1 : 0,
+  )
   const [gateArrival, setGateArrival] = useState<GateArrivalRequest | null>(
-    null,
+    () =>
+      saved.systemId === SYSTEM_IDS.gateVoid
+        ? { seq: 1 }
+        : null,
   )
 
   /** Dev admin — instant Sol ↔ Vesper hop, docked at the matching Nyx pad. */
   const adminTransportToSystem = useCallback((target: SystemId) => {
     if (target === SYSTEM_IDS.gateVoid) {
       Object.assign(waypointRef.current, createEmptyMapWaypoint())
+      gatePortalUsedRef.current = true
+      setGatePortalUsed(true)
       systemIdRef.current = SYSTEM_IDS.gateVoid
       setSystemId(SYSTEM_IDS.gateVoid)
       startedRef.current = true
@@ -916,7 +935,7 @@ export default function App() {
     }
   }, [])
 
-  /** Powered gate throat — undocked hop between Vesper and the liminal void. */
+  /** Powered gate throat — undocked hop between Vesper and the Cinder remnant. */
   const onGatePortalEnter = useCallback(() => {
     const from = systemIdRef.current
     const target =
@@ -924,6 +943,8 @@ export default function App() {
     // Only Vesper ↔ void; ignore stray fires in Sol.
     if (from !== SYSTEM_IDS.nyxAlt && from !== SYSTEM_IDS.gateVoid) return
 
+    gatePortalUsedRef.current = true
+    setGatePortalUsed(true)
     Object.assign(waypointRef.current, createEmptyMapWaypoint())
     systemIdRef.current = target
     setSystemId(target)
@@ -1043,6 +1064,8 @@ export default function App() {
     nyxCassiniSeenRef.current = true
     setNyxGateSeen(true)
     nyxGateSeenRef.current = true
+    setGatePortalUsed(true)
+    gatePortalUsedRef.current = true
     setNyxDualAshDone(true)
     nyxDualAshDoneRef.current = true
     const allSiphons = [...SIPHON_INITIAL_DEAD].sort((a, b) => a - b)
@@ -1087,6 +1110,8 @@ export default function App() {
     nyxCassiniSeenRef.current = false
     setNyxGateSeen(false)
     nyxGateSeenRef.current = false
+    setGatePortalUsed(false)
+    gatePortalUsedRef.current = false
     setVesperSiphonRepaired([])
     vesperSiphonRepairedRef.current = []
     setNyxDualAshDone(false)
@@ -1136,6 +1161,7 @@ export default function App() {
     nyxTugSeenRef.current = next.nyxTugSeen
     nyxCassiniSeenRef.current = next.nyxCassiniSeen
     nyxGateSeenRef.current = next.nyxGateSeen
+    gatePortalUsedRef.current = next.gatePortalUsed
     vesperSiphonRepairedRef.current = next.vesperSiphonRepaired
     nyxDualAshDoneRef.current = next.nyxDualAshDone
     nyxHyperionRumorHeardRef.current = next.nyxHyperionRumorHeard
@@ -1184,6 +1210,7 @@ export default function App() {
     setNyxTugSeen(next.nyxTugSeen)
     setNyxCassiniSeen(next.nyxCassiniSeen)
     setNyxGateSeen(next.nyxGateSeen)
+    setGatePortalUsed(next.gatePortalUsed)
     setVesperSiphonRepaired(next.vesperSiphonRepaired)
     setNyxDualAshDone(next.nyxDualAshDone)
     setNyxHyperionRumorHeard(next.nyxHyperionRumorHeard)
@@ -1253,7 +1280,21 @@ export default function App() {
   const worldPaused = !started || paused
   const inFlight = !booting && started && !paused && !docked
 
-  const onBootFinished = useCallback(() => setBooting(false), [])
+  const onBootFinished = useCallback(() => {
+    setBooting(false)
+    // Remnant cold start — skip Engage/Launch; drop into flight at the gate.
+    if (
+      systemIdRef.current === SYSTEM_IDS.gateVoid &&
+      startedRef.current &&
+      !dockedRef.current
+    ) {
+      tryPlayTheme()
+      window.requestAnimationFrame(() => {
+        const canvas = document.querySelector('canvas')
+        void canvas?.requestPointerLock()
+      })
+    }
+  }, [])
 
   const toggleCheats = useCallback(() => {
     setCheatsEnabled((prev) => {
@@ -1340,6 +1381,7 @@ export default function App() {
         onNyxCassiniSeen={onNyxCassiniSeen}
         nyxGateSeen={nyxGateSeen}
         onNyxGateSeen={onNyxGateSeen}
+        gatePortalUsed={gatePortalUsed}
         vesperSiphonRepaired={vesperSiphonRepaired}
         gatePowered={gatePowered}
         nyxCorridorUnlockedRef={nyxCorridorUnlockedRef}
@@ -1401,6 +1443,7 @@ export default function App() {
           <SystemMap
             snapshotRef={mapSnapshotRef}
             active={started}
+            paused={paused}
             onRequestResume={resumeFlight}
             onOpenChange={onMapOpenChange}
             waypointRef={waypointRef}
