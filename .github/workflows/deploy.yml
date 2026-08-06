@@ -10,9 +10,11 @@ permissions:
   pages: write
   id-token: write
 
+# One deploy at a time — never cancel an in-flight Pages publish
+# (cancel-in-progress: true aborts the GitHub Pages deployment mid-flight).
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
