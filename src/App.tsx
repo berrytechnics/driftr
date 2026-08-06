@@ -1089,7 +1089,11 @@ export default function App() {
       {/* Debug panel — leva is stubbed out of production builds */}
       {import.meta.env.DEV && (
         <>
-          <Leva collapsed title="DRIFTR · Admin" oneLineLabels />
+          <Leva
+            collapsed
+            oneLineLabels
+            titleBar={{ title: 'DRIFTR · Admin' }}
+          />
           <AdminPanel
             systemId={systemId}
             onTransport={adminTransportToSystem}
