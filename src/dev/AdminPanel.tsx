@@ -1,7 +1,12 @@
 import { useRef } from 'react'
 import { button, folder, useControls } from 'leva'
 import type { AdminWarpId } from '@/dev/adminTypes'
-import { ALT_STAR_NAME, STAR_NAME, SYSTEM_IDS, type SystemId } from '@/game/systemConfig'
+import {
+  ALT_STAR_NAME,
+  STAR_NAME,
+  SYSTEM_IDS,
+  type SystemId,
+} from '@/game/systemConfig'
 import { SIPHON_REPAIR_SHARD_COST } from '@/lore/easterEggs'
 
 type AdminPanelProps = {
@@ -30,22 +35,41 @@ export function AdminPanel(props: AdminPanelProps) {
   const propsRef = useRef(props)
   propsRef.current = props
 
-  const transportLabel =
+  const skyPairLabel =
     props.systemId === SYSTEM_IDS.sol
       ? `Hop → ${ALT_STAR_NAME}`
-      : `Hop → ${STAR_NAME}`
+      : props.systemId === SYSTEM_IDS.gateVoid
+        ? `Hop → ${STAR_NAME}`
+        : `Hop → ${STAR_NAME}`
+
+  const voidHopLabel =
+    props.systemId === SYSTEM_IDS.gateVoid
+      ? `Hop → ${ALT_STAR_NAME} (gate)`
+      : 'Hop → gate void'
 
   useControls(
     'Admin',
     {
       sky: folder(
         {
-          [transportLabel]: button(() => {
+          [skyPairLabel]: button(() => {
             const p = propsRef.current
+            if (p.systemId === SYSTEM_IDS.gateVoid) {
+              p.onTransport(SYSTEM_IDS.sol)
+              return
+            }
             p.onTransport(
               p.systemId === SYSTEM_IDS.sol
                 ? SYSTEM_IDS.nyxAlt
                 : SYSTEM_IDS.sol,
+            )
+          }),
+          [voidHopLabel]: button(() => {
+            const p = propsRef.current
+            p.onTransport(
+              p.systemId === SYSTEM_IDS.gateVoid
+                ? SYSTEM_IDS.nyxAlt
+                : SYSTEM_IDS.gateVoid,
             )
           }),
         },
@@ -101,7 +125,7 @@ export function AdminPanel(props: AdminPanelProps) {
       ),
     },
     { collapsed: false, order: -1 },
-    [transportLabel],
+    [skyPairLabel, voidHopLabel],
   )
 
   return null

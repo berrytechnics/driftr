@@ -76,12 +76,20 @@ export const MOON_SIZES = {
   ouranosB: 6.3,
 } as const
 
-/** Which sky the player is in — docking either Nyx pad with dust slips you across. */
+/**
+ * Which sky the player is in —
+ * Nyx pads (dust) slip Sol ↔ Vesper; a powered gate slips Vesper ↔ liminal void.
+ */
 export const SYSTEM_IDS = {
   sol: 'sol',
   nyxAlt: 'nyxAlt',
+  /** Sparse liminal pocket reachable only through the misplanted gate. */
+  gateVoid: 'gateVoid',
 } as const
 export type SystemId = (typeof SYSTEM_IDS)[keyof typeof SYSTEM_IDS]
+
+/** Chart label for the liminal void (no catalog star). */
+export const VOID_STAR_NAME = '—'
 
 /** Compact alternate sky — small indigo Vesper, cooler and dimmer than Sol. */
 export const ALT_STAR_NAME = 'Vesper'

@@ -128,6 +128,9 @@ export const NYX_TRANSIT_DOCK_TOAST = 'Nyx dust wakes the cold berth.'
 export const NYX_DUST_KEY_TOAST = 'Nyx dust — keys the Transit pads'
 /** Fired when docking either Nyx pad with dust slips you into the other sky. */
 export const NYX_ALT_TRANSPORT_TOAST = 'The berth slips you into another sky.'
+/** Fired when flying a powered gate throat into the matching ring. */
+export const GATE_PORTAL_TRANSPORT_TOAST =
+  'The throat takes you. Same ring — wrong empty.'
 
 export const NYX_ASK_LABEL = 'Ask about Nyx'
 /** Thalassa / Ares / Nyx Transit — no lead, just dismissal. */

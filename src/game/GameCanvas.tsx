@@ -2,8 +2,9 @@ import { Canvas } from '@react-three/fiber'
 import { memo, type RefObject } from 'react'
 import type { Group } from 'three'
 import type { CombatHudState } from '@/combat/combatHud'
-import type { AdminWarpRequest } from '@/dev/adminTypes'
+import type { AdminWarpRequest, GateArrivalRequest } from '@/dev/adminTypes'
 import type { HullSnapshot } from '@/game/persist'
+import { GateVoidSpace } from '@/game/GateVoidSpace'
 import { NyxAltSpace } from '@/game/NyxAltSpace'
 import { Space } from '@/game/Space'
 import { SYSTEM_IDS, type SystemId } from '@/game/systemConfig'
@@ -59,6 +60,8 @@ export const GameCanvas = memo(function GameCanvas({
   onNyxGateSeen,
   vesperSiphonRepaired = [],
   gatePowered = false,
+  onGatePortalEnter,
+  gateArrival = null,
   adminWarpTarget = null,
 }: {
   /** Lazy-load heavy station assets after launch (or docked save). */
@@ -113,9 +116,16 @@ export const GameCanvas = memo(function GameCanvas({
   onNyxGateSeen?: (toast: string) => void
   vesperSiphonRepaired?: readonly number[]
   gatePowered?: boolean
+  onGatePortalEnter?: () => void
+  gateArrival?: GateArrivalRequest | null
   adminWarpTarget?: AdminWarpRequest | null
 }) {
-  const alt = systemId === SYSTEM_IDS.nyxAlt
+  const sky =
+    systemId === SYSTEM_IDS.gateVoid
+      ? 'void'
+      : systemId === SYSTEM_IDS.nyxAlt
+        ? 'vesper'
+        : 'sol'
 
   return (
     <Canvas
@@ -130,7 +140,36 @@ export const GameCanvas = memo(function GameCanvas({
       }}
       dpr={[1, 1.25]}
     >
-      {alt ? (
+      {sky === 'void' ? (
+        <GateVoidSpace
+          key="gateVoid"
+          started={started}
+          paused={paused}
+          docked={docked}
+          onLockChange={onLockChange}
+          onTelemetry={onTelemetry}
+          onDockAvailable={onDockAvailable}
+          onMaterialPickup={onMaterialPickup}
+          mapSnapshotRef={mapSnapshotRef}
+          mapShipRef={mapShipRef}
+          combatHudRef={combatHudRef}
+          attitudeHudRef={attitudeHudRef}
+          waypointRef={waypointRef}
+          initialHull={initialHull}
+          healRequest={healRequest}
+          maxHp={maxHp}
+          torpedoOwned={torpedoOwned}
+          torpedoAmmo={torpedoAmmo}
+          torpedoMaxAmmo={torpedoMaxAmmo}
+          onTorpedoAmmoChange={onTorpedoAmmoChange}
+          thrusterOwned={thrusterOwned}
+          playerCargoRef={playerCargoRef}
+          onJettisonCargo={onJettisonCargo}
+          onPortalEnter={onGatePortalEnter}
+          gateArrival={gateArrival}
+          adminWarpTarget={adminWarpTarget}
+        />
+      ) : sky === 'vesper' ? (
         <NyxAltSpace
           key="nyxAlt"
           started={started}
@@ -164,6 +203,8 @@ export const GameCanvas = memo(function GameCanvas({
           onNyxGateSeen={onNyxGateSeen}
           vesperSiphonRepaired={vesperSiphonRepaired}
           gatePowered={gatePowered}
+          onPortalEnter={onGatePortalEnter}
+          gateArrival={gateArrival}
           adminWarpTarget={adminWarpTarget}
         />
       ) : (

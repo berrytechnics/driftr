@@ -27,7 +27,7 @@ import frozen from '@/assets/textures/planets/Frozen.webp'
 import rocky from '@/assets/textures/planets/Rocky.webp'
 import type { CombatHudState } from '@/combat/combatHud'
 import type { HullSnapshot } from '@/game/persist'
-import type { AdminWarpRequest } from '@/dev/adminTypes'
+import type { AdminWarpRequest, GateArrivalRequest } from '@/dev/adminTypes'
 import {
   ALT_BELT_INNER,
   ALT_BELT_OUTER,
@@ -61,7 +61,10 @@ import {
 import { FloatingWreck } from '@/lore/FloatingWreck'
 import {
   GATE_MAP_SIZE,
+  MISPLANTED_GATE_OFFSET,
   MisplantedGate,
+  PORTAL_EXIT_CLEARANCE,
+  gatePortalExitWorld,
 } from '@/lore/MisplantedGate'
 import {
   DYSON_MAP_SIZE,
@@ -106,8 +109,6 @@ import { STATION_MODEL_URLS } from '@/world/SpaceStation'
 export const ALT_TUG_DOCK_RANGE = 42
 const TUG_OFFSET: [number, number, number] = [380, 28, 90]
 const CASSINI_OFFSET: [number, number, number] = [-240, -40, 200]
-/** Past Nyx toward V-3 — empty ring the surveyors dropped in the wrong sky. */
-const GATE_OFFSET: [number, number, number] = [580, 70, -220]
 
 const SpaceStation = lazy(() =>
   import('@/world/SpaceStation').then((m) => ({ default: m.SpaceStation })),
@@ -179,6 +180,8 @@ export const NyxAltSpace = memo(function NyxAltSpace({
   onNyxGateSeen,
   vesperSiphonRepaired = [],
   gatePowered = false,
+  onPortalEnter,
+  gateArrival = null,
   adminWarpTarget = null,
 }: {
   started: boolean
@@ -212,6 +215,8 @@ export const NyxAltSpace = memo(function NyxAltSpace({
   onNyxGateSeen?: (toast: string) => void
   vesperSiphonRepaired?: readonly number[]
   gatePowered?: boolean
+  onPortalEnter?: () => void
+  gateArrival?: GateArrivalRequest | null
   adminWarpTarget?: AdminWarpRequest | null
 }) {
   const innerPlanet = useRef<Group>(null)
@@ -469,6 +474,13 @@ export const NyxAltSpace = memo(function NyxAltSpace({
   )
 
   const adminWarpRequest = useMemo(() => {
+    // Portal hop arrival takes priority over levan warps for this remount.
+    if (gateArrival) {
+      return {
+        seq: gateArrival.seq,
+        ...gatePortalExitWorld(sunPosition, MISPLANTED_GATE_OFFSET),
+      }
+    }
     if (!adminWarpTarget) return null
     if (adminWarpTarget.id === 'siphon') {
       return {
@@ -481,9 +493,9 @@ export const NyxAltSpace = memo(function NyxAltSpace({
     if (adminWarpTarget.id === 'gate') {
       return {
         seq: adminWarpTarget.seq,
-        x: sunPosition[0] + GATE_OFFSET[0],
-        y: sunPosition[1] + GATE_OFFSET[1] + 30,
-        z: sunPosition[2] + GATE_OFFSET[2],
+        x: sunPosition[0] + MISPLANTED_GATE_OFFSET[0],
+        y: sunPosition[1] + MISPLANTED_GATE_OFFSET[1] + PORTAL_EXIT_CLEARANCE,
+        z: sunPosition[2] + MISPLANTED_GATE_OFFSET[2],
       }
     }
     const orbit =
@@ -502,7 +514,7 @@ export const NyxAltSpace = memo(function NyxAltSpace({
       y: sunPosition[1],
       z: sunPosition[2],
     }
-  }, [adminWarpTarget, sunPosition])
+  }, [adminWarpTarget, gateArrival, sunPosition])
 
   const onRockDestroyed = useCallback(
     (
@@ -808,7 +820,7 @@ export const NyxAltSpace = memo(function NyxAltSpace({
             />
             <MisplantedGate
               sunPosition={sunPosition}
-              offset={GATE_OFFSET}
+              offset={MISPLANTED_GATE_OFFSET}
               playerRef={mapShipRef}
               sightRange={160}
               alreadySeen={nyxGateSeen}
@@ -818,6 +830,9 @@ export const NyxAltSpace = memo(function NyxAltSpace({
               gateRef={misplantedGate}
               hazardRef={gateHazards}
               powered={gatePowered || siphonForcePowered}
+              onPortalEnter={
+                gatePowered || siphonForcePowered ? onPortalEnter : undefined
+              }
             />
             <VesperSatelliteRing
               sunPosition={sunPosition}

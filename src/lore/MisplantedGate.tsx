@@ -22,6 +22,7 @@ import {
   Matrix4,
   MeshStandardMaterial,
   NearestFilter,
+  PointLight,
   RepeatWrapping,
   ShaderMaterial,
   SRGBColorSpace,
@@ -37,6 +38,35 @@ export const GATE_RING_RADIUS = 42
 export const GATE_TUBE_RADIUS = 9
 /** Map pip / guide size. */
 export const GATE_MAP_SIZE = 48
+/** Clear throat radius — portal sits inside the spoke torus. */
+export const PORTAL_RADIUS = 12.5
+/** Fly-through trigger — slightly inside the visible event horizon. */
+export const PORTAL_ENTER_RADIUS = PORTAL_RADIUS * 0.85
+/** Spawn standoff past the throat after a portal hop (world units). */
+export const PORTAL_EXIT_CLEARANCE = 24
+/**
+ * Offset from Vesper’s sun where surveyors dropped the ring
+ * (past Nyx toward V-3).
+ */
+export const MISPLANTED_GATE_OFFSET: [number, number, number] = [
+  580, 70, -220,
+]
+/** Matching gate in the liminal void — near the scene origin. */
+export const VOID_GATE_OFFSET: [number, number, number] = [0, 0, 0]
+/** Grace after mount / hop so arrival doesn’t immediately re-fire. */
+const PORTAL_ARM_DELAY = 2.4
+
+/** World point just outside the throat for portal arrivals. */
+export function gatePortalExitWorld(
+  sunPosition: [number, number, number],
+  offset: [number, number, number],
+) {
+  return {
+    x: sunPosition[0] + offset[0],
+    y: sunPosition[1] + offset[1] + PORTAL_EXIT_CLEARANCE,
+    z: sunPosition[2] + offset[2],
+  }
+}
 
 const MODULE_COUNT = 32
 const MISSING_MODULES = new Set([4, 5, 6, 19, 20])
@@ -65,6 +95,8 @@ type MisplantedGateProps = {
   hazardRef?: RefObject<HazardField | null>
   /** Entire collector ring live — brightens lattice and speeds the yaw. */
   powered?: boolean
+  /** Fired once when the player flies the powered throat (portal hop). */
+  onPortalEnter?: () => void
 }
 
 type LocalSphere = { x: number; y: number; z: number; r: number }
@@ -336,6 +368,8 @@ type GateMaterials = {
   hull: MeshStandardMaterial
   panel: MeshStandardMaterial
   trim: MeshStandardMaterial
+  /** Structural pipes, braces, lips — cool steel, not violet. */
+  steel: MeshStandardMaterial
   textures: Texture[]
 }
 
@@ -365,14 +399,14 @@ function createGateMaterials(): GateMaterials {
   color.height = size
   const cctx = color.getContext('2d')!
 
-  // Base hull — charcoal with shard violet undertone
-  cctx.fillStyle = '#1e1830'
+  // Deep seam bed — darker so plate faces pop under sun light
+  cctx.fillStyle = '#0c0a14'
   cctx.fillRect(0, 0, size, size)
 
-  // Plate cells — subtle hue drift so starlight doesn’t flatten them to grey
+  // Plate cells — wider value swing so lighting has something to catch
   const cols = 5
   const rows = 4
-  const pad = 6
+  const pad = 8
   const cellW = (size - pad * (cols + 1)) / cols
   const cellH = (size - pad * (rows + 1)) / rows
   for (let y = 0; y < rows; y++) {
@@ -380,22 +414,23 @@ function createGateMaterials(): GateMaterials {
       const px = pad + x * (cellW + pad)
       const py = pad + y * (cellH + pad)
       const n = (x * 17 + y * 29) % 100
-      // Mostly cool violet hull, occasional deeper indigo / warmer ash-shard
-      const r = 38 + (n % 14) + (n > 70 ? 10 : 0)
-      const g = 32 + (n % 10)
-      const b = 62 + (n % 22) + (n < 35 ? 12 : 0)
-      cctx.fillStyle = `rgb(${r},${g},${b})`
+      // Face value ~55–110; cool violet with occasional ash lift
+      const lift = 55 + (n % 40) + (n > 70 ? 18 : 0)
+      const r = lift + (n > 70 ? 12 : 0)
+      const g = lift * 0.82
+      const b = lift + 28 + (n < 35 ? 18 : 0)
+      cctx.fillStyle = `rgb(${r | 0},${g | 0},${b | 0})`
       cctx.fillRect(px, py, cellW, cellH)
 
-      // Bevel highlight / shadow
-      cctx.strokeStyle = 'rgba(170,150,230,0.28)'
-      cctx.lineWidth = 2
+      // Bevel highlight / shadow — stronger edge light
+      cctx.strokeStyle = 'rgba(210,195,255,0.55)'
+      cctx.lineWidth = 3
       cctx.beginPath()
       cctx.moveTo(px + 1, py + cellH - 1)
       cctx.lineTo(px + 1, py + 1)
       cctx.lineTo(px + cellW - 1, py + 1)
       cctx.stroke()
-      cctx.strokeStyle = 'rgba(0,0,0,0.5)'
+      cctx.strokeStyle = 'rgba(0,0,0,0.72)'
       cctx.beginPath()
       cctx.moveTo(px + cellW - 1, py + 1)
       cctx.lineTo(px + cellW - 1, py + cellH - 1)
@@ -403,7 +438,7 @@ function createGateMaterials(): GateMaterials {
       cctx.stroke()
 
       // Micro hatch
-      cctx.strokeStyle = 'rgba(120,100,200,0.14)'
+      cctx.strokeStyle = 'rgba(160,140,230,0.22)'
       cctx.lineWidth = 1
       for (let h = 8; h < cellH - 6; h += 7) {
         cctx.beginPath()
@@ -413,7 +448,7 @@ function createGateMaterials(): GateMaterials {
       }
 
       // Rivets
-      cctx.fillStyle = 'rgba(200,185,255,0.4)'
+      cctx.fillStyle = 'rgba(230,220,255,0.7)'
       const rivets = [
         [px + 5, py + 5],
         [px + cellW - 5, py + 5],
@@ -424,20 +459,20 @@ function createGateMaterials(): GateMaterials {
         cctx.beginPath()
         cctx.arc(rx, ry, 2.2, 0, Math.PI * 2)
         cctx.fill()
-        cctx.fillStyle = 'rgba(0,0,0,0.35)'
+        cctx.fillStyle = 'rgba(0,0,0,0.45)'
         cctx.beginPath()
         cctx.arc(rx + 0.6, ry + 0.6, 1.1, 0, Math.PI * 2)
         cctx.fill()
-        cctx.fillStyle = 'rgba(200,185,255,0.4)'
+        cctx.fillStyle = 'rgba(230,220,255,0.7)'
       }
 
       // Occasional shard-vein / ash stain
       if ((x + y * 3) % 7 === 0) {
-        cctx.fillStyle = 'rgba(120,85,210,0.28)'
+        cctx.fillStyle = 'rgba(150,105,240,0.38)'
         cctx.fillRect(px + cellW * 0.2, py + cellH * 0.32, cellW * 0.55, 7)
       }
       if ((x * 5 + y) % 11 === 0) {
-        cctx.strokeStyle = 'rgba(180,140,255,0.16)'
+        cctx.strokeStyle = 'rgba(200,160,255,0.28)'
         cctx.lineWidth = 3
         cctx.beginPath()
         cctx.moveTo(px + 8, py + cellH * 0.7)
@@ -445,7 +480,7 @@ function createGateMaterials(): GateMaterials {
         cctx.stroke()
       }
       if ((x + y) % 5 === 0) {
-        cctx.fillStyle = 'rgba(55,40,95,0.35)'
+        cctx.fillStyle = 'rgba(30,20,55,0.5)'
         cctx.beginPath()
         cctx.ellipse(
           px + cellW * 0.65,
@@ -462,7 +497,7 @@ function createGateMaterials(): GateMaterials {
   }
 
   // Seam channels between plates
-  cctx.strokeStyle = 'rgba(0,0,0,0.55)'
+  cctx.strokeStyle = 'rgba(0,0,0,0.85)'
   cctx.lineWidth = pad
   for (let x = 0; x <= cols; x++) {
     const px = pad * 0.5 + x * (cellW + pad)
@@ -479,16 +514,24 @@ function createGateMaterials(): GateMaterials {
     cctx.stroke()
   }
 
-  paintNoise(cctx, size, 0.45, 28)
+  paintNoise(cctx, size, 0.55, 36)
 
-  // Roughness: panels mid, seams rough, rivets smoother
+  // Roughness: smoother plate faces, chalkier seams
   const rough = document.createElement('canvas')
   rough.width = size
   rough.height = size
   const rctx = rough.getContext('2d')!
-  rctx.fillStyle = '#9a9a9a'
+  rctx.fillStyle = '#6e6e6e'
   rctx.fillRect(0, 0, size, size)
-  rctx.strokeStyle = '#d0d0d0'
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const px = pad + x * (cellW + pad)
+      const py = pad + y * (cellH + pad)
+      rctx.fillStyle = '#4a4a4a'
+      rctx.fillRect(px + 2, py + 2, cellW - 4, cellH - 4)
+    }
+  }
+  rctx.strokeStyle = '#e8e8e8'
   rctx.lineWidth = pad
   for (let x = 0; x <= cols; x++) {
     const px = pad * 0.5 + x * (cellW + pad)
@@ -504,26 +547,25 @@ function createGateMaterials(): GateMaterials {
     rctx.lineTo(size, py)
     rctx.stroke()
   }
-  paintNoise(rctx, size, 0.5, 40)
+  paintNoise(rctx, size, 0.45, 40)
 
-  // Bump from luminance of a height-like pass
+  // Bump — taller plate relief, deeper seams
   const bump = document.createElement('canvas')
   bump.width = size
   bump.height = size
   const bctx = bump.getContext('2d')!
-  bctx.fillStyle = '#808080'
+  bctx.fillStyle = '#404040'
   bctx.fillRect(0, 0, size, size)
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       const px = pad + x * (cellW + pad)
       const py = pad + y * (cellH + pad)
-      bctx.fillStyle = '#b0b0b0'
+      bctx.fillStyle = '#c8c8c8'
       bctx.fillRect(px + 2, py + 2, cellW - 4, cellH - 4)
-      bctx.fillStyle = '#606060'
-      bctx.fillRect(px, py, cellW, 2)
-      bctx.fillRect(px, py, 2, cellH)
-      bctx.fillStyle = '#d8d8d8'
-      // rivet bumps
+      bctx.fillStyle = '#303030'
+      bctx.fillRect(px, py, cellW, 3)
+      bctx.fillRect(px, py, 3, cellH)
+      bctx.fillStyle = '#f0f0f0'
       for (const [rx, ry] of [
         [px + 5, py + 5],
         [px + cellW - 5, py + 5],
@@ -531,7 +573,7 @@ function createGateMaterials(): GateMaterials {
         [px + cellW - 5, py + cellH - 5],
       ] as const) {
         bctx.beginPath()
-        bctx.arc(rx, ry, 2.4, 0, Math.PI * 2)
+        bctx.arc(rx, ry, 2.6, 0, Math.PI * 2)
         bctx.fill()
       }
     }
@@ -541,69 +583,192 @@ function createGateMaterials(): GateMaterials {
   map.colorSpace = SRGBColorSpace
   map.wrapS = map.wrapT = RepeatWrapping
   map.anisotropy = 4
-  map.repeat.set(2, 2)
+  map.repeat.set(2.4, 2.4)
 
   const roughnessMap = new CanvasTexture(rough)
   roughnessMap.wrapS = roughnessMap.wrapT = RepeatWrapping
   roughnessMap.anisotropy = 4
-  roughnessMap.repeat.set(2, 2)
+  roughnessMap.repeat.set(2.4, 2.4)
 
   const bumpMap = new CanvasTexture(bump)
   bumpMap.wrapS = bumpMap.wrapT = RepeatWrapping
   bumpMap.magFilter = NearestFilter
   bumpMap.anisotropy = 4
-  bumpMap.repeat.set(2, 2)
+  bumpMap.repeat.set(2.4, 2.4)
 
   const shared = {
     map,
     roughnessMap,
     bumpMap,
-    bumpScale: 0.55,
-    // Lower env response so indigo starlight doesn’t bleach the shard tint
-    envMapIntensity: 0.45,
+    bumpScale: 1.35,
+    envMapIntensity: 0.75,
   }
 
+  // Near-white tint so the painted map drives value / hue
   const hull = new MeshStandardMaterial({
-    color: '#9a8ec8',
-    metalness: 0.58,
-    roughness: 0.64,
+    color: '#d4cae8',
+    metalness: 0.48,
+    roughness: 0.58,
     emissive: ACCENT,
-    emissiveIntensity: 0.09,
+    emissiveIntensity: 0.04,
     ...shared,
   })
   const panel = new MeshStandardMaterial({
-    color: '#a898d8',
-    metalness: 0.52,
-    roughness: 0.68,
+    color: '#ddd4f0',
+    metalness: 0.42,
+    roughness: 0.62,
     emissive: ACCENT,
-    emissiveIntensity: 0.12,
+    emissiveIntensity: 0.05,
     ...shared,
   })
-  // Slightly different tiling so trim does not mirror the big plates
   const trimMap = map.clone()
-  trimMap.repeat.set(3.5, 1.2)
+  trimMap.repeat.set(3.8, 1.4)
   const trimRough = roughnessMap.clone()
-  trimRough.repeat.set(3.5, 1.2)
+  trimRough.repeat.set(3.8, 1.4)
   const trimBump = bumpMap.clone()
-  trimBump.repeat.set(3.5, 1.2)
+  trimBump.repeat.set(3.8, 1.4)
   const trim = new MeshStandardMaterial({
-    color: '#8e7ec0',
-    metalness: 0.62,
-    roughness: 0.55,
+    color: '#c8bcd8',
+    metalness: 0.55,
+    roughness: 0.5,
     emissive: ACCENT,
-    emissiveIntensity: 0.11,
+    emissiveIntensity: 0.05,
     map: trimMap,
     roughnessMap: trimRough,
     bumpMap: trimBump,
-    bumpScale: 0.4,
-    envMapIntensity: 0.5,
+    bumpScale: 1.05,
+    envMapIntensity: 0.85,
+  })
+
+  // Brushed steel — mid greys so it still reads in a dim indigo sky
+  const steelCanvas = document.createElement('canvas')
+  steelCanvas.width = size
+  steelCanvas.height = size
+  const sctx = steelCanvas.getContext('2d')!
+  sctx.fillStyle = '#5a5e66'
+  sctx.fillRect(0, 0, size, size)
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const px = pad + x * (cellW + pad)
+      const py = pad + y * (cellH + pad)
+      const n = (x * 17 + y * 29) % 100
+      const v = 145 + (n % 55)
+      sctx.fillStyle = `rgb(${v},${v + 2},${v + 5})`
+      sctx.fillRect(px, py, cellW, cellH)
+      sctx.strokeStyle = 'rgba(245,248,255,0.7)'
+      sctx.lineWidth = 2
+      sctx.beginPath()
+      sctx.moveTo(px + 1, py + cellH - 1)
+      sctx.lineTo(px + 1, py + 1)
+      sctx.lineTo(px + cellW - 1, py + 1)
+      sctx.stroke()
+      sctx.strokeStyle = 'rgba(40,44,52,0.55)'
+      sctx.beginPath()
+      sctx.moveTo(px + cellW - 1, py + 1)
+      sctx.lineTo(px + cellW - 1, py + cellH - 1)
+      sctx.lineTo(px + 1, py + cellH - 1)
+      sctx.stroke()
+      // Fine brush lines
+      sctx.strokeStyle = 'rgba(255,255,255,0.12)'
+      sctx.lineWidth = 1
+      for (let h = 6; h < cellH - 4; h += 5) {
+        sctx.beginPath()
+        sctx.moveTo(px + 3, py + h)
+        sctx.lineTo(px + cellW - 3, py + h)
+        sctx.stroke()
+      }
+    }
+  }
+  sctx.strokeStyle = 'rgba(70,74,82,0.95)'
+  sctx.lineWidth = pad
+  for (let x = 0; x <= cols; x++) {
+    const px = pad * 0.5 + x * (cellW + pad)
+    sctx.beginPath()
+    sctx.moveTo(px, 0)
+    sctx.lineTo(px, size)
+    sctx.stroke()
+  }
+  for (let y = 0; y <= rows; y++) {
+    const py = pad * 0.5 + y * (cellH + pad)
+    sctx.beginPath()
+    sctx.moveTo(0, py)
+    sctx.lineTo(size, py)
+    sctx.stroke()
+  }
+  paintNoise(sctx, size, 0.4, 22)
+
+  // Steel-only roughness: smoother faces, slightly chalkier seams
+  const steelRoughCanvas = document.createElement('canvas')
+  steelRoughCanvas.width = size
+  steelRoughCanvas.height = size
+  const srctx = steelRoughCanvas.getContext('2d')!
+  srctx.fillStyle = '#3a3a3a'
+  srctx.fillRect(0, 0, size, size)
+  for (let y = 0; y < rows; y++) {
+    for (let x = 0; x < cols; x++) {
+      const px = pad + x * (cellW + pad)
+      const py = pad + y * (cellH + pad)
+      srctx.fillStyle = '#2a2a2a'
+      srctx.fillRect(px + 2, py + 2, cellW - 4, cellH - 4)
+    }
+  }
+  srctx.strokeStyle = '#9a9a9a'
+  srctx.lineWidth = pad
+  for (let x = 0; x <= cols; x++) {
+    const px = pad * 0.5 + x * (cellW + pad)
+    srctx.beginPath()
+    srctx.moveTo(px, 0)
+    srctx.lineTo(px, size)
+    srctx.stroke()
+  }
+  for (let y = 0; y <= rows; y++) {
+    const py = pad * 0.5 + y * (cellH + pad)
+    srctx.beginPath()
+    srctx.moveTo(0, py)
+    srctx.lineTo(size, py)
+    srctx.stroke()
+  }
+
+  const steelMap = new CanvasTexture(steelCanvas)
+  steelMap.colorSpace = SRGBColorSpace
+  steelMap.wrapS = steelMap.wrapT = RepeatWrapping
+  steelMap.anisotropy = 4
+  steelMap.repeat.set(3.2, 1.6)
+  const steelRough = new CanvasTexture(steelRoughCanvas)
+  steelRough.wrapS = steelRough.wrapT = RepeatWrapping
+  steelRough.anisotropy = 4
+  steelRough.repeat.set(3.2, 1.6)
+  const steelBump = bumpMap.clone()
+  steelBump.repeat.set(3.2, 1.6)
+  const steel = new MeshStandardMaterial({
+    color: '#e6e9ee',
+    metalness: 0.78,
+    roughness: 0.38,
+    map: steelMap,
+    roughnessMap: steelRough,
+    bumpMap: steelBump,
+    bumpScale: 0.85,
+    envMapIntensity: 1.6,
+    emissive: new Color('#2a3038'),
+    emissiveIntensity: 0.06,
   })
 
   return {
     hull,
     panel,
     trim,
-    textures: [map, roughnessMap, bumpMap, trimMap, trimRough, trimBump],
+    steel,
+    textures: [
+      map,
+      roughnessMap,
+      bumpMap,
+      trimMap,
+      trimRough,
+      trimBump,
+      steelMap,
+      steelRough,
+      steelBump,
+    ],
   }
 }
 
@@ -687,14 +852,14 @@ function RingModule({
         <mesh
           position={[0, 1.15, RING_DEPTH * 0.28]}
           rotation={[0, Math.PI / 2, 0]}
-          material={mats.trim}
+          material={mats.steel}
         >
           <cylinderGeometry args={[0.22, 0.22, outerLen * 0.9, 6]} />
         </mesh>
         <mesh
           position={[0, 1.15, -RING_DEPTH * 0.28]}
           rotation={[0, Math.PI / 2, 0]}
-          material={mats.trim}
+          material={mats.steel}
         >
           <cylinderGeometry args={[0.18, 0.18, outerLen * 0.85, 6]} />
         </mesh>
@@ -704,7 +869,7 @@ function RingModule({
       <mesh
         position={[ox * 1.025, oy * 1.025, 0]}
         rotation={[0, 0, angle + Math.PI / 2]}
-        material={mats.trim}
+        material={mats.steel}
       >
         <boxGeometry args={[outerLen * 0.88, 0.5, RING_DEPTH * 1.08]} />
       </mesh>
@@ -746,7 +911,7 @@ function RingModule({
       <mesh
         position={[cx, cy, RING_DEPTH * 0.32]}
         rotation={[0, 0, angle]}
-        material={mats.trim}
+        material={mats.steel}
       >
         <boxGeometry args={[radialLen * 0.35, 1.1, 1.1]} />
       </mesh>
@@ -755,7 +920,7 @@ function RingModule({
       <mesh
         position={[cx, cy, 0]}
         rotation={[0.55, 0, angle + mid * 0.15]}
-        material={mats.trim}
+        material={mats.steel}
       >
         <boxGeometry args={[radialLen * 1.05, 0.38, 0.38]} />
       </mesh>
@@ -764,7 +929,7 @@ function RingModule({
       <mesh
         position={[cx, cy, RING_DEPTH * 0.5]}
         rotation={[0, 0, angle + Math.PI / 2]}
-        material={mats.trim}
+        material={mats.steel}
       >
         <boxGeometry args={[1.15, radialLen * 0.85, 0.32]} />
       </mesh>
@@ -785,7 +950,7 @@ function RingModule({
           <mesh
             rotation={[0, 0, angle]}
             position={[0, 1.85, 0]}
-            material={mats.trim}
+            material={mats.steel}
           >
             <boxGeometry args={[3.4, 0.2, 4.4]} />
           </mesh>
@@ -796,7 +961,7 @@ function RingModule({
           >
             <boxGeometry args={[3.6, 2.6, 0.25]} />
           </mesh>
-          <mesh position={[0, 0, 3.4]} rotation={[Math.PI / 2, 0, 0]} material={mats.trim}>
+          <mesh position={[0, 0, 3.4]} rotation={[Math.PI / 2, 0, 0]} material={mats.steel}>
             <cylinderGeometry args={[1.05, 1.25, 2.0, 6]} />
           </mesh>
           <mesh position={[0, 1.95, 0]}>
@@ -808,7 +973,7 @@ function RingModule({
 
       {hasAntenna && (
         <group position={[ox * 1.05, oy * 1.05, -RING_DEPTH * 0.55]}>
-          <mesh rotation={[0.9, 0, angle]} material={mats.trim}>
+          <mesh rotation={[0.9, 0, angle]} material={mats.steel}>
             <cylinderGeometry args={[0.18, 0.22, 9, 5]} />
           </mesh>
           <mesh position={[0, 0, -4.5]}>
@@ -823,10 +988,10 @@ function RingModule({
           <mesh position={[0, 0, 3.8]} material={mats.trim}>
             <boxGeometry args={[2.8, 1.2, 2.2]} />
           </mesh>
-          <mesh position={[0, 0, 5.4]} rotation={[0, 0, Math.PI / 5]} material={mats.hull}>
+          <mesh position={[0, 0, 5.4]} rotation={[0, 0, Math.PI / 5]} material={mats.steel}>
             <boxGeometry args={[0.45, 3.2, 0.45]} />
           </mesh>
-          <mesh position={[0, 0, 5.4]} rotation={[0, 0, -Math.PI / 5]} material={mats.hull}>
+          <mesh position={[0, 0, 5.4]} rotation={[0, 0, -Math.PI / 5]} material={mats.steel}>
             <boxGeometry args={[0.45, 3.2, 0.45]} />
           </mesh>
         </group>
@@ -841,10 +1006,10 @@ function ScaffoldArm({ mats }: { mats: GateMaterials }) {
       position={[OUTER_R * 0.2, -OUTER_R * 0.95, RING_DEPTH]}
       rotation={[0.35, 0.2, 0.9]}
     >
-      <mesh material={mats.trim}>
+      <mesh material={mats.steel}>
         <boxGeometry args={[28, 1.6, 1.6]} />
       </mesh>
-      <mesh position={[12, 0, 0]} rotation={[0, 0, Math.PI / 2]} material={mats.hull}>
+      <mesh position={[12, 0, 0]} rotation={[0, 0, Math.PI / 2]} material={mats.steel}>
         <boxGeometry args={[14, 1.2, 1.2]} />
       </mesh>
       <mesh position={[12, -6, 0]} material={mats.panel}>
@@ -878,10 +1043,10 @@ function DebrisChord({ mats }: { mats: GateMaterials }) {
         material={mats.hull}
         raised={0.45}
       />
-      <mesh position={[0, 0.2, 0]} rotation={[0.4, 0.2, 0.3]} material={mats.trim}>
+      <mesh position={[0, 0.2, 0]} rotation={[0.4, 0.2, 0.3]} material={mats.steel}>
         <boxGeometry args={[12, 0.55, 0.55]} />
       </mesh>
-      <mesh position={[5, 1, -2]} material={mats.trim}>
+      <mesh position={[5, 1, -2]} material={mats.steel}>
         <boxGeometry args={[3, 2, 2]} />
       </mesh>
     </group>
@@ -1238,13 +1403,12 @@ function GateChargeArcs({
   return <group ref={group} />
 }
 
-/** Clear throat radius — portal sits inside the spoke torus. */
-const PORTAL_RADIUS = 12.5
-
 const horizonVS = /* glsl */ `
 varying vec3 vNormal;
 varying vec3 vViewDir;
+varying vec3 vLocal;
 void main() {
+  vLocal = position;
   vec4 world = modelMatrix * vec4(position, 1.0);
   vNormal = normalize(mat3(modelMatrix) * normal);
   vViewDir = normalize(cameraPosition - world.xyz);
@@ -1254,10 +1418,13 @@ void main() {
 
 const horizonFS = /* glsl */ `
 uniform float uTime;
+uniform float uGlitch;
+uniform float uRipple;
 uniform vec3 uRim;
 uniform vec3 uHot;
 varying vec3 vNormal;
 varying vec3 vViewDir;
+varying vec3 vLocal;
 void main() {
   vec3 n = normalize(vNormal);
   vec3 v = normalize(vViewDir);
@@ -1277,34 +1444,84 @@ void main() {
   float swirl = 0.55 + 0.45 * sin(a * 7.0 - uTime * 1.6 + n.z * 5.0);
   col += uRim * fresnel * swirl * 0.4;
 
-  // Keep the silhouette solid; rim blooms harder
+  // Damaged gate: occasional flicker (dim + stutter) and a short ripple band
+  float g = clamp(uGlitch, 0.0, 1.0);
+  float r = clamp(uRipple, 0.0, 1.0);
+  if (g > 0.001) {
+    float stutter = 0.55 + 0.45 * step(0.35, fract(uTime * 28.0 + g * 4.0));
+    float dim = mix(1.0, 0.22 * stutter, g);
+    col *= dim;
+    // Tear in the photon ring — hotter slash when the hiccup peaks
+    float tear = abs(sin(a * 3.0 + uTime * 11.0)) * fresnel;
+    col += uHot * tear * g * 0.85;
+    col += uRim * fresnel * g * 0.35 * stutter;
+  }
+  if (r > 0.001) {
+    float lat = atan(vLocal.z, vLocal.x);
+    float elev = asin(clamp(vLocal.y / max(length(vLocal), 1e-4), -1.0, 1.0));
+    float wave = sin(elev * 14.0 - uTime * 18.0 + lat * 2.0);
+    float band = smoothstep(0.15, 0.85, abs(wave)) * fresnel;
+    col += mix(uRim, uHot, 0.55) * band * r * 1.4;
+    // Brief alpha wobble so the horizon looks like it loses integrity
+    fresnel = mix(fresnel, fresnel * (0.7 + 0.3 * wave), r * 0.5);
+  }
+
+  // Keep the silhouette solid; rim blooms harder — soften a little during glitch
   float alpha = mix(1.0, 0.92, fresnel);
+  alpha = mix(alpha, alpha * (0.72 + 0.28 * (1.0 - g)), g * 0.65);
   gl_FragColor = vec4(col, alpha);
 }
 `
 
 const hazeFS = /* glsl */ `
 uniform vec3 uColor;
+uniform float uGlitch;
 varying vec3 vNormal;
 varying vec3 vViewDir;
 void main() {
   float fresnel = pow(1.0 - max(dot(normalize(vNormal), normalize(vViewDir)), 0.0), 2.2);
-  float a = fresnel * 0.28;
-  gl_FragColor = vec4(uColor * fresnel, a);
+  float g = clamp(uGlitch, 0.0, 1.0);
+  float a = fresnel * mix(0.28, 0.08, g);
+  gl_FragColor = vec4(uColor * fresnel * mix(1.0, 0.35, g), a);
 }
 `
 
+type HorizonInstability = {
+  /** Seconds until the next hiccup can start. */
+  nextAt: number
+  /** Remaining duration of the active hiccup. */
+  life: number
+  /** Total duration of the active hiccup. */
+  maxLife: number
+  /** Peak flicker strength 0–1. */
+  strength: number
+  /** 0 = flicker only; 1 = full ripple on peak. */
+  ripple: number
+}
+
 /**
  * Powered-only event horizon in the gate throat — dark sphere with a photon
- * rim. Visual only (throat stays flyable). Remounts with powered so GPU
- * programs rebuild cleanly after a power cycle.
+ * rim. Occasional flicker/ripple hiccups read as a damaged, unstable aperture.
+ * Throat stays flyable; MisplantedGate detects entry separately.
+ * Remounts with powered so GPU programs rebuild cleanly after a power cycle.
  */
 function GateEventHorizon({ paused }: { paused: boolean }) {
   const phase = useRef(0)
+  const root = useRef<Group>(null!)
+  const lightRef = useRef<PointLight>(null!)
+  const instability = useRef<HorizonInstability>({
+    nextAt: 2.2 + Math.random() * 2.5,
+    life: 0,
+    maxLife: 0.28,
+    strength: 0.75,
+    ripple: 0.55,
+  })
   const mats = useMemo(() => {
     const horizon = new ShaderMaterial({
       uniforms: {
         uTime: { value: 0 },
+        uGlitch: { value: 0 },
+        uRipple: { value: 0 },
         uRim: { value: new Color(COL_GLOW) },
         uHot: { value: new Color('#f0e8ff') },
       },
@@ -1318,6 +1535,7 @@ function GateEventHorizon({ paused }: { paused: boolean }) {
     const haze = new ShaderMaterial({
       uniforms: {
         uColor: { value: new Color(COL_ACCENT) },
+        uGlitch: { value: 0 },
       },
       vertexShader: horizonVS,
       fragmentShader: hazeFS,
@@ -1342,11 +1560,60 @@ function GateEventHorizon({ paused }: { paused: boolean }) {
     if (paused) return
     const step = Math.min(dt, 0.05)
     phase.current += step
-    mats.horizon.uniforms.uTime!.value = phase.current
+    const t = phase.current
+    mats.horizon.uniforms.uTime!.value = t
+
+    const st = instability.current
+    if (st.life <= 0) {
+      st.nextAt -= step
+      if (st.nextAt <= 0) {
+        // Short unstable gasp — mostly flicker; many also carry a ripple
+        st.maxLife = 0.16 + Math.random() * 0.28
+        st.life = st.maxLife
+        st.strength = 0.55 + Math.random() * 0.45
+        st.ripple = Math.random() > 0.38 ? 0.55 + Math.random() * 0.45 : 0
+        st.nextAt = 2.8 + Math.random() * 5.5
+      }
+    }
+
+    let glitch = 0
+    let ripple = 0
+    if (st.life > 0) {
+      st.life -= step
+      const u = Math.max(0, st.life / st.maxLife)
+      // Sharp punch in, flickering hold, softer trail out
+      const punch = Math.pow(1.0 - u, 0.35)
+      const trail = Math.pow(u, 1.6)
+      const envelope = Math.max(punch * 0.85, trail) * st.strength
+      const micro =
+        0.72 +
+        0.28 * Math.sin(t * 55.0) +
+        (Math.random() > 0.82 ? 0.35 : 0)
+      glitch = Math.min(1, envelope * micro)
+      // Ripple rides the peak of the hiccup, then dies before the flicker ends
+      const peak = Math.sin(u * Math.PI)
+      ripple = st.ripple * peak * peak * glitch
+    }
+
+    mats.horizon.uniforms.uGlitch!.value = glitch
+    mats.horizon.uniforms.uRipple!.value = ripple
+    mats.haze.uniforms.uGlitch!.value = glitch
+
+    const g = root.current
+    if (g) {
+      // Subtle squash — reads as the aperture losing integrity without moving
+      // the flyable throat center.
+      const s = 1 + ripple * 0.045 - glitch * 0.02
+      g.scale.setScalar(s)
+    }
+    const light = lightRef.current
+    if (light) {
+      light.intensity = 2.2 * (1 - glitch * 0.75) + ripple * 1.1
+    }
   })
 
   return (
-    <group>
+    <group ref={root}>
       <mesh scale={1.22} material={mats.haze}>
         <sphereGeometry args={[PORTAL_RADIUS, 48, 32]} />
       </mesh>
@@ -1354,6 +1621,7 @@ function GateEventHorizon({ paused }: { paused: boolean }) {
         <sphereGeometry args={[PORTAL_RADIUS, 64, 48]} />
       </mesh>
       <pointLight
+        ref={lightRef}
         color="#a090ff"
         intensity={2.2}
         distance={70}
@@ -1379,6 +1647,7 @@ export function MisplantedGate({
   gateRef,
   hazardRef,
   powered = false,
+  onPortalEnter,
 }: MisplantedGateProps) {
   const root = useRef<Group>(null!)
   const yaw = useRef(0)
@@ -1386,6 +1655,11 @@ export function MisplantedGate({
   seenRef.current = alreadySeen
   const poweredRef = useRef(powered)
   poweredRef.current = powered
+  const onPortalEnterRef = useRef(onPortalEnter)
+  onPortalEnterRef.current = onPortalEnter
+  /** Counts down before throat entry can fire (arrival grace + post-fire). */
+  const portalArm = useRef(PORTAL_ARM_DELAY)
+  const portalFired = useRef(false)
 
   const mats = useMemo(() => createGateMaterials(), [])
   const colliders = useMemo(() => buildGateColliders(), [])
@@ -1395,6 +1669,7 @@ export function MisplantedGate({
       mats.hull.dispose()
       mats.panel.dispose()
       mats.trim.dispose()
+      mats.steel.dispose()
       for (const t of mats.textures) t.dispose()
     },
     [mats],
@@ -1460,11 +1735,12 @@ export function MisplantedGate({
   }, [hazardRef, colliders])
 
   // Warm / cool the lattice when the siphon ring comes online.
+  // Keep emissive modest so directional light still sculpts plating.
   useLayoutEffect(() => {
-    const boost = powered ? 0.38 : 0.09
-    mats.hull.emissiveIntensity = boost
-    mats.panel.emissiveIntensity = powered ? 0.48 : 0.12
-    mats.trim.emissiveIntensity = powered ? 0.42 : 0.11
+    mats.hull.emissiveIntensity = powered ? 0.14 : 0.04
+    mats.panel.emissiveIntensity = powered ? 0.18 : 0.05
+    mats.trim.emissiveIntensity = powered ? 0.16 : 0.05
+    mats.steel.emissiveIntensity = powered ? 0.1 : 0.06
   }, [powered, mats])
 
   const modules = useMemo(() => {
@@ -1529,11 +1805,32 @@ export function MisplantedGate({
 
     if (paused) return
     const player = playerRef.current
-    if (!player || seenRef.current || !toast || !onFirstSight) return
+    if (!player) return
+
     player.getWorldPosition(_player)
-    if (group.position.distanceTo(_player) < sightRange) {
-      seenRef.current = true
-      onFirstSight(toast)
+
+    if (!seenRef.current && toast && onFirstSight) {
+      if (group.position.distanceTo(_player) < sightRange) {
+        seenRef.current = true
+        onFirstSight(toast)
+      }
+    }
+
+    // Powered throat — fly the event horizon to slip into the matching gate.
+    if (!poweredRef.current || !onPortalEnterRef.current || portalFired.current) {
+      return
+    }
+    if (portalArm.current > 0) {
+      portalArm.current -= dt
+      return
+    }
+    group.updateWorldMatrix(true, false)
+    _inv.copy(group.matrixWorld).invert()
+    _local.copy(_player).applyMatrix4(_inv)
+    if (_local.lengthSq() < PORTAL_ENTER_RADIUS * PORTAL_ENTER_RADIUS) {
+      portalFired.current = true
+      portalArm.current = PORTAL_ARM_DELAY
+      onPortalEnterRef.current()
     }
   })
 
@@ -1556,14 +1853,14 @@ export function MisplantedGate({
             key={`spoke-${i}`}
             position={[Math.cos(angle) * midR, Math.sin(angle) * midR, 0]}
             rotation={[0, 0, angle]}
-            material={mats.trim}
+            material={mats.steel}
           >
             <boxGeometry args={[len, 0.85, 0.85]} />
           </mesh>
         )
       })}
 
-      <mesh rotation={[Math.PI / 2, 0, 0]} material={mats.trim}>
+      <mesh rotation={[Math.PI / 2, 0, 0]} material={mats.steel}>
         <torusGeometry args={[INNER_R * 0.42, 0.45, 6, 20, Math.PI * 1.35]} />
       </mesh>
 

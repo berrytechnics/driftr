@@ -20,12 +20,16 @@ import {
 
 function sanitizeSystemId(raw: unknown): SystemId {
   if (raw === SYSTEM_IDS.nyxAlt) return SYSTEM_IDS.nyxAlt
+  if (raw === SYSTEM_IDS.gateVoid) return SYSTEM_IDS.gateVoid
   return SYSTEM_IDS.sol
 }
 
 const KNOWN_STATIONS = new Set<string>(Object.values(STATION_NAMES))
 
 function sanitizeDockStationName(raw: unknown, systemId: SystemId): string {
+  // Liminal void has no berths — keep a harmless fallback for the save slot.
+  if (systemId === SYSTEM_IDS.gateVoid) return STATION_NAMES.nyxAlt
+
   if (typeof raw === 'string' && isSiphonPadName(raw)) {
     // Siphon pads only exist in the alt sky
     return systemId === SYSTEM_IDS.nyxAlt ? raw : STATION_NAMES.nyxAlt
@@ -247,7 +251,8 @@ export function loadGameSave(): GameSave {
       ? raw.torpedoAmmo
       : 0
 
-  return {
+  const systemId = sanitizeSystemId(raw.systemId)
+  const out: GameSave = {
     version: 1,
     credits:
       typeof raw.credits === 'number' && Number.isFinite(raw.credits)
@@ -310,12 +315,15 @@ export function loadGameSave(): GameSave {
     nyxFoundEmpty:
       !!raw.nyxFoundEmpty || !!raw.nyxWhisperHeard || !!raw.nyxDerelictSeen,
     hideIntroSynopsis: !!raw.hideIntroSynopsis,
-    systemId: sanitizeSystemId(raw.systemId),
-    dockStationName: sanitizeDockStationName(
-      raw.dockStationName,
-      sanitizeSystemId(raw.systemId),
-    ),
+    systemId,
+    dockStationName: sanitizeDockStationName(raw.dockStationName, systemId),
   }
+
+  // Void has no pads — never restore a hard-dock there.
+  if (out.systemId === SYSTEM_IDS.gateVoid) {
+    out.docked = false
+  }
+  return out
 }
 
 export function saveGameSave(save: GameSave) {

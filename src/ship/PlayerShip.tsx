@@ -614,6 +614,14 @@ export function PlayerShip({
 
   pausedRef.current = paused
 
+  // Sky remounts start with dockAvailableRef=false; App may still hold a stale
+  // offer from the previous sky — push a clear so the Dock prompt can't stick.
+  useLayoutEffect(() => {
+    dockAvailableRef.current = false
+    dockNameRef.current = undefined
+    onDockAvailable?.(false)
+  }, [onDockAvailable])
+
   useLayoutEffect(() => {
     if (!laserHitRef) return
     laserHitRef.current = {
@@ -1388,15 +1396,16 @@ export function PlayerShip({
     _prevPos.copy(group.position)
     group.position.addScaledVector(velocity.current, dt)
 
-    // Dock offer — planetary traffic shell (not just station mesh proximity)
-    {
+      // Dock offer — planetary traffic shell (not just station mesh proximity)
+      {
       let available = false
       let near: DockBerth | null = null
       let best = Infinity
       // Use the live timer (not the frame-start `dead` flag) so a just-completed
       // respawn can offer docking in the same frame.
       const canDock = respawnTimer.current < 0
-      if (canDock && dockBerths && dockBerths.length > 0) {
+      if (canDock && dockBerths) {
+        // Authoritative list — empty means nowhere to dock (e.g. liminal void).
         for (const berth of dockBerths) {
           const planet = berth.planet.current
           if (!planet) continue
@@ -1408,7 +1417,7 @@ export function PlayerShip({
             available = true
           }
         }
-      } else if (canDock) {
+      } else if (canDock && !dockBerths) {
         const station = spawnAnchorRef?.current
         if (station) {
           station.getWorldPosition(_hazardPos)

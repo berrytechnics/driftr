@@ -14,7 +14,11 @@ import {
   tryPlayStation,
   tryPlayTheme,
 } from '@/audio/ThemeMusic'
-import type { AdminWarpId, AdminWarpRequest } from '@/dev/adminTypes'
+import type {
+  AdminWarpId,
+  AdminWarpRequest,
+  GateArrivalRequest,
+} from '@/dev/adminTypes'
 import { GameCanvas } from '@/game/GameCanvas'
 import {
   defaultGameSave,
@@ -95,6 +99,7 @@ import {
   isNearHyperion,
   isNearNyx,
   isNyxWhisperAltitude,
+  GATE_PORTAL_TRANSPORT_TOAST,
   NYX_ALT_TRANSPORT_TOAST,
   NYX_DUST_KEY_TOAST,
   NYX_DUST_PICKUP_TOAST,
@@ -857,8 +862,35 @@ export default function App() {
     void canvas?.requestPointerLock()
   }, [])
 
+  const gateArrivalSeq = useRef(0)
+  const [gateArrival, setGateArrival] = useState<GateArrivalRequest | null>(
+    null,
+  )
+
   /** Dev admin — instant Sol ↔ Vesper hop, docked at the matching Nyx pad. */
   const adminTransportToSystem = useCallback((target: SystemId) => {
+    if (target === SYSTEM_IDS.gateVoid) {
+      Object.assign(waypointRef.current, createEmptyMapWaypoint())
+      systemIdRef.current = SYSTEM_IDS.gateVoid
+      setSystemId(SYSTEM_IDS.gateVoid)
+      startedRef.current = true
+      setStarted(true)
+      dockedRef.current = false
+      setDocked(false)
+      setDockAvailable(false)
+      setGhostBerth(false)
+      gateArrivalSeq.current += 1
+      setGateArrival({ seq: gateArrivalSeq.current })
+      setLoreToast(GATE_PORTAL_TRANSPORT_TOAST)
+      setLoreToastKey((k) => k + 1)
+      setPaused(false)
+      setShowIntroModal(false)
+      tryPlayTheme()
+      const canvas = document.querySelector('canvas')
+      void canvas?.requestPointerLock()
+      return
+    }
+
     const arrivedName =
       target === SYSTEM_IDS.nyxAlt ? STATION_NAMES.nyxAlt : STATION_NAMES.nyx
 
@@ -882,6 +914,34 @@ export default function App() {
     if (document.pointerLockElement) {
       document.exitPointerLock()
     }
+  }, [])
+
+  /** Powered gate throat — undocked hop between Vesper and the liminal void. */
+  const onGatePortalEnter = useCallback(() => {
+    const from = systemIdRef.current
+    const target =
+      from === SYSTEM_IDS.gateVoid ? SYSTEM_IDS.nyxAlt : SYSTEM_IDS.gateVoid
+    // Only Vesper ↔ void; ignore stray fires in Sol.
+    if (from !== SYSTEM_IDS.nyxAlt && from !== SYSTEM_IDS.gateVoid) return
+
+    Object.assign(waypointRef.current, createEmptyMapWaypoint())
+    systemIdRef.current = target
+    setSystemId(target)
+    startedRef.current = true
+    setStarted(true)
+    dockedRef.current = false
+    setDocked(false)
+    setDockAvailable(false)
+    setGhostBerth(false)
+    gateArrivalSeq.current += 1
+    setGateArrival({ seq: gateArrivalSeq.current })
+    setLoreToast(GATE_PORTAL_TRANSPORT_TOAST)
+    setLoreToastKey((k) => k + 1)
+    setPaused(false)
+    setShowIntroModal(false)
+    tryPlayTheme()
+    const canvas = document.querySelector('canvas')
+    void canvas?.requestPointerLock()
   }, [])
 
   const adminWarpSeq = useRef(0)
@@ -1268,6 +1328,8 @@ export default function App() {
         sensorsOwned={sensorsOwned}
         playerCargoRef={playerCargoRef}
         adminWarpTarget={adminWarpTarget}
+        gateArrival={gateArrival}
+        onGatePortalEnter={onGatePortalEnter}
         jettisonDump={jettisonDump}
         onJettisonCargo={onJettisonCargo}
         nyxDerelictSeen={nyxDerelictSeen}
