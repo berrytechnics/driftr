@@ -143,7 +143,7 @@ function StationWindow({ stationName }: { stationName: string }) {
 
 function AlienFeed() {
   const idle = useRef<Group>(null)
-  const { scene } = useGLTF(alienUrl)
+  const { scene } = useGLTF(alienUrl, true, true)
   const model = useMemo(() => {
     const cloned = scene.clone(true)
     cloned.traverse((child) => {
@@ -488,4 +488,4 @@ export function CommsPortrait({
   )
 }
 
-useGLTF.preload(alienUrl)
+useGLTF.preload(alienUrl, true, true)
