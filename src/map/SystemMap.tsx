@@ -10,8 +10,15 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react'
-import { DoubleSide, type Group, type MeshStandardMaterial } from 'three'
-import { isNyxMapBody, NYX_TRANSIT_MAP_LABEL } from '@/lore/easterEggs'
+import {
+  DoubleSide,
+  type Group,
+  type Mesh,
+  type MeshStandardMaterial,
+} from 'three'
+import { isNyxMapBody, NYX_APO_MAP_LABEL, NYX_TRANSIT_MAP_LABEL } from '@/lore/easterEggs'
+import { STATION_NAMES } from '@/game/systemConfig'
+import type { MapWaypointState } from '@/map/mapWaypoint'
 import {
   sampleInclinedOrbit,
   type MapBodySnapshot,
@@ -24,6 +31,13 @@ type SystemMapProps = {
   active: boolean
   /** Re-lock flight when closing the map after opening from pointer-lock. */
   onRequestResume?: () => void
+  /**
+   * Fired before pointer-lock exit / after close so App can avoid treating
+   * map peek as a real pause.
+   */
+  onOpenChange?: (open: boolean) => void
+  /** Body pick for the flight HUD waypoint marker. */
+  waypointRef?: RefObject<MapWaypointState>
 }
 
 /** Survives Canvas unmount while SystemMap stays mounted. */
@@ -284,13 +298,18 @@ function LiveBody({
   name,
   snapshotRef,
   scaleRef,
+  selectedName,
+  onSelect,
 }: {
   name: string
   snapshotRef: RefObject<MapSnapshot>
   scaleRef: RefObject<number>
+  selectedName: string | null
+  onSelect: (name: string, kind: 'planet' | 'moon') => void
 }) {
   const group = useRef<Group>(null!)
   const matRef = useRef<MeshStandardMaterial>(null!)
+  const ringRef = useRef<Mesh>(null!)
   const seed = snapshotRef.current.bodies.find((x) => x.name === name)
   const [label, setLabel] = useState({
     text: name,
@@ -300,6 +319,7 @@ function LiveBody({
   })
   const labelRef = useRef(label)
   labelRef.current = label
+  const selected = selectedName === name
 
   useFrame(() => {
     const body = snapshotRef.current.bodies.find((b) => b.name === name)
@@ -314,7 +334,9 @@ function LiveBody({
     if (matRef.current) {
       matRef.current.color.set(body.color)
       matRef.current.emissive.set(body.color)
+      matRef.current.emissiveIntensity = selected ? 0.35 : 0.08
     }
+    if (ringRef.current) ringRef.current.visible = selected
     const moon = body.kind === 'moon'
     const prev = labelRef.current
     if (prev.text !== body.name || prev.moon !== moon || prev.size !== body.size) {
@@ -327,12 +349,24 @@ function LiveBody({
     }
   })
 
+  const pip = mapPipRadius(label.size, false, label.moon)
+  const hitR = Math.max(pip * 1.85, label.moon ? 0.055 : 0.07)
+
   return (
     <group ref={group}>
-      <mesh>
-        <sphereGeometry
-          args={[mapPipRadius(label.size, false, label.moon), 32, 24]}
-        />
+      <mesh
+        onClick={(e) => {
+          e.stopPropagation()
+          onSelect(name, label.moon ? 'moon' : 'planet')
+        }}
+        onPointerOver={() => {
+          document.body.style.cursor = 'pointer'
+        }}
+        onPointerOut={() => {
+          document.body.style.cursor = 'auto'
+        }}
+      >
+        <sphereGeometry args={[pip, 32, 24]} />
         <meshStandardMaterial
           ref={matRef}
           color={label.color}
@@ -342,11 +376,92 @@ function LiveBody({
           emissiveIntensity={0.08}
         />
       </mesh>
+      {/* Larger pick target for tiny moon pips */}
+      <mesh
+        visible={false}
+        onClick={(e) => {
+          e.stopPropagation()
+          onSelect(name, label.moon ? 'moon' : 'planet')
+        }}
+      >
+        <sphereGeometry args={[hitR, 12, 10]} />
+        <meshBasicMaterial />
+      </mesh>
+      <mesh ref={ringRef} rotation-x={-Math.PI / 2} visible={false}>
+        <ringGeometry args={[pip * 1.35, pip * 1.7, 40]} />
+        <meshBasicMaterial
+          color="#ffcc66"
+          transparent
+          opacity={0.85}
+          side={DoubleSide}
+          depthWrite={false}
+        />
+      </mesh>
       <MapLabel
         moon={label.moon}
-        color={label.moon ? 'rgba(150, 170, 195, 0.75)' : '#e8eef6'}
+        color={
+          selected
+            ? '#ffe6a8'
+            : label.moon
+              ? 'rgba(150, 170, 195, 0.75)'
+              : '#e8eef6'
+        }
       >
         {label.text}
+      </MapLabel>
+    </group>
+  )
+}
+
+function LiveStar({
+  layout,
+  selected,
+  onSelect,
+}: {
+  layout: { starName: string; starColor: string; starSize: number }
+  selected: boolean
+  onSelect: (name: string) => void
+}) {
+  const glow = mapPipRadius(layout.starSize, true)
+  return (
+    <group position={[0, 0, 0]}>
+      <mesh>
+        <sphereGeometry args={[glow * 1.45, 16, 12]} />
+        <meshBasicMaterial
+          color={layout.starColor}
+          transparent
+          opacity={0.22}
+        />
+      </mesh>
+      <mesh
+        onClick={(e) => {
+          e.stopPropagation()
+          onSelect(layout.starName)
+        }}
+        onPointerOver={() => {
+          document.body.style.cursor = 'pointer'
+        }}
+        onPointerOut={() => {
+          document.body.style.cursor = 'auto'
+        }}
+      >
+        <sphereGeometry args={[glow, 24, 16]} />
+        <meshBasicMaterial color={layout.starColor} />
+      </mesh>
+      {selected && (
+        <mesh rotation-x={-Math.PI / 2}>
+          <ringGeometry args={[glow * 1.35, glow * 1.7, 40]} />
+          <meshBasicMaterial
+            color="#ffcc66"
+            transparent
+            opacity={0.85}
+            side={DoubleSide}
+            depthWrite={false}
+          />
+        </mesh>
+      )}
+      <MapLabel color={selected ? '#ffe6a8' : '#ffe6a8'}>
+        {layout.starName}
       </MapLabel>
     </group>
   )
@@ -371,11 +486,14 @@ function LiveShip({
     const s = scaleRef.current
     g.visible = true
     g.position.set(ship.x * s, ship.y * s, ship.z * s)
-    g.rotation.set(0, (ship.heading * Math.PI) / 180, 0)
+    // Compass heading: 0 = world −Z, + = toward +X. Three.js +Y yaw is
+    // CCW from above, so negate to match the heading convention.
+    g.rotation.set(0, (-ship.heading * Math.PI) / 180, 0)
   })
   return (
     <group ref={group} visible={false}>
-      <mesh rotation={[Math.PI / 2, 0, 0]}>
+      {/* Cone default apex = +Y; −90° about X aims it along local −Z (nose). */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
         <coneGeometry args={[0.055, 0.14, 3]} />
         <meshBasicMaterial color="#7ee787" />
       </mesh>
@@ -390,31 +508,50 @@ function LiveNpcs({
   snapshotRef: RefObject<MapSnapshot>
   scaleRef: RefObject<number>
 }) {
-  const [bandits, setBandits] = useState<
-    { x: number; y: number; z: number }[]
-  >([])
-  const [patrols, setPatrols] = useState<
-    { x: number; y: number; z: number }[]
-  >([])
-  const frame = useRef(0)
+  /** Pool meshes — update transforms each frame (no React lag). */
+  const MAX = 8
+  const banditRefs = useRef<(Group | null)[]>(Array(MAX).fill(null))
+  const patrolRefs = useRef<(Group | null)[]>(Array(MAX).fill(null))
 
   useFrame(() => {
-    frame.current++
-    if (frame.current % 2 !== 0) return
     const snap = snapshotRef.current
     const s = scaleRef.current
-    setBandits(
-      snap.bandits.map((b) => ({ x: b.x * s, y: b.y * s, z: b.z * s })),
-    )
-    setPatrols(
-      snap.patrols.map((p) => ({ x: p.x * s, y: p.y * s, z: p.z * s })),
-    )
+    const bandits = snap.bandits
+    const patrols = snap.patrols
+    for (let i = 0; i < MAX; i++) {
+      const bg = banditRefs.current[i]
+      if (bg) {
+        if (i < bandits.length) {
+          const b = bandits[i]
+          bg.visible = true
+          bg.position.set(b.x * s, b.y * s, b.z * s)
+        } else {
+          bg.visible = false
+        }
+      }
+      const pg = patrolRefs.current[i]
+      if (pg) {
+        if (i < patrols.length) {
+          const p = patrols[i]
+          pg.visible = true
+          pg.position.set(p.x * s, p.y * s, p.z * s)
+        } else {
+          pg.visible = false
+        }
+      }
+    }
   })
 
   return (
     <group>
-      {bandits.map((b, i) => (
-        <group key={`b-${i}`} position={[b.x, b.y, b.z]}>
+      {Array.from({ length: MAX }, (_, i) => (
+        <group
+          key={`b-${i}`}
+          ref={(node) => {
+            banditRefs.current[i] = node
+          }}
+          visible={false}
+        >
           <mesh>
             <sphereGeometry args={[0.05, 10, 8]} />
             <meshBasicMaterial color="#ff2a3a" />
@@ -422,8 +559,14 @@ function LiveNpcs({
           <MapLabel color="#ff8a94">Bandit</MapLabel>
         </group>
       ))}
-      {patrols.map((p, i) => (
-        <group key={`p-${i}`} position={[p.x, p.y, p.z]}>
+      {Array.from({ length: MAX }, (_, i) => (
+        <group
+          key={`p-${i}`}
+          ref={(node) => {
+            patrolRefs.current[i] = node
+          }}
+          visible={false}
+        >
           <mesh>
             <sphereGeometry args={[0.045, 10, 8]} />
             <meshBasicMaterial color="#4ec4ff" />
@@ -438,12 +581,27 @@ function LiveNpcs({
 function LiveStations({
   snapshotRef,
   scaleRef,
+  selectedName,
+  onSelect,
 }: {
   snapshotRef: RefObject<MapSnapshot>
   scaleRef: RefObject<number>
+  selectedName: string | null
+  onSelect: (name: string) => void
 }) {
   const [stations, setStations] = useState<
-    { x: number; y: number; z: number }[]
+    {
+      name: string
+      x: number
+      y: number
+      z: number
+      hostX: number
+      hostY: number
+      hostZ: number
+      hostSize: number
+      hostRing: boolean
+      showPip: boolean
+    }[]
   >([])
   const frame = useRef(0)
 
@@ -454,40 +612,107 @@ function LiveStations({
     const s = scaleRef.current
     setStations(
       (snap.stations ?? []).map((st) => ({
+        name: st.name,
         x: st.x * s,
         y: st.y * s,
         z: st.z * s,
+        hostX: st.hostX * s,
+        hostY: st.hostY * s,
+        hostZ: st.hostZ * s,
+        hostSize: st.hostSize,
+        hostRing: st.hostRing !== false,
+        showPip: st.showPip !== false,
       })),
     )
   })
 
   return (
     <group>
-      {stations.map((st, i) => (
-        <group key={`st-${i}`} position={[st.x, st.y, st.z]}>
-          {/* Billboard-ish: face roughly camera-up orbit view + ecliptic */}
-          <mesh rotation-x={-Math.PI / 2}>
-            <ringGeometry args={[0.038, 0.05, 40]} />
-            <meshBasicMaterial
-              color="#ffcc66"
-              transparent
-              opacity={0.9}
-              side={DoubleSide}
-              depthWrite={false}
-            />
-          </mesh>
-          <mesh rotation-x={-Math.PI / 2}>
-            <ringGeometry args={[0.05, 0.056, 40]} />
-            <meshBasicMaterial
-              color="#ffe6a8"
-              transparent
-              opacity={0.45}
-              side={DoubleSide}
-              depthWrite={false}
-            />
-          </mesh>
-        </group>
-      ))}
+      {stations.map((st) => {
+        const pip = mapPipRadius(st.hostSize, false, false)
+        const ringIn = pip * 1.35
+        const ringMid = pip * 1.72
+        const ringOut = pip * 1.95
+        const selected = selectedName === st.name
+        const hitR = Math.max(pip * 1.9, 0.08)
+        return (
+          <group key={st.name}>
+            {/* Livable pads only — ghost Transit must not ring Nyx */}
+            {st.hostRing && (
+              <group position={[st.hostX, st.hostY, st.hostZ]}>
+                <mesh rotation-x={-Math.PI / 2}>
+                  <ringGeometry args={[ringIn, ringMid, 40]} />
+                  <meshBasicMaterial
+                    color={selected ? '#ffe6a8' : '#ffcc66'}
+                    transparent
+                    opacity={selected ? 1 : 0.9}
+                    side={DoubleSide}
+                    depthWrite={false}
+                  />
+                </mesh>
+                <mesh rotation-x={-Math.PI / 2}>
+                  <ringGeometry args={[ringMid, ringOut, 40]} />
+                  <meshBasicMaterial
+                    color={selected ? '#fff0c8' : '#ffe6a8'}
+                    transparent
+                    opacity={selected ? 0.7 : 0.45}
+                    side={DoubleSide}
+                    depthWrite={false}
+                  />
+                </mesh>
+                <mesh
+                  visible={false}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onSelect(st.name)
+                  }}
+                  onPointerOver={() => {
+                    document.body.style.cursor = 'pointer'
+                  }}
+                  onPointerOut={() => {
+                    document.body.style.cursor = 'auto'
+                  }}
+                >
+                  <sphereGeometry args={[hitR, 12, 10]} />
+                  <meshBasicMaterial />
+                </mesh>
+              </group>
+            )}
+            {st.showPip && (
+              <group position={[st.x, st.y, st.z]}>
+                <mesh
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onSelect(st.name)
+                  }}
+                  onPointerOver={() => {
+                    document.body.style.cursor = 'pointer'
+                  }}
+                  onPointerOut={() => {
+                    document.body.style.cursor = 'auto'
+                  }}
+                >
+                  <sphereGeometry args={[selected ? 0.022 : 0.016, 10, 8]} />
+                  <meshBasicMaterial color={selected ? '#fff0c8' : '#ffcc66'} />
+                </mesh>
+                <mesh
+                  visible={false}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onSelect(st.name)
+                  }}
+                >
+                  <sphereGeometry args={[0.06, 10, 8]} />
+                  <meshBasicMaterial />
+                </mesh>
+                {selected && (
+                  <MapLabel color="#ffe6a8">{st.name}</MapLabel>
+                )}
+              </group>
+            )}
+          </group>
+        )
+      })}
     </group>
   )
 }
@@ -495,9 +720,13 @@ function LiveStations({
 function LiveLorePings({
   snapshotRef,
   scaleRef,
+  selectedName,
+  onSelectTransit,
 }: {
   snapshotRef: RefObject<MapSnapshot>
   scaleRef: RefObject<number>
+  selectedName: string | null
+  onSelectTransit: () => void
 }) {
   const [pings, setPings] = useState<
     { key: string; label: string; x: number; y: number; z: number }[]
@@ -522,25 +751,72 @@ function LiveLorePings({
 
   return (
     <group>
-      {pings.map((p) => (
-        <group key={p.key} position={[p.x, p.y, p.z]}>
-          <mesh>
-            <sphereGeometry args={[0.04, 12, 10]} />
-            <meshBasicMaterial color="#beb0f0" />
-          </mesh>
-          <mesh rotation-x={-Math.PI / 2}>
-            <ringGeometry args={[0.055, 0.072, 24]} />
-            <meshBasicMaterial
-              color="#a08cd2"
-              transparent
-              opacity={0.85}
-              side={DoubleSide}
-              depthWrite={false}
-            />
-          </mesh>
-          <MapLabel color="rgba(200, 185, 240, 0.95)">{p.label}</MapLabel>
-        </group>
-      ))}
+      {pings.map((p) => {
+        const isApoTransit = p.label === NYX_APO_MAP_LABEL
+        const selected = isApoTransit && selectedName === STATION_NAMES.nyx
+        return (
+          <group key={p.key} position={[p.x, p.y, p.z]}>
+            <mesh
+              onClick={
+                isApoTransit
+                  ? (e) => {
+                      e.stopPropagation()
+                      onSelectTransit()
+                    }
+                  : undefined
+              }
+              onPointerOver={
+                isApoTransit
+                  ? () => {
+                      document.body.style.cursor = 'pointer'
+                    }
+                  : undefined
+              }
+              onPointerOut={
+                isApoTransit
+                  ? () => {
+                      document.body.style.cursor = 'auto'
+                    }
+                  : undefined
+              }
+            >
+              <sphereGeometry args={[selected ? 0.05 : 0.04, 12, 10]} />
+              <meshBasicMaterial color={selected ? '#e0d4ff' : '#beb0f0'} />
+            </mesh>
+            <mesh rotation-x={-Math.PI / 2}>
+              <ringGeometry args={[0.055, 0.072, 24]} />
+              <meshBasicMaterial
+                color={selected ? '#d0c0f8' : '#a08cd2'}
+                transparent
+                opacity={0.85}
+                side={DoubleSide}
+                depthWrite={false}
+              />
+            </mesh>
+            {isApoTransit && (
+              <mesh
+                visible={false}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onSelectTransit()
+                }}
+              >
+                <sphereGeometry args={[0.09, 10, 8]} />
+                <meshBasicMaterial />
+              </mesh>
+            )}
+            <MapLabel
+              color={
+                selected
+                  ? '#f0e8ff'
+                  : 'rgba(200, 185, 240, 0.95)'
+              }
+            >
+              {p.label}
+            </MapLabel>
+          </group>
+        )
+      })}
     </group>
   )
 }
@@ -603,8 +879,15 @@ function MapOrbitControls() {
 
 function MapScene({
   snapshotRef,
+  selectedName,
+  onSelectBody,
 }: {
   snapshotRef: RefObject<MapSnapshot>
+  selectedName: string | null
+  onSelectBody: (
+    name: string,
+    kind: 'star' | 'planet' | 'moon' | 'station',
+  ) => void
 }) {
   const scaleRef = useRef(framingScale(snapshotRef.current))
   const [layout, setLayout] = useState(() =>
@@ -624,6 +907,8 @@ function MapScene({
   })
 
   const gridR = Math.max(layout.beltOuter * layout.scale * 1.05, 7.2)
+  const selectTransit = () => onSelectBody(STATION_NAMES.nyx, 'station')
+  const transitSelected = selectedName === STATION_NAMES.nyx
 
   return (
     <>
@@ -658,21 +943,11 @@ function MapScene({
         />
       ))}
 
-      <mesh position={[0, 0, 0]}>
-        <sphereGeometry
-          args={[mapPipRadius(layout.starSize, true) * 1.45, 16, 12]}
-        />
-        <meshBasicMaterial
-          color={layout.starColor}
-          transparent
-          opacity={0.22}
-        />
-      </mesh>
-      <mesh position={[0, 0, 0]}>
-        <sphereGeometry args={[mapPipRadius(layout.starSize, true), 24, 16]} />
-        <meshBasicMaterial color={layout.starColor} />
-        <MapLabel color="#ffe6a8">{layout.starName}</MapLabel>
-      </mesh>
+      <LiveStar
+        layout={layout}
+        selected={selectedName === layout.starName}
+        onSelect={(name) => onSelectBody(name, 'star')}
+      />
 
       {layout.bodyNames.map((name) => (
         <LiveBody
@@ -680,6 +955,8 @@ function MapScene({
           name={name}
           snapshotRef={snapshotRef}
           scaleRef={scaleRef}
+          selectedName={selectedName}
+          onSelect={(n, kind) => onSelectBody(n, kind)}
         />
       ))}
 
@@ -691,16 +968,61 @@ function MapScene({
             layout.corridorLabel.z,
           ]}
         >
-          <MapLabel color="rgba(180, 170, 230, 0.9)">
+          <mesh
+            onClick={(e) => {
+              e.stopPropagation()
+              selectTransit()
+            }}
+            onPointerOver={() => {
+              document.body.style.cursor = 'pointer'
+            }}
+            onPointerOut={() => {
+              document.body.style.cursor = 'auto'
+            }}
+          >
+            <sphereGeometry args={[0.045, 12, 10]} />
+            <meshBasicMaterial
+              color={transitSelected ? '#e0d4ff' : '#beb0f0'}
+              transparent
+              opacity={0.55}
+            />
+          </mesh>
+          <mesh
+            visible={false}
+            onClick={(e) => {
+              e.stopPropagation()
+              selectTransit()
+            }}
+          >
+            <sphereGeometry args={[0.1, 10, 8]} />
+            <meshBasicMaterial />
+          </mesh>
+          <MapLabel
+            color={
+              transitSelected
+                ? '#f0e8ff'
+                : 'rgba(180, 170, 230, 0.9)'
+            }
+          >
             {NYX_TRANSIT_MAP_LABEL}
           </MapLabel>
         </group>
       )}
 
       <LiveShip snapshotRef={snapshotRef} scaleRef={scaleRef} />
-      <LiveStations snapshotRef={snapshotRef} scaleRef={scaleRef} />
+      <LiveStations
+        snapshotRef={snapshotRef}
+        scaleRef={scaleRef}
+        selectedName={selectedName}
+        onSelect={(name) => onSelectBody(name, 'station')}
+      />
       <LiveNpcs snapshotRef={snapshotRef} scaleRef={scaleRef} />
-      <LiveLorePings snapshotRef={snapshotRef} scaleRef={scaleRef} />
+      <LiveLorePings
+        snapshotRef={snapshotRef}
+        scaleRef={scaleRef}
+        selectedName={selectedName}
+        onSelectTransit={selectTransit}
+      />
 
       <MapOrbitControls />
     </>
@@ -711,16 +1033,22 @@ export function SystemMap({
   snapshotRef,
   active,
   onRequestResume,
+  onOpenChange,
+  waypointRef,
 }: SystemMapProps) {
   const [open, setOpen] = useState(false)
   const openRef = useRef(false)
   const openedFromLockRef = useRef(false)
+  const [selectedName, setSelectedName] = useState<string | null>(
+    () => waypointRef?.current.name ?? null,
+  )
 
   const closeMap = useCallback(
     (resume: boolean) => {
       if (!openRef.current) return
       openRef.current = false
       setOpen(false)
+      onOpenChange?.(false)
       if (resume && openedFromLockRef.current) {
         openedFromLockRef.current = false
         onRequestResume?.()
@@ -728,21 +1056,43 @@ export function SystemMap({
         openedFromLockRef.current = false
       }
     },
-    [onRequestResume],
+    [onOpenChange, onRequestResume],
   )
 
   const openMap = useCallback(() => {
     if (openRef.current) return
     openedFromLockRef.current = !!document.pointerLockElement
+    // Mark peek before unlock so App doesn't treat it as Esc-pause.
+    onOpenChange?.(true)
     if (document.pointerLockElement) {
       document.exitPointerLock()
     }
     openRef.current = true
+    setSelectedName(waypointRef?.current.name ?? null)
     setOpen(true)
-  }, [])
+  }, [onOpenChange, waypointRef])
+
+  const onSelectBody = useCallback(
+    (name: string, kind: 'star' | 'planet' | 'moon' | 'station') => {
+      const wp = waypointRef?.current
+      if (!wp) return
+      if (wp.name === name) {
+        wp.name = null
+        wp.kind = null
+        wp.show = false
+        setSelectedName(null)
+        return
+      }
+      wp.name = name
+      wp.kind = kind
+      setSelectedName(name)
+    },
+    [waypointRef],
+  )
 
   useEffect(() => {
     if (!active) {
+      if (openRef.current) onOpenChange?.(false)
       openRef.current = false
       setOpen(false)
       openedFromLockRef.current = false
@@ -750,23 +1100,34 @@ export function SystemMap({
     }
 
     const onDown = (event: KeyboardEvent) => {
-      if (event.code === 'KeyM' && !event.repeat) {
+      if (event.code === 'KeyM') {
+        if (event.repeat) return
         event.preventDefault()
-        if (openRef.current) closeMap(true)
-        else openMap()
+        openMap()
         return
       }
       if (event.code === 'Escape' && openRef.current) {
-        // Close map before pause/resume handlers; leave flight paused.
+        // Close map; re-lock if we peeked from flight (don't force a pause).
         event.preventDefault()
         event.stopPropagation()
-        closeMap(false)
+        closeMap(true)
       }
     }
 
+    const onUp = (event: KeyboardEvent) => {
+      if (event.code !== 'KeyM') return
+      event.preventDefault()
+      closeMap(true)
+    }
+
+    // Hold M — works in flight and while paused (active = started).
     window.addEventListener('keydown', onDown, true)
-    return () => window.removeEventListener('keydown', onDown, true)
-  }, [active, closeMap, openMap])
+    window.addEventListener('keyup', onUp, true)
+    return () => {
+      window.removeEventListener('keydown', onDown, true)
+      window.removeEventListener('keyup', onUp, true)
+    }
+  }, [active, closeMap, openMap, onOpenChange])
 
   if (!active || !open) return null
 
@@ -820,7 +1181,8 @@ export function SystemMap({
             System Map
           </div>
           <div style={{ fontSize: 12, color: 'rgba(201, 209, 217, 0.55)' }}>
-            M close · drag orbit · scroll zoom
+            hold M · click body · drag orbit
+            {selectedName ? ` · mark ${selectedName}` : ''}
           </div>
         </div>
         <div
@@ -845,7 +1207,11 @@ export function SystemMap({
             gl={{ antialias: true, alpha: false }}
             style={{ width: '100%', height: '100%', display: 'block' }}
           >
-            <MapScene snapshotRef={snapshotRef} />
+            <MapScene
+              snapshotRef={snapshotRef}
+              selectedName={selectedName}
+              onSelectBody={onSelectBody}
+            />
           </Canvas>
         </div>
       </div>

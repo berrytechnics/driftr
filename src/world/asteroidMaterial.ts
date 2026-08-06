@@ -8,6 +8,8 @@ export type AsteroidRockUniforms = {
   uRockFreq: IUniform<number>
   uRockBump: IUniform<number>
   uRockContrast: IUniform<number>
+  /** Surface emissive for violet/night instance colors (0 = off). */
+  uNightSurfaceGlow: IUniform<number>
 }
 
 export type AsteroidTextureParams = {
@@ -46,6 +48,7 @@ export function createAsteroidMaterial(
     uRockFreq: { value: initial.rockFreq },
     uRockBump: { value: initial.rockBump },
     uRockContrast: { value: initial.rockContrast },
+    uNightSurfaceGlow: { value: 0 },
   }
   material.userData.rockUniforms = rockUniforms
 
@@ -53,6 +56,7 @@ export function createAsteroidMaterial(
     shader.uniforms.uRockFreq = rockUniforms.uRockFreq
     shader.uniforms.uRockBump = rockUniforms.uRockBump
     shader.uniforms.uRockContrast = rockUniforms.uRockContrast
+    shader.uniforms.uNightSurfaceGlow = rockUniforms.uNightSurfaceGlow
 
     shader.vertexShader = shader.vertexShader
       .replace(
@@ -96,6 +100,7 @@ export function createAsteroidMaterial(
         uniform float uRockFreq;
         uniform float uRockBump;
         uniform float uRockContrast;
+        uniform float uNightSurfaceGlow;
 
         float rockHash(vec3 p) {
           p = fract(p * 0.3183099 + vec3(0.1, 0.2, 0.3));
@@ -201,6 +206,25 @@ export function createAsteroidMaterial(
         `,
       )
       .replace(
+        '#include <emissivemap_fragment>',
+        /* glsl */ `
+        #include <emissivemap_fragment>
+        #if defined( USE_INSTANCING_COLOR ) || defined( USE_COLOR )
+        if (uNightSurfaceGlow > 1e-4) {
+          // Violet instance tint (night omens) — soft crust glow, keeps lit shading
+          float coolBias = vColor.b - vColor.r;
+          float nightAmt = smoothstep(0.04, 0.14, coolBias)
+            * smoothstep(0.28, 0.48, vColor.b);
+          // Cam-facing fill + rim so pits stay darker and form reads
+          float ndv = max(dot(normalize(normal), vec3(0.0, 0.0, 1.0)), 0.0);
+          float rim = pow(1.0 - ndv, 1.6);
+          float mask = mix(0.28, 1.0, rim) * mix(0.65, 1.0, ndv);
+          totalEmissiveRadiance += vColor.rgb * (uNightSurfaceGlow * nightAmt * mask * 0.42);
+        }
+        #endif
+        `,
+      )
+      .replace(
         '#include <roughnessmap_fragment>',
         /* glsl */ `
         #include <roughnessmap_fragment>
@@ -210,7 +234,7 @@ export function createAsteroidMaterial(
       )
   }
 
-  material.customProgramCacheKey = () => 'asteroid-rock-fbm-v9-mottle'
+  material.customProgramCacheKey = () => 'asteroid-rock-fbm-v10-night-glow'
   return material
 }
 
@@ -228,4 +252,14 @@ export function applyAsteroidTextureParams(
   }
   material.roughness = params.roughness
   material.metalness = params.metalness
+}
+
+export function setAsteroidNightSurfaceGlow(
+  material: MeshStandardMaterial,
+  amount: number,
+) {
+  const uniforms = material.userData.rockUniforms as
+    | AsteroidRockUniforms
+    | undefined
+  if (uniforms) uniforms.uNightSurfaceGlow.value = Math.max(0, amount)
 }

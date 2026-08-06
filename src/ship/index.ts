@@ -5,6 +5,10 @@ export {
   type HazardField,
   type OrbitalTelemetry,
 } from './PlayerShip'
+export {
+  createEmptyAttitudeHud,
+  type AttitudeHudState,
+} from './attitudeHud'
 export { BanditShip } from './BanditShip'
 export { PatrolShip } from './PatrolShip'
 export { Spaceship } from './Spaceship'

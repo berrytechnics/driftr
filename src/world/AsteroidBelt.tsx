@@ -1,28 +1,34 @@
 import { useFrame } from '@react-three/fiber'
 import { useLayoutEffect, useMemo, useRef, type RefObject } from 'react'
 import {
+  AdditiveBlending,
   Color,
   DynamicDrawUsage,
   Euler,
+  Group,
   IcosahedronGeometry,
   InstancedMesh,
+  Mesh,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
   Object3D,
   Quaternion,
   Sphere,
+  SphereGeometry,
   Vector3,
   type BufferGeometry,
-  type MeshStandardMaterial,
 } from 'three'
 import { beltLocalToWorld } from '@/loot/buffs'
 import {
   rollAsteroidType,
   type MaterialKind,
 } from '@/loot/economy'
-import { NIGHT_ROCK_HEX } from '@/lore/easterEggs'
+import { NIGHT_ROCK_HEX, NIGHT_SHARD_COLOR } from '@/lore/easterEggs'
 import {
   applyAsteroidTextureParams,
   createAsteroidMaterial,
   DEFAULT_ASTEROID_TEXTURE,
+  setAsteroidNightSurfaceGlow,
   type AsteroidTextureParams,
 } from '@/world/asteroidMaterial'
 import { circularOrbitSpeed } from '@/world/gravity'
@@ -67,6 +73,27 @@ type AsteroidBeltProps = {
   inclination?: number
   shape?: AsteroidShapeParams
   texture?: AsteroidTextureParams
+  /** Dev — make the omen night-shard rock glow so it is easy to find */
+  glowNightShard?: boolean
+  /**
+   * Soft lavender auras on every alive night rock (and its debris).
+   * For fields with many omens — Sol’s single-rock hunt stays subtle without this.
+   */
+  glowAllNightRocks?: boolean
+  /**
+   * Fraction of orbiting rocks tinted as night-omen (night shards on breakup).
+   * Omit for Sol’s single fixed omen. Pass `0` for none.
+   */
+  nightFraction?: number
+  /**
+   * Number of cluster centers. Rocks not marked loose gather around these
+   * (angular / radial / vertical spread via `clumpSpread`). `0` = uniform.
+   */
+  clumpCount?: number
+  /** World-unit half-spread around each clump center (default 24). */
+  clumpSpread?: number
+  /** Fraction of rocks placed uniformly outside clumps (default 0.35). */
+  looseRatio?: number
   paused?: boolean
   /** Exposes lethal hit-tests + laser impacts for the player ship */
   hazardRef?: RefObject<HazardField | null>
@@ -112,7 +139,7 @@ type Rock = {
   /** Composition type — drives body color and loot weighting */
   kind: MaterialKind
   color: Color
-  /** Lore omen rock — wrong tint; drops a night shard once destroyed */
+  /** Lore omen rock / its debris — night shards on breakup & terminal kills */
   isNight: boolean
   /** Index into orbitingList / debrisList for O(1) swap-remove; -1 if dead */
   listPos: number
@@ -375,6 +402,14 @@ function orbitalVelocity(
   out.vz = -Math.cos(rock.theta) * speed
 }
 
+type PoolLayout = {
+  clumpCount: number
+  clumpSpread: number
+  looseRatio: number
+  /** `undefined` → exactly one omen (Sol). Otherwise mark that fraction. */
+  nightFraction?: number
+}
+
 function makePool(
   count: number,
   capacity: number,
@@ -382,24 +417,59 @@ function makePool(
   outerRadius: number,
   thickness: number,
   sizeScale: number,
+  layout: PoolLayout = {
+    clumpCount: 0,
+    clumpSpread: 24,
+    looseRatio: 0.35,
+  },
 ): Rock[] {
   const rand = mulberry32(0xa57e01d)
   const rocks: Rock[] = []
   const span = Math.max(outerRadius - innerRadius, 1)
   const scale = Math.max(0.05, sizeScale)
+  const clumpN = Math.max(0, Math.floor(layout.clumpCount))
+  const spread = Math.max(4, layout.clumpSpread)
+  const loose = Math.min(1, Math.max(0, layout.looseRatio))
+
+  type Clump = { orbitRadius: number; theta: number; y: number }
+  const clumps: Clump[] = []
+  for (let c = 0; c < clumpN; c++) {
+    const u = Math.pow(rand(), 0.85)
+    clumps.push({
+      orbitRadius: innerRadius + span * u,
+      theta: rand() * Math.PI * 2,
+      y: (rand() - 0.5) * 2 * thickness * 0.45,
+    })
+  }
 
   for (let i = 0; i < capacity; i++) {
     if (i < count) {
-      const u = Math.pow(rand(), 0.85)
-      const orbitRadius = innerRadius + span * u
+      let orbitRadius: number
+      let theta: number
+      let y: number
+      const joinClump = clumps.length > 0 && rand() > loose
+      if (joinClump) {
+        const clump = clumps[Math.floor(rand() * clumps.length)]
+        const dr = (rand() - 0.5) * 2 * spread
+        const dTheta = ((rand() - 0.5) * 2 * spread) / Math.max(clump.orbitRadius, 1)
+        orbitRadius = Math.min(
+          outerRadius,
+          Math.max(innerRadius, clump.orbitRadius + dr),
+        )
+        theta = clump.theta + dTheta
+        y = clump.y + (rand() - 0.5) * spread * 0.7
+      } else {
+        const u = Math.pow(rand(), 0.85)
+        orbitRadius = innerRadius + span * u
+        theta = rand() * Math.PI * 2
+        y = (rand() - 0.5) * 2 * thickness * (0.35 + rand() * 0.65)
+      }
       // Power < 1 biases toward larger rocks; wide range for more variety
       const size = (1.65 + Math.pow(rand(), 0.55) * 13.6) * scale
       // Independent axis stretches → potato / slab / elongated shapes
       const sx = size * (0.32 + Math.pow(rand(), 0.65) * 1.7)
       const sy = size * (0.28 + Math.pow(rand(), 0.65) * 1.65)
       const sz = size * (0.28 + Math.pow(rand(), 0.65) * 1.65)
-      const theta = rand() * Math.PI * 2
-      const y = (rand() - 0.5) * 2 * thickness * (0.35 + rand() * 0.65)
       const kind = rollAsteroidType(rand)
 
       const rock: Rock = {
@@ -456,13 +526,36 @@ function makePool(
     }
   }
 
-  // Fixed omen rock — always present, slightly wrong color, one night shard
+  // Night-omen tints — breakup + each vaporized fragment yield night shards
   if (count > 0) {
     const omenRand = mulberry32(0x6e7978) // "nyx"
-    const omenIdx = Math.floor(omenRand() * count)
-    const omen = rocks[omenIdx]
-    omen.isNight = true
-    omen.color = new Color(NIGHT_ROCK_HEX)
+    // Multi-omen fields use a dusky violet so they read under dim stars
+    // without chalking out once surface glow is on
+    const nightHex =
+      layout.nightFraction === undefined ? NIGHT_ROCK_HEX : '#5c4e78'
+    if (layout.nightFraction === undefined) {
+      const omenIdx = Math.floor(omenRand() * count)
+      const omen = rocks[omenIdx]
+      omen.isNight = true
+      omen.color = new Color(nightHex)
+    } else if (layout.nightFraction > 0) {
+      const nNight = Math.max(
+        1,
+        Math.min(count, Math.round(count * layout.nightFraction)),
+      )
+      const order = Array.from({ length: count }, (_, i) => i)
+      for (let i = order.length - 1; i > 0; i--) {
+        const j = Math.floor(omenRand() * (i + 1))
+        const tmp = order[i]
+        order[i] = order[j]
+        order[j] = tmp
+      }
+      for (let i = 0; i < nNight; i++) {
+        const omen = rocks[order[i]]
+        omen.isNight = true
+        omen.color = new Color(nightHex)
+      }
+    }
   }
 
   return rocks
@@ -605,6 +698,12 @@ export function AsteroidBelt({
   inclination = 0.06,
   shape = DEFAULT_ASTEROID_SHAPE,
   texture = DEFAULT_ASTEROID_TEXTURE,
+  glowNightShard = false,
+  glowAllNightRocks = false,
+  nightFraction,
+  clumpCount = 0,
+  clumpSpread = 24,
+  looseRatio = 0.35,
   paused = false,
   hazardRef,
   onRockDestroyed,
@@ -627,6 +726,49 @@ export function AsteroidBelt({
     () => createAsteroidMaterial(DEFAULT_ASTEROID_TEXTURE),
     [],
   )
+  const glowGeos = useMemo(
+    () => ({
+      aura: new SphereGeometry(1, 24, 18),
+      halo: new SphereGeometry(1, 16, 12),
+    }),
+    [],
+  )
+  const glowMats = useMemo(
+    () => ({
+      shell: new MeshStandardMaterial({
+        color: NIGHT_ROCK_HEX,
+        emissive: NIGHT_SHARD_COLOR,
+        emissiveIntensity: 1.85,
+        roughness: 0.55,
+        metalness: 0.12,
+        toneMapped: false,
+      }),
+      aura: new MeshBasicMaterial({
+        color: NIGHT_SHARD_COLOR,
+        transparent: true,
+        opacity: 0.22,
+        depthWrite: false,
+        blending: AdditiveBlending,
+        toneMapped: false,
+      }),
+      halo: new MeshBasicMaterial({
+        color: '#b8a8e8',
+        transparent: true,
+        opacity: 0.48,
+        depthWrite: false,
+        blending: AdditiveBlending,
+        toneMapped: false,
+      }),
+    }),
+    [],
+  )
+  const glowRoot = useRef<Group>(null!)
+  const glowShell = useRef<Mesh>(null!)
+  const glowAura = useRef<Mesh>(null!)
+  const glowHalo = useRef<Mesh>(null!)
+  const nightIndexRef = useRef(-1)
+  const glowNightShardRef = useRef(glowNightShard)
+  glowNightShardRef.current = glowNightShard
   useLayoutEffect(
     () => () => {
       geometry.dispose()
@@ -634,17 +776,28 @@ export function AsteroidBelt({
     [geometry],
   )
   useLayoutEffect(() => () => material.dispose(), [material])
+  useLayoutEffect(
+    () => () => {
+      glowGeos.aura.dispose()
+      glowGeos.halo.dispose()
+      glowMats.shell.dispose()
+      glowMats.aura.dispose()
+      glowMats.halo.dispose()
+    },
+    [glowGeos, glowMats],
+  )
   useLayoutEffect(() => {
     if (mesh.current) mesh.current.geometry = geometry
   }, [geometry])
   useLayoutEffect(() => {
-    applyAsteroidTextureParams(material as MeshStandardMaterial, {
+    applyAsteroidTextureParams(material, {
       rockFreq: texture.rockFreq,
       rockBump: texture.rockBump,
       rockContrast: texture.rockContrast,
       roughness: texture.roughness,
       metalness: texture.metalness,
     })
+    setAsteroidNightSurfaceGlow(material, glowAllNightRocks ? 1.05 : 0)
   }, [
     material,
     texture.rockFreq,
@@ -652,12 +805,33 @@ export function AsteroidBelt({
     texture.rockContrast,
     texture.roughness,
     texture.metalness,
+    glowAllNightRocks,
   ])
   const rocks = useMemo(
     () =>
-      makePool(count, capacity, innerRadius, outerRadius, thickness, sizeScale),
-    [count, capacity, innerRadius, outerRadius, thickness, sizeScale, resetSeed],
+      makePool(count, capacity, innerRadius, outerRadius, thickness, sizeScale, {
+        clumpCount,
+        clumpSpread,
+        looseRatio,
+        nightFraction,
+      }),
+    [
+      count,
+      capacity,
+      innerRadius,
+      outerRadius,
+      thickness,
+      sizeScale,
+      clumpCount,
+      clumpSpread,
+      looseRatio,
+      nightFraction,
+      resetSeed,
+    ],
   )
+  useLayoutEffect(() => {
+    nightIndexRef.current = rocks.findIndex((rock) => rock.isNight)
+  }, [rocks])
   const rocksRef = useRef(rocks)
   rocksRef.current = rocks
   const sizeScaleRef = useRef(sizeScale)
@@ -1052,9 +1226,11 @@ export function AsteroidBelt({
     const psz = parent.sz
     const parentKind = parent.kind
     const parentNight = parent.isNight
+    // Omen is still on the belt — fragment mid-splits are free-flying debris
+    const wasOrbiting = parent.orbiting
     _fragColor.copy(parent.color)
 
-    // Small rocks vaporize — always a destroy event for loot
+    // Small rocks vaporize — terminal kill; night pieces each yield a shard
     if (size < minHit) {
       killRock(index)
       const inst = mesh.current
@@ -1152,13 +1328,16 @@ export function AsteroidBelt({
       child.life = DEBRIS_LIFE * (0.7 + rand() * 0.6)
       child.collideGrace = 0
       child.kind = parentKind
-      child.isNight = false
+      // Omen lineage — each piece yields a night shard when finally vaporized
+      child.isNight = parentNight
       child.color.copy(_fragColor)
-      child.color.offsetHSL(
-        (rand() - 0.5) * 0.01,
-        (rand() - 0.5) * 0.02,
-        (rand() - 0.5) * 0.06,
-      )
+      if (!parentNight) {
+        child.color.offsetHSL(
+          (rand() - 0.5) * 0.01,
+          (rand() - 0.5) * 0.02,
+          (rand() - 0.5) * 0.06,
+        )
+      }
       addToLiveList(debrisList.current, slot, child)
 
       if (inst) writeInstance(inst, slot, child)
@@ -1169,8 +1348,14 @@ export function AsteroidBelt({
       if (inst.instanceColor) inst.instanceColor.needsUpdate = true
     }
 
-    // Roll loot for every laser-destroyed rock (fragments can drop again later)
-    notifyDestroyed(px, py, pz, parentKind, parentNight)
+    // Normal rocks roll cargo/buffs on every split.
+    // Night omen: one shard when the belt parent breaks; further mid-splits wait
+    // until fragments vaporize (each terminal night kill grants its own shard).
+    if (parentNight) {
+      if (wasOrbiting) notifyDestroyed(px, py, pz, parentKind, true)
+      return
+    }
+    notifyDestroyed(px, py, pz, parentKind, false)
   }
   splitRockRef.current = splitRock
 
@@ -1339,11 +1524,45 @@ export function AsteroidBelt({
     )
   }, [rocks, outerRadius, thickness])
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
+    const list = rocks
+    const glow = glowRoot.current
+    if (glow) {
+      const ni = nightIndexRef.current
+      const rock = ni >= 0 ? list[ni] : null
+      const show = glowNightShardRef.current && !!rock?.alive
+      glow.visible = show
+      if (show && rock) {
+        const t = state.clock.elapsedTime
+        const pulse = 0.82 + 0.18 * Math.sin(t * 3.4)
+        glow.position.set(rock.x, rock.y, rock.z)
+        glow.rotation.set(rock.angle * 0.7, rock.angle, rock.angle * 0.35)
+        if (glowShell.current) {
+          // Slight inflation avoids z-fight with the instanced rock underneath
+          glowShell.current.scale.set(
+            rock.sx * 1.06,
+            rock.sy * 1.06,
+            rock.sz * 1.06,
+          )
+          glowMats.shell.emissiveIntensity = 1.35 + pulse * 0.9
+        }
+        const r = Math.max(rock.hitRadius, 0.6)
+        if (glowAura.current) {
+          const s = r * (2.35 + pulse * 0.35)
+          glowAura.current.scale.setScalar(s)
+          glowMats.aura.opacity = 0.14 + pulse * 0.12
+        }
+        if (glowHalo.current) {
+          const s = r * (1.25 + pulse * 0.12)
+          glowHalo.current.scale.setScalar(s)
+          glowMats.halo.opacity = 0.32 + pulse * 0.22
+        }
+      }
+    }
+
     if (paused) return
     const dt = Math.min(delta, 0.05)
     const inst = mesh.current
-    const list = rocks
     const {
       outerRadius: outer,
       innerRadius: inner,
@@ -1418,6 +1637,26 @@ export function AsteroidBelt({
         receiveShadow={false}
         frustumCulled={false}
       />
+      <group ref={glowRoot} visible={false}>
+        <mesh
+          ref={glowAura}
+          geometry={glowGeos.aura}
+          material={glowMats.aura}
+          frustumCulled={false}
+        />
+        <mesh
+          ref={glowHalo}
+          geometry={glowGeos.halo}
+          material={glowMats.halo}
+          frustumCulled={false}
+        />
+        <mesh
+          ref={glowShell}
+          geometry={geometry}
+          material={glowMats.shell}
+          frustumCulled={false}
+        />
+      </group>
     </group>
   )
 }

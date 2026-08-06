@@ -174,9 +174,17 @@ uniform float uTint;
 uniform float uBase;
 uniform float uBrightnessOffset;
 uniform float uBrightness;
+uniform vec3 uSunColor;
+uniform float uUseTint;
 vec3 brightnessToColor(float b){
   b *= uTint;
-  return (vec3(b, b*b, b*b*b*b) / uTint) * uBrightness;
+  vec3 warm = (vec3(b, b*b, b*b*b*b) / uTint) * uBrightness;
+  // Cool stars: keep indigo chroma — lift toward lavender, never absolute white
+  float n = clamp(b * 0.55, 0.0, 1.0);
+  vec3 deep = uSunColor * 0.55;
+  vec3 pale = mix(uSunColor, vec3(0.72, 0.68, 1.0), 0.42);
+  vec3 tinted = mix(deep, pale, n) * uBrightness;
+  return mix(warm, tinted, uUseTint);
 }
 float ocean(){
     float s = 0.0;
@@ -197,45 +205,47 @@ void main(){
 `
 
 export const glowVS = /* glsl */ `
-attribute vec3 aPos;
-varying float vRadial;
+varying vec3 vNormalView;
 varying vec3 vDir;
-uniform float uRadius;
-// Uses Three built-ins (viewMatrix / projectionMatrix / cameraPosition / modelMatrix)
-// so the halo stays locked to the sphere when the chase cam moves.
+// Slightly oversized BackSide sphere — hugs the limb from any camera distance,
+// unlike the old camera-facing annulus which peeled off into a gap + bright rim.
 void main(void){
-  vRadial = aPos.z;
+  vec4 world = modelMatrix * vec4(position, 1.0);
   vec3 sunWorld = (modelMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
-  vec3 toCam = normalize(cameraPosition - sunWorld);
-  vec3 worldUp = vec3(0.0, 1.0, 0.0);
-  vec3 side = cross(toCam, worldUp);
-  if (dot(side, side) < 1e-8) side = vec3(1.0, 0.0, 0.0);
-  side = normalize(side);
-  vec3 up = normalize(cross(side, toCam));
-  // aPos.xy already include sun radius; z=0 inner ring, z=1 outer falloff
-  vec3 p = sunWorld + (aPos.x * side + aPos.y * up) * (1.0 + aPos.z * uRadius);
-  vDir = normalize(p - sunWorld);
-  gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
+  vDir = normalize(world.xyz - sunWorld);
+  vNormalView = normalize(normalMatrix * normal);
+  gl_Position = projectionMatrix * viewMatrix * world;
 }
 `
 
 export const glowFS = /* glsl */ `
 precision highp float;
 ${visibilityGLSL}
-varying float vRadial;
+varying vec3 vNormalView;
 varying vec3 vDir;
 uniform float uTint;
 uniform float uBrightness;
 uniform float uFalloffColor;
+uniform float uFresnelPower;
+uniform vec3 uSunColor;
+uniform float uUseTint;
 vec3 brightnessToColor(float b){
   b *= uTint;
-  return (vec3(b, b*b, b*b*b*b) / uTint) * uBrightness;
+  vec3 warm = (vec3(b, b*b, b*b*b*b) / uTint) * uBrightness;
+  // Cool stars: keep indigo chroma — lift toward lavender, never absolute white
+  float n = clamp(b * 0.55, 0.0, 1.0);
+  vec3 deep = uSunColor * 0.55;
+  vec3 pale = mix(uSunColor, vec3(0.72, 0.68, 1.0), 0.42);
+  vec3 tinted = mix(deep, pale, n) * uBrightness;
+  return mix(warm, tinted, uUseTint);
 }
 void main(void){
-    float alpha = (1.0 - vRadial);
-    alpha *= alpha;
-    float brightness = 1.0 + alpha * uFalloffColor;
-    alpha *= getAlpha(normalize(vDir));
+    // View-space facing (works with BackSide shell from outside the sun)
+    float facing = clamp(dot(normalize(vNormalView), vec3(0.0, 0.0, 1.0)), 0.0, 1.0);
+    // Soft limb fringe — no hard bright ring (that read as a yellow halo)
+    float rim = pow(max(uFalloffColor - facing, 0.0), uFresnelPower);
+    float alpha = rim * getAlpha(normalize(vDir));
+    float brightness = 0.85 + rim * 0.55;
     gl_FragColor.xyz = brightnessToColor(brightness) * alpha;
     gl_FragColor.w = alpha;
 }

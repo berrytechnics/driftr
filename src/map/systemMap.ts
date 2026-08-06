@@ -31,15 +31,32 @@ export type MapSnapshot = {
     x: number
     y: number
     z: number
-    /** Heading in degrees; 0 = facing world −Z */
+    /** Heading in degrees; 0 = facing world −Z (cone follows travel when moving) */
     heading: number
   } | null
   /** Bandit pips (sun-relative) */
   bandits: { x: number; y: number; z: number }[]
   /** Friendly patrol pips (sun-relative) */
   patrols: { x: number; y: number; z: number }[]
-  /** Dock stations (sun-relative) — unlabeled rings on the map */
-  stations: { x: number; y: number; z: number }[]
+  /**
+   * Dock stations (sun-relative).
+   * `host*` is the parent body pip; the gold berth ring draws around it while
+   * a small pip marks the true station position.
+   */
+  stations: {
+    name: string
+    x: number
+    y: number
+    z: number
+    hostX: number
+    hostY: number
+    hostZ: number
+    hostSize: number
+    /** Gold berth ring around host pip — false for dead/ghost pads */
+    hostRing?: boolean
+    /** Gold pip at true station position */
+    showPip?: boolean
+  }[]
   /** Seconds remaining — bright silver Nyx ellipse (cruise into night) */
   nyxOrbitGlow: number
   /** Persist-driven — draw faint NYX TRANSIT corridor on Nyx’s ellipse */

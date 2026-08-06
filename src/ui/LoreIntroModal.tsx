@@ -95,17 +95,17 @@ export function LoreIntroModal({ onContinue }: LoreIntroModalProps) {
           </p>
           <p style={{ margin: 0 }}>
             Farther out, Nyx refuses to behave. When the dwarf was first charted,
-            the surveyors read a simple orbit and raised{' '}
+            surveyors assumed a simple orbit and raised{' '}
             <span style={{ color: 'rgba(190, 175, 230, 0.95)' }}>
               Nyx Transit
             </span>{' '}
             to meet her. They did not know the ellipse. At apoapsis Nyx ran
             beyond any craft of that age. Help could not follow. When Nyx finally
-            swung home, there was nothing waiting in her sky: no wreck, no beacon,
-            no debris field. The station was gone without a trace. Only ghosts of
-            bureaucracy remain — a struck transit pad on some dock boards, a
-            corrupt comlog, rumors of shapes and whispers where the berth should
-            have been.
+            swung home, nothing waited in her sky: no wreck, no beacon, no
+            debris. The station was gone without a trace — and it had never sat
+            on the dwarf itself. Only ghosts of bureaucracy remain: a struck
+            transit pad on some dock boards, a corrupt comlog, and rumors of a
+            berth parked at the farthest turn of her path.
           </p>
           <p
             style={{

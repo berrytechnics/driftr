@@ -19,10 +19,12 @@ import {
 } from 'three'
 import { playTorpedoSound } from '@/audio/gameAudio'
 import type { BanditCombatState } from '@/combat/combatHud'
+import { TORPEDO_ABSOLUTE_MAX_AMMO } from '@/loot/shop'
 import type { HazardField } from '@/ship/PlayerShip'
 import type { LaserTarget } from '@/ship/ShipWeapons'
 
-const MAX_TORPEDOES = 4
+/** Simultaneous in-flight warheads — matches max magazine capacity. */
+const MAX_TORPEDOES = TORPEDO_ABSOLUTE_MAX_AMMO
 /**
  * Authored in world units. Ship mesh scale is tiny (~0.08); warheads stay
  * readable in flight by ignoring that crush factor (see visualScale below).

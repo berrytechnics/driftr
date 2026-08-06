@@ -4,11 +4,47 @@ import {
   type MaterialKind,
 } from '@/loot/economy'
 import {
+  STATION_NAMES,
+  SYSTEM_IDS,
+  type SystemId,
+} from '@/game/systemConfig'
+import {
   BASE_MAX_HP,
   clampArmorTier,
   clampTorpedoAmmo,
+  clampTorpedoMagTier,
+  maxAmmoForTorpedoMagTier,
   maxHpForArmorTier,
 } from '@/loot/shop'
+
+function sanitizeSystemId(raw: unknown): SystemId {
+  if (raw === SYSTEM_IDS.nyxAlt) return SYSTEM_IDS.nyxAlt
+  return SYSTEM_IDS.sol
+}
+
+const KNOWN_STATIONS = new Set<string>(Object.values(STATION_NAMES))
+
+function sanitizeDockStationName(raw: unknown, systemId: SystemId): string {
+  if (typeof raw === 'string' && KNOWN_STATIONS.has(raw)) {
+    // Don't restore a Sol pad while in alt (or vice versa) after a bad save.
+    if (systemId === SYSTEM_IDS.nyxAlt) {
+      if (raw === STATION_NAMES.nyxAlt || raw === STATION_NAMES.nyxTug) {
+        return raw
+      }
+      return STATION_NAMES.nyxAlt
+    }
+    if (
+      raw === STATION_NAMES.nyxAlt ||
+      raw === STATION_NAMES.nyxTug
+    ) {
+      return STATION_NAMES.thalassa
+    }
+    return raw
+  }
+  return systemId === SYSTEM_IDS.nyxAlt
+    ? STATION_NAMES.nyxAlt
+    : STATION_NAMES.thalassa
+}
 
 const SAVE_KEY = '3js-save-v1'
 /** Legacy Leva settings blob — cleared so it doesn't linger. */
@@ -26,8 +62,10 @@ export type GameSave = {
   docked: boolean
   /** Seeking torpedo launcher unlocked at the station. */
   torpedoOwned: boolean
-  /** Loaded warheads (0–4). */
+  /** Loaded warheads (0–capacity for current magazine tier). */
   torpedoAmmo: number
+  /** Magazine expansion tier (0 = stock 4 tubes, 1–3 = upgrades). */
+  torpedoMagTier: number
   /** Hull plating tier (0 = stock, 1–3 = upgrades). */
   armorTier: number
   /** Advanced thruster unlocked at the station. */
@@ -44,6 +82,10 @@ export type GameSave = {
   nyxComlogUnlocked: boolean
   /** Lore — saw the derelict ghost station. */
   nyxDerelictSeen: boolean
+  /** Lore — approached the derelict tug in alt Nyx space. */
+  nyxTugSeen: boolean
+  /** Lore — approached the Cassini probe husk in alt Nyx space. */
+  nyxCassiniSeen: boolean
   /** Lore — dual ash toast used once. */
   nyxDualAshDone: boolean
   /** Lore — Hyperion outer-arc handoff toast heard once. */
@@ -56,6 +98,10 @@ export type GameSave = {
   nyxFoundEmpty: boolean
   /** Skip the first-load lore briefing modal. */
   hideIntroSynopsis: boolean
+  /** Which system sky is loaded — Sol vs alternate Nyx. */
+  systemId: SystemId
+  /** Last hard-dock pad name (survives remount / reload). */
+  dockStationName: string
 }
 
 export type HullSnapshot = {
@@ -114,6 +160,7 @@ export function defaultGameSave(): GameSave {
     docked: false,
     torpedoOwned: false,
     torpedoAmmo: 0,
+    torpedoMagTier: 0,
     armorTier: 0,
     thrusterOwned: false,
     sensorsOwned: false,
@@ -122,12 +169,16 @@ export function defaultGameSave(): GameSave {
     nyxCorridorUnlocked: false,
     nyxComlogUnlocked: false,
     nyxDerelictSeen: false,
+    nyxTugSeen: false,
+    nyxCassiniSeen: false,
     nyxDualAshDone: false,
     nyxHyperionRumorHeard: false,
     nyxTopicUnlocked: false,
     nyxHyperionLead: false,
     nyxFoundEmpty: false,
     hideIntroSynopsis: false,
+    systemId: SYSTEM_IDS.sol,
+    dockStationName: STATION_NAMES.thalassa,
   }
 }
 
@@ -154,6 +205,15 @@ export function loadGameSave(): GameSave {
   const hp = hpRaw <= 0 ? maxHp : clamp(Math.round(hpRaw), 1, maxHp)
 
   const torpedoOwned = !!raw.torpedoOwned
+  const torpedoMagTier = torpedoOwned
+    ? clampTorpedoMagTier(
+        typeof raw.torpedoMagTier === 'number' &&
+          Number.isFinite(raw.torpedoMagTier)
+          ? raw.torpedoMagTier
+          : 0,
+      )
+    : 0
+  const torpedoMaxAmmo = maxAmmoForTorpedoMagTier(torpedoMagTier)
   const torpedoAmmoRaw =
     typeof raw.torpedoAmmo === 'number' && Number.isFinite(raw.torpedoAmmo)
       ? raw.torpedoAmmo
@@ -182,8 +242,11 @@ export function loadGameSave(): GameSave {
         : 0,
     docked: !!raw.docked,
     torpedoOwned,
-    // Drop orphan ammo if the launcher was never purchased
-    torpedoAmmo: torpedoOwned ? clampTorpedoAmmo(torpedoAmmoRaw) : 0,
+    // Drop orphan ammo / mag if the launcher was never purchased
+    torpedoAmmo: torpedoOwned
+      ? clampTorpedoAmmo(torpedoAmmoRaw, torpedoMaxAmmo)
+      : 0,
+    torpedoMagTier,
     armorTier,
     thrusterOwned: !!raw.thrusterOwned,
     sensorsOwned: !!raw.sensorsOwned,
@@ -195,6 +258,8 @@ export function loadGameSave(): GameSave {
     nyxCorridorUnlocked: !!raw.nyxCorridorUnlocked || !!raw.nyxWhisperHeard,
     nyxComlogUnlocked: !!raw.nyxComlogUnlocked || !!raw.nyxWhisperHeard,
     nyxDerelictSeen: !!raw.nyxDerelictSeen,
+    nyxTugSeen: !!raw.nyxTugSeen,
+    nyxCassiniSeen: !!raw.nyxCassiniSeen,
     nyxDualAshDone: !!raw.nyxDualAshDone,
     nyxHyperionRumorHeard: !!raw.nyxHyperionRumorHeard,
     // Migrate: any prior Nyx progress implies the ATC topic is available
@@ -206,17 +271,28 @@ export function loadGameSave(): GameSave {
       !!raw.nyxHyperionLead ||
       !!raw.nyxHyperionRumorHeard ||
       !!raw.nyxFoundEmpty ||
+      !!raw.nyxTugSeen ||
+      !!raw.nyxCassiniSeen ||
       (typeof raw.nightShards === 'number' && raw.nightShards > 0),
     nyxHyperionLead: !!raw.nyxHyperionLead,
     // Approaching Nyx / whisper already counts as "found her empty"
     nyxFoundEmpty:
       !!raw.nyxFoundEmpty || !!raw.nyxWhisperHeard || !!raw.nyxDerelictSeen,
     hideIntroSynopsis: !!raw.hideIntroSynopsis,
+    systemId: sanitizeSystemId(raw.systemId),
+    dockStationName: sanitizeDockStationName(
+      raw.dockStationName,
+      sanitizeSystemId(raw.systemId),
+    ),
   }
 }
 
 export function saveGameSave(save: GameSave) {
   const torpedoOwned = !!save.torpedoOwned
+  const torpedoMagTier = torpedoOwned
+    ? clampTorpedoMagTier(save.torpedoMagTier)
+    : 0
+  const torpedoMaxAmmo = maxAmmoForTorpedoMagTier(torpedoMagTier)
   const armorTier = clampArmorTier(save.armorTier)
   const maxHp = maxHpForArmorTier(armorTier)
   writeJson(SAVE_KEY, {
@@ -229,7 +305,10 @@ export function saveGameSave(save: GameSave) {
     speedBuff: Math.max(0, save.speedBuff),
     fireBuff: Math.max(0, save.fireBuff),
     torpedoOwned,
-    torpedoAmmo: torpedoOwned ? clampTorpedoAmmo(save.torpedoAmmo) : 0,
+    torpedoAmmo: torpedoOwned
+      ? clampTorpedoAmmo(save.torpedoAmmo, torpedoMaxAmmo)
+      : 0,
+    torpedoMagTier,
     armorTier,
     thrusterOwned: !!save.thrusterOwned,
     sensorsOwned: !!save.sensorsOwned,
@@ -238,12 +317,19 @@ export function saveGameSave(save: GameSave) {
     nyxCorridorUnlocked: !!save.nyxCorridorUnlocked,
     nyxComlogUnlocked: !!save.nyxComlogUnlocked,
     nyxDerelictSeen: !!save.nyxDerelictSeen,
+    nyxTugSeen: !!save.nyxTugSeen,
+    nyxCassiniSeen: !!save.nyxCassiniSeen,
     nyxDualAshDone: !!save.nyxDualAshDone,
     nyxHyperionRumorHeard: !!save.nyxHyperionRumorHeard,
     nyxTopicUnlocked: !!save.nyxTopicUnlocked,
     nyxHyperionLead: !!save.nyxHyperionLead,
     nyxFoundEmpty: !!save.nyxFoundEmpty,
     hideIntroSynopsis: !!save.hideIntroSynopsis,
+    systemId: sanitizeSystemId(save.systemId),
+    dockStationName: sanitizeDockStationName(
+      save.dockStationName,
+      sanitizeSystemId(save.systemId),
+    ),
   } satisfies GameSave)
 }
 

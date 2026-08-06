@@ -1,40 +1,5 @@
 import { BufferAttribute, BufferGeometry, Vector3 } from 'three'
 
-/** Camera-facing annular billboard for the soft corona glow. */
-export function createGlowGeometry(radius: number, segments = 96) {
-  const positions = new Float32Array(3 * (2 * segments))
-  let r = 0
-  for (let a = 0; a < segments; a++) {
-    const s = (a / segments) * Math.PI * 2.0
-    const sx = Math.sin(s) * radius
-    const sy = Math.cos(s) * radius
-    positions[r++] = sx
-    positions[r++] = sy
-    positions[r++] = 0.0
-    positions[r++] = sx
-    positions[r++] = sy
-    positions[r++] = 1.0
-  }
-  const indices = new Uint32Array(2 * segments * 3)
-  let o = 0
-  for (let a = 0; a < segments; a++) {
-    const i0 = 2 * a
-    const i1 = 2 * a + 1
-    const i2 = 2 * ((a + 1) % segments)
-    const i3 = i2 + 1
-    indices[o++] = i0
-    indices[o++] = i1
-    indices[o++] = i2
-    indices[o++] = i2
-    indices[o++] = i1
-    indices[o++] = i3
-  }
-  const geo = new BufferGeometry()
-  geo.setAttribute('aPos', new BufferAttribute(positions, 3))
-  geo.setIndex(new BufferAttribute(indices, 1))
-  return geo
-}
-
 function randomUnit(v: Vector3) {
   const z = Math.random() * 2 - 1
   const t = Math.random() * Math.PI * 2

@@ -14,6 +14,8 @@ import {
   tryPlayStation,
   tryPlayTheme,
 } from '@/audio/ThemeMusic'
+import { AdminPanel } from '@/dev/AdminPanel'
+import type { AdminWarpId, AdminWarpRequest } from '@/dev/adminTypes'
 import { GameCanvas } from '@/game/GameCanvas'
 import {
   defaultGameSave,
@@ -22,7 +24,11 @@ import {
   saveGameSave,
   type GameSave,
 } from '@/game/persist'
-import { STATION_NAMES } from '@/game/systemConfig'
+import {
+  STATION_NAMES,
+  SYSTEM_IDS,
+  type SystemId,
+} from '@/game/systemConfig'
 import {
   cargoUnits,
   emptyCargo,
@@ -32,13 +38,15 @@ import {
 } from '@/loot/economy'
 import type { PlayerCargoStatus } from '@/loot/cargoBait'
 import {
+  ARMOR_MAX_TIER,
   ARMOR_TIERS,
   BASE_MAX_HP,
   SENSOR_MOD_ID,
   SENSOR_UNLOCK_COST,
   THRUSTER_MOD_ID,
   THRUSTER_UNLOCK_COST,
-  TORPEDO_MAX_AMMO,
+  TORPEDO_MAG_MAX_TIER,
+  TORPEDO_MAG_TIERS,
   TORPEDO_RELOAD_COST,
   TORPEDO_RELOAD_ID,
   TORPEDO_UNLOCK_COST,
@@ -46,10 +54,13 @@ import {
   canBuyArmorTier,
   canBuySensorUnlock,
   canBuyThrusterUnlock,
+  canBuyTorpedoMagTier,
   canBuyTorpedoReload,
   canBuyTorpedoUnlock,
   clampArmorTier,
   clampTorpedoAmmo,
+  clampTorpedoMagTier,
+  maxAmmoForTorpedoMagTier,
   maxHpForArmorTier,
   repairCost,
 } from '@/loot/shop'
@@ -59,12 +70,22 @@ import {
   type CombatHudState,
 } from '@/combat/combatHud'
 import { createEmptyMapSnapshot, type MapSnapshot } from '@/map/systemMap'
+import {
+  createEmptyAttitudeHud,
+  type AttitudeHudState,
+} from '@/ship/attitudeHud'
+import {
+  createEmptyMapWaypoint,
+  type MapWaypointState,
+} from '@/map/mapWaypoint'
 import type { OrbitalTelemetry } from '@/ship/PlayerShip'
 import { CombatChevron } from '@/ui/CombatChevron'
 import { Crosshair } from '@/ui/Crosshair'
 import { DamageFlash } from '@/ui/DamageFlash'
 import { FpsCounter } from '@/ui/FpsCounter'
 import { Hud } from '@/ui/Hud'
+import { MapWaypointMarker } from '@/ui/MapWaypointMarker'
+import { Navball } from '@/ui/Navball'
 import { LoadingScreen } from '@/ui/LoadingScreen'
 import { LoreIntroModal } from '@/ui/LoreIntroModal'
 import { LoreToast } from '@/ui/LoreToast'
@@ -75,10 +96,11 @@ import {
   isNearHyperion,
   isNearNyx,
   isNyxWhisperAltitude,
+  NYX_ALT_TRANSPORT_TOAST,
   NYX_DUST_KEY_TOAST,
+  NYX_DUST_PICKUP_TOAST,
   NYX_EMPTY_TOAST,
   NYX_HYPERION_RUMOR,
-  NYX_TRANSIT_DOCK_TOAST,
   NYX_WHISPER_COOLDOWN_S,
   NYX_WHISPER_TEXT,
   rollGhostBerth,
@@ -108,14 +130,18 @@ export default function App() {
   const [docked, setDocked] = useState(() => saved.docked)
   const [dockAvailable, setDockAvailable] = useState(false)
   const [dockStationName, setDockStationName] = useState<string>(
-    STATION_NAMES.thalassa,
+    () => saved.dockStationName,
   )
+  const [systemId, setSystemId] = useState<SystemId>(() => saved.systemId)
   const [beltResetSeed, setBeltResetSeed] = useState(0)
   const [telemetry, setTelemetry] = useState<OrbitalTelemetry | null>(null)
   const [credits, setCredits] = useState(() => saved.credits)
   const [cargo, setCargo] = useState<CargoHold>(() => ({ ...saved.cargo }))
   const [torpedoOwned, setTorpedoOwned] = useState(() => saved.torpedoOwned)
   const [torpedoAmmo, setTorpedoAmmo] = useState(() => saved.torpedoAmmo)
+  const [torpedoMagTier, setTorpedoMagTier] = useState(
+    () => saved.torpedoMagTier,
+  )
   const [armorTier, setArmorTier] = useState(() => saved.armorTier)
   const [thrusterOwned, setThrusterOwned] = useState(() => saved.thrusterOwned)
   const [sensorsOwned, setSensorsOwned] = useState(() => saved.sensorsOwned)
@@ -131,6 +157,10 @@ export default function App() {
   )
   const [nyxDerelictSeen, setNyxDerelictSeen] = useState(
     () => saved.nyxDerelictSeen,
+  )
+  const [nyxTugSeen, setNyxTugSeen] = useState(() => saved.nyxTugSeen)
+  const [nyxCassiniSeen, setNyxCassiniSeen] = useState(
+    () => saved.nyxCassiniSeen,
   )
   const [nyxDualAshDone, setNyxDualAshDone] = useState(
     () => saved.nyxDualAshDone,
@@ -170,12 +200,14 @@ export default function App() {
   } | null>(null)
   const startedRef = useRef(saved.docked)
   const dockedRef = useRef(saved.docked)
+  const systemIdRef = useRef<SystemId>(saved.systemId)
   const lastHp = useRef<number | null>(saved.hp)
   const creditsRef = useRef(credits)
   const cargoRef = useRef(cargo)
   const playerCargoRef = useRef<PlayerCargoStatus>({ units: 0 })
   const torpedoOwnedRef = useRef(torpedoOwned)
   const torpedoAmmoRef = useRef(torpedoAmmo)
+  const torpedoMagTierRef = useRef(torpedoMagTier)
   const armorTierRef = useRef(armorTier)
   const thrusterOwnedRef = useRef(thrusterOwned)
   const sensorsOwnedRef = useRef(sensorsOwned)
@@ -184,6 +216,8 @@ export default function App() {
   const nyxCorridorUnlockedRef = useRef(nyxCorridorUnlocked)
   const nyxComlogUnlockedRef = useRef(nyxComlogUnlocked)
   const nyxDerelictSeenRef = useRef(nyxDerelictSeen)
+  const nyxTugSeenRef = useRef(nyxTugSeen)
+  const nyxCassiniSeenRef = useRef(nyxCassiniSeen)
   const nyxDualAshDoneRef = useRef(nyxDualAshDone)
   const nyxHyperionRumorHeardRef = useRef(nyxHyperionRumorHeard)
   const nyxTopicUnlockedRef = useRef(nyxTopicUnlocked)
@@ -195,11 +229,16 @@ export default function App() {
   const healSeq = useRef(0)
   const jettisonSeq = useRef(0)
   const shipMaxHp = maxHpForArmorTier(armorTier)
+  const shipTorpedoMaxAmmo = maxAmmoForTorpedoMagTier(torpedoMagTier)
   /** Skip the keyup from the Esc that opened the pause menu */
   const ignoreEscResume = useRef(false)
   const mapSnapshotRef = useRef<MapSnapshot>(createEmptyMapSnapshot())
   const mapShipRef = useRef<Group | null>(null)
   const combatHudRef = useRef<CombatHudState>(createEmptyCombatHud())
+  const attitudeHudRef = useRef<AttitudeHudState>(createEmptyAttitudeHud())
+  const waypointRef = useRef<MapWaypointState>(createEmptyMapWaypoint())
+  /** True while holding M — unlock for map mouse without pausing. */
+  const mapOpenRef = useRef(false)
 
   dockedRef.current = docked
   creditsRef.current = credits
@@ -207,6 +246,7 @@ export default function App() {
   playerCargoRef.current.units = cargoUnits(cargo)
   torpedoOwnedRef.current = torpedoOwned
   torpedoAmmoRef.current = torpedoAmmo
+  torpedoMagTierRef.current = torpedoMagTier
   armorTierRef.current = armorTier
   thrusterOwnedRef.current = thrusterOwned
   sensorsOwnedRef.current = sensorsOwned
@@ -215,12 +255,15 @@ export default function App() {
   nyxCorridorUnlockedRef.current = nyxCorridorUnlocked
   nyxComlogUnlockedRef.current = nyxComlogUnlocked
   nyxDerelictSeenRef.current = nyxDerelictSeen
+  nyxTugSeenRef.current = nyxTugSeen
+  nyxCassiniSeenRef.current = nyxCassiniSeen
   nyxDualAshDoneRef.current = nyxDualAshDone
   nyxHyperionRumorHeardRef.current = nyxHyperionRumorHeard
   nyxTopicUnlockedRef.current = nyxTopicUnlocked
   nyxHyperionLeadRef.current = nyxHyperionLead
   nyxFoundEmptyRef.current = nyxFoundEmpty
   hideIntroSynopsisRef.current = hideIntroSynopsis
+  systemIdRef.current = systemId
 
   const persistNow = useCallback(() => {
     const t = telemetryRef.current
@@ -234,8 +277,10 @@ export default function App() {
       speedBuff: t?.speedBuff ?? 0,
       fireBuff: t?.fireBuff ?? 0,
       docked: dockedRef.current,
+      dockStationName,
       torpedoOwned: torpedoOwnedRef.current,
       torpedoAmmo: torpedoAmmoRef.current,
+      torpedoMagTier: torpedoMagTierRef.current,
       armorTier: armorTierRef.current,
       thrusterOwned: thrusterOwnedRef.current,
       sensorsOwned: sensorsOwnedRef.current,
@@ -244,15 +289,18 @@ export default function App() {
       nyxCorridorUnlocked: nyxCorridorUnlockedRef.current,
       nyxComlogUnlocked: nyxComlogUnlockedRef.current,
       nyxDerelictSeen: nyxDerelictSeenRef.current,
+      nyxTugSeen: nyxTugSeenRef.current,
+      nyxCassiniSeen: nyxCassiniSeenRef.current,
       nyxDualAshDone: nyxDualAshDoneRef.current,
       nyxHyperionRumorHeard: nyxHyperionRumorHeardRef.current,
       nyxTopicUnlocked: nyxTopicUnlockedRef.current,
       nyxHyperionLead: nyxHyperionLeadRef.current,
       nyxFoundEmpty: nyxFoundEmptyRef.current,
       hideIntroSynopsis: hideIntroSynopsisRef.current,
+      systemId: systemIdRef.current,
     }
     saveGameSave(snapshot)
-  }, [saved.hp, saved.heat, saved.overheated])
+  }, [dockStationName, saved.hp, saved.heat, saved.overheated])
 
   // Debounced autosave when economy / dock / hull changes
   useEffect(() => {
@@ -265,6 +313,7 @@ export default function App() {
     telemetry,
     torpedoOwned,
     torpedoAmmo,
+    torpedoMagTier,
     armorTier,
     thrusterOwned,
     sensorsOwned,
@@ -273,12 +322,16 @@ export default function App() {
     nyxCorridorUnlocked,
     nyxComlogUnlocked,
     nyxDerelictSeen,
+    nyxTugSeen,
+    nyxCassiniSeen,
     nyxDualAshDone,
     nyxHyperionRumorHeard,
     nyxTopicUnlocked,
     nyxHyperionLead,
     nyxFoundEmpty,
     hideIntroSynopsis,
+    systemId,
+    dockStationName,
     persistNow,
   ])
 
@@ -303,14 +356,23 @@ export default function App() {
       startedRef.current = true
       setStarted(true)
       setPaused(false)
-    } else if (startedRef.current && !dockedRef.current) {
+    } else if (
+      startedRef.current &&
+      !dockedRef.current &&
+      !mapOpenRef.current
+    ) {
       // Pointer unlock while docked is intentional (station MFD needs the mouse)
+      // Unlock for the hold-M map is also intentional — don't pause.
       setPaused(true)
       ignoreEscResume.current = true
       window.setTimeout(() => {
         ignoreEscResume.current = false
       }, 300)
     }
+  }, [])
+
+  const onMapOpenChange = useCallback((open: boolean) => {
+    mapOpenRef.current = open
   }, [])
 
   const unlockNyxTopic = useCallback(() => {
@@ -342,6 +404,9 @@ export default function App() {
     lastHp.current = value.hp
     telemetryRef.current = value
     setTelemetry(value)
+
+    // Sol-only Nyx lore — don't fire against alternate Ashen Nyx
+    if (systemIdRef.current !== SYSTEM_IDS.sol) return
 
     // Near Nyx — enable Ask (Transit is not on the dwarf)
     if (isNearNyx(value.nearBody) && !nyxFoundEmptyRef.current) {
@@ -399,7 +464,9 @@ export default function App() {
       setNightShards((n) => n + 1)
       unlockNyxTopic()
       setLoreToast(
-        nyxDerelictSeenRef.current ? NYX_DUST_KEY_TOAST : 'Nyx dust',
+        nyxDerelictSeenRef.current
+          ? NYX_DUST_KEY_TOAST
+          : NYX_DUST_PICKUP_TOAST,
       )
       setLoreToastKey((k) => k + 1)
       return
@@ -445,7 +512,10 @@ export default function App() {
   }, [])
 
   const onTorpedoAmmoChange = useCallback((ammo: number) => {
-    const next = clampTorpedoAmmo(ammo)
+    const next = clampTorpedoAmmo(
+      ammo,
+      maxAmmoForTorpedoMagTier(torpedoMagTierRef.current),
+    )
     torpedoAmmoRef.current = next
     setTorpedoAmmo(next)
   }, [])
@@ -459,7 +529,7 @@ export default function App() {
     setCargo(emptyCargo())
     jettisonSeq.current += 1
     const altitude = telemetryRef.current?.altitude ?? Infinity
-    if (isAshForSolAltitude(altitude)) {
+    if (systemIdRef.current === SYSTEM_IDS.sol && isAshForSolAltitude(altitude)) {
       if (nyxWhisperHeardRef.current && !nyxDualAshDoneRef.current) {
         setNyxDualAshDone(true)
         setLoreToast(ASH_FOR_SOL_DUAL_TEXT)
@@ -492,11 +562,12 @@ export default function App() {
       if (!canBuyTorpedoUnlock(creditsRef.current, torpedoOwnedRef.current)) {
         return
       }
+      const maxAmmo = maxAmmoForTorpedoMagTier(torpedoMagTierRef.current)
       setCredits((c) => c - TORPEDO_UNLOCK_COST)
       torpedoOwnedRef.current = true
-      torpedoAmmoRef.current = TORPEDO_MAX_AMMO
+      torpedoAmmoRef.current = maxAmmo
       setTorpedoOwned(true)
-      setTorpedoAmmo(TORPEDO_MAX_AMMO)
+      setTorpedoAmmo(maxAmmo)
       return
     }
     if (id === THRUSTER_MOD_ID) {
@@ -518,19 +589,50 @@ export default function App() {
       return
     }
     if (id === TORPEDO_RELOAD_ID) {
+      const maxAmmo = maxAmmoForTorpedoMagTier(torpedoMagTierRef.current)
       if (
         !canBuyTorpedoReload(
           creditsRef.current,
           torpedoOwnedRef.current,
           torpedoAmmoRef.current,
+          maxAmmo,
         )
       ) {
         return
       }
       setCredits((c) => c - TORPEDO_RELOAD_COST)
-      const next = clampTorpedoAmmo(torpedoAmmoRef.current + 1)
+      const next = clampTorpedoAmmo(torpedoAmmoRef.current + 1, maxAmmo)
       torpedoAmmoRef.current = next
       setTorpedoAmmo(next)
+      return
+    }
+
+    const mag = TORPEDO_MAG_TIERS.find((tier) => tier.id === id)
+    if (mag) {
+      const current = clampTorpedoMagTier(torpedoMagTierRef.current)
+      if (mag.tier !== current + 1) return
+      if (
+        !canBuyTorpedoMagTier(
+          creditsRef.current,
+          torpedoOwnedRef.current,
+          current,
+        )
+      ) {
+        return
+      }
+
+      const oldMax = maxAmmoForTorpedoMagTier(current)
+      const bonus = mag.maxAmmo - oldMax
+      const nextAmmo = clampTorpedoAmmo(
+        torpedoAmmoRef.current + bonus,
+        mag.maxAmmo,
+      )
+
+      setCredits((c) => c - mag.cost)
+      torpedoMagTierRef.current = mag.tier
+      setTorpedoMagTier(mag.tier)
+      torpedoAmmoRef.current = nextAmmo
+      setTorpedoAmmo(nextAmmo)
       return
     }
 
@@ -569,20 +671,55 @@ export default function App() {
     if (!dockAvailable && !dockedRef.current) return
 
     const atNyxTransit = dockStationName === STATION_NAMES.nyx
-    if (atNyxTransit) {
-      if (nightShardsRef.current < 1) return
+    const atNyxAlt = dockStationName === STATION_NAMES.nyxAlt
+    const hasShard = nightShardsRef.current >= 1
+
+    // Ghost apo pad still needs dust to accept a hard-dock.
+    if (atNyxTransit && !hasShard) return
+
+    /** Either Nyx pad with dust — slip to the other system and spend one shard. */
+    let arrivedName = dockStationName
+    let transported = false
+    if ((atNyxTransit || atNyxAlt) && hasShard) {
       nightShardsRef.current -= 1
       setNightShards(nightShardsRef.current)
+      Object.assign(waypointRef.current, createEmptyMapWaypoint())
+      if (atNyxTransit) {
+        systemIdRef.current = SYSTEM_IDS.nyxAlt
+        setSystemId(SYSTEM_IDS.nyxAlt)
+        arrivedName = STATION_NAMES.nyxAlt
+      } else {
+        systemIdRef.current = SYSTEM_IDS.sol
+        setSystemId(SYSTEM_IDS.sol)
+        arrivedName = STATION_NAMES.nyx
+      }
+      setDockStationName(arrivedName)
+      transported = true
     }
 
     dockedRef.current = true
     setDocked(true)
     setDockAvailable(false)
 
-    if (atNyxTransit) {
+    if (arrivedName === STATION_NAMES.nyx) {
       setGhostBerth(true)
-      setLoreToast(NYX_TRANSIT_DOCK_TOAST)
+      setLoreToast(NYX_ALT_TRANSPORT_TOAST)
       setLoreToastKey((k) => k + 1)
+    } else if (arrivedName === STATION_NAMES.nyxAlt) {
+      setGhostBerth(false)
+      if (transported) {
+        setLoreToast(NYX_ALT_TRANSPORT_TOAST)
+        setLoreToastKey((k) => k + 1)
+      } else {
+        setLoreToast(null)
+      }
+    } else if (arrivedName === STATION_NAMES.nyxTug) {
+      setGhostBerth(false)
+      setLoreToast(null)
+      if (!nyxTugSeenRef.current) {
+        nyxTugSeenRef.current = true
+        setNyxTugSeen(true)
+      }
     } else {
       const showGhost = rollGhostBerth(nyxWhisperHeardRef.current)
       setGhostBerth(showGhost)
@@ -609,6 +746,20 @@ export default function App() {
     setLoreToastKey((k) => k + 1)
   }, [unlockNyxTopic])
 
+  const onNyxTugSeen = useCallback((toast: string) => {
+    if (nyxTugSeenRef.current) return
+    setNyxTugSeen(true)
+    setLoreToast(toast)
+    setLoreToastKey((k) => k + 1)
+  }, [])
+
+  const onNyxCassiniSeen = useCallback((toast: string) => {
+    if (nyxCassiniSeenRef.current) return
+    setNyxCassiniSeen(true)
+    setLoreToast(toast)
+    setLoreToastKey((k) => k + 1)
+  }, [])
+
   const undockFromStation = useCallback(() => {
     dockedRef.current = false
     setDocked(false)
@@ -619,6 +770,162 @@ export default function App() {
     tryPlayTheme()
     const canvas = document.querySelector('canvas')
     void canvas?.requestPointerLock()
+  }, [])
+
+  /** Dev admin — instant Sol ↔ Vesper hop, docked at the matching Nyx pad. */
+  const adminTransportToSystem = useCallback((target: SystemId) => {
+    const arrivedName =
+      target === SYSTEM_IDS.nyxAlt ? STATION_NAMES.nyxAlt : STATION_NAMES.nyx
+
+    Object.assign(waypointRef.current, createEmptyMapWaypoint())
+    systemIdRef.current = target
+    setSystemId(target)
+    setDockStationName(arrivedName)
+
+    startedRef.current = true
+    setStarted(true)
+    dockedRef.current = true
+    setDocked(true)
+    setDockAvailable(false)
+    setGhostBerth(arrivedName === STATION_NAMES.nyx)
+    setLoreToast(NYX_ALT_TRANSPORT_TOAST)
+    setLoreToastKey((k) => k + 1)
+    setBeltResetSeed((seed) => seed + 1)
+    setPaused(false)
+    setShowIntroModal(false)
+    tryPlayStation()
+    if (document.pointerLockElement) {
+      document.exitPointerLock()
+    }
+  }, [])
+
+  const adminWarpSeq = useRef(0)
+  const [adminWarpTarget, setAdminWarpTarget] =
+    useState<AdminWarpRequest | null>(null)
+
+  const adminWarp = useCallback((id: AdminWarpId) => {
+    dockedRef.current = false
+    setDocked(false)
+    setGhostBerth(false)
+    setDockAvailable(false)
+    setPaused(false)
+    startedRef.current = true
+    setStarted(true)
+    setShowIntroModal(false)
+    adminWarpSeq.current += 1
+    setAdminWarpTarget({ seq: adminWarpSeq.current, id })
+    tryPlayTheme()
+    const canvas = document.querySelector('canvas')
+    void canvas?.requestPointerLock()
+  }, [])
+
+  const adminAddCredits = useCallback((amount: number) => {
+    setCredits((c) => c + amount)
+  }, [])
+
+  const adminAddDust = useCallback((amount: number) => {
+    setNightShards((n) => n + amount)
+    unlockNyxTopic()
+  }, [unlockNyxTopic])
+
+  const adminHeal = useCallback(() => {
+    const maxHp = maxHpForArmorTier(armorTierRef.current)
+    const repaired = telemetryRef.current
+      ? { ...telemetryRef.current, hp: maxHp, maxHp, heat: 0, overheated: false }
+      : null
+    if (repaired) {
+      telemetryRef.current = repaired
+      lastHp.current = maxHp
+      setTelemetry(repaired)
+    }
+    healSeq.current += 1
+    setHealRequest({ seq: healSeq.current, hp: maxHp, maxHp })
+  }, [])
+
+  const adminUnlockOutfits = useCallback(() => {
+    setTorpedoOwned(true)
+    torpedoOwnedRef.current = true
+    setThrusterOwned(true)
+    thrusterOwnedRef.current = true
+    setSensorsOwned(true)
+    sensorsOwnedRef.current = true
+    setArmorTier(ARMOR_MAX_TIER)
+    armorTierRef.current = ARMOR_MAX_TIER
+    setTorpedoMagTier(TORPEDO_MAG_MAX_TIER)
+    torpedoMagTierRef.current = TORPEDO_MAG_MAX_TIER
+    const maxAmmo = maxAmmoForTorpedoMagTier(TORPEDO_MAG_MAX_TIER)
+    setTorpedoAmmo(maxAmmo)
+    torpedoAmmoRef.current = maxAmmo
+    const maxHp = maxHpForArmorTier(ARMOR_MAX_TIER)
+    healSeq.current += 1
+    setHealRequest({ seq: healSeq.current, hp: maxHp, maxHp })
+  }, [])
+
+  const adminFillTubes = useCallback(() => {
+    const maxAmmo = maxAmmoForTorpedoMagTier(torpedoMagTierRef.current)
+    if (!torpedoOwnedRef.current) {
+      setTorpedoOwned(true)
+      torpedoOwnedRef.current = true
+    }
+    setTorpedoAmmo(maxAmmo)
+    torpedoAmmoRef.current = maxAmmo
+  }, [])
+
+  const adminFillCargo = useCallback(() => {
+    setCargo({ ore: 40, ice: 40, alloy: 20 })
+  }, [])
+
+  const adminUnlockLore = useCallback(() => {
+    setNyxTopicUnlocked(true)
+    nyxTopicUnlockedRef.current = true
+    setNyxHyperionLead(true)
+    nyxHyperionLeadRef.current = true
+    setNyxHyperionRumorHeard(true)
+    nyxHyperionRumorHeardRef.current = true
+    setNyxWhisperHeard(true)
+    nyxWhisperHeardRef.current = true
+    setNyxComlogUnlocked(true)
+    nyxComlogUnlockedRef.current = true
+    setNyxCorridorUnlocked(true)
+    nyxCorridorUnlockedRef.current = true
+    setNyxDerelictSeen(true)
+    nyxDerelictSeenRef.current = true
+    setNyxFoundEmpty(true)
+    nyxFoundEmptyRef.current = true
+    setNyxTugSeen(true)
+    nyxTugSeenRef.current = true
+    setNyxCassiniSeen(true)
+    nyxCassiniSeenRef.current = true
+    setNyxDualAshDone(true)
+    nyxDualAshDoneRef.current = true
+    setNightShards((n) => Math.max(n, 3))
+  }, [])
+
+  const adminClearLore = useCallback(() => {
+    setNyxTopicUnlocked(false)
+    nyxTopicUnlockedRef.current = false
+    setNyxHyperionLead(false)
+    nyxHyperionLeadRef.current = false
+    setNyxHyperionRumorHeard(false)
+    nyxHyperionRumorHeardRef.current = false
+    setNyxWhisperHeard(false)
+    nyxWhisperHeardRef.current = false
+    setNyxComlogUnlocked(false)
+    nyxComlogUnlockedRef.current = false
+    setNyxCorridorUnlocked(false)
+    nyxCorridorUnlockedRef.current = false
+    setNyxDerelictSeen(false)
+    nyxDerelictSeenRef.current = false
+    setNyxFoundEmpty(false)
+    nyxFoundEmptyRef.current = false
+    setNyxTugSeen(false)
+    nyxTugSeenRef.current = false
+    setNyxCassiniSeen(false)
+    nyxCassiniSeenRef.current = false
+    setNyxDualAshDone(false)
+    nyxDualAshDoneRef.current = false
+    setNightShards(0)
+    nightShardsRef.current = 0
   }, [])
 
   const dismissLoreToast = useCallback(() => {
@@ -650,6 +957,7 @@ export default function App() {
     playerCargoRef.current.units = 0
     torpedoOwnedRef.current = next.torpedoOwned
     torpedoAmmoRef.current = next.torpedoAmmo
+    torpedoMagTierRef.current = next.torpedoMagTier
     armorTierRef.current = next.armorTier
     thrusterOwnedRef.current = next.thrusterOwned
     sensorsOwnedRef.current = next.sensorsOwned
@@ -658,12 +966,15 @@ export default function App() {
     nyxCorridorUnlockedRef.current = next.nyxCorridorUnlocked
     nyxComlogUnlockedRef.current = next.nyxComlogUnlocked
     nyxDerelictSeenRef.current = next.nyxDerelictSeen
+    nyxTugSeenRef.current = next.nyxTugSeen
+    nyxCassiniSeenRef.current = next.nyxCassiniSeen
     nyxDualAshDoneRef.current = next.nyxDualAshDone
     nyxHyperionRumorHeardRef.current = next.nyxHyperionRumorHeard
     nyxTopicUnlockedRef.current = next.nyxTopicUnlocked
     nyxHyperionLeadRef.current = next.nyxHyperionLead
     nyxFoundEmptyRef.current = next.nyxFoundEmpty
     hideIntroSynopsisRef.current = next.hideIntroSynopsis
+    systemIdRef.current = next.systemId
     dockedRef.current = false
     startedRef.current = false
     lastHp.current = hull.hp
@@ -692,6 +1003,7 @@ export default function App() {
     setCargo({ ...next.cargo })
     setTorpedoOwned(next.torpedoOwned)
     setTorpedoAmmo(next.torpedoAmmo)
+    setTorpedoMagTier(next.torpedoMagTier)
     setArmorTier(next.armorTier)
     setThrusterOwned(next.thrusterOwned)
     setSensorsOwned(next.sensorsOwned)
@@ -700,12 +1012,16 @@ export default function App() {
     setNyxCorridorUnlocked(next.nyxCorridorUnlocked)
     setNyxComlogUnlocked(next.nyxComlogUnlocked)
     setNyxDerelictSeen(next.nyxDerelictSeen)
+    setNyxTugSeen(next.nyxTugSeen)
+    setNyxCassiniSeen(next.nyxCassiniSeen)
     setNyxDualAshDone(next.nyxDualAshDone)
     setNyxHyperionRumorHeard(next.nyxHyperionRumorHeard)
     setNyxTopicUnlocked(next.nyxTopicUnlocked)
     setNyxHyperionLead(next.nyxHyperionLead)
     setNyxFoundEmpty(next.nyxFoundEmpty)
     setHideIntroSynopsis(next.hideIntroSynopsis)
+    setSystemId(next.systemId)
+    setDockStationName(next.dockStationName)
     setGhostBerth(false)
     setLoreToast(null)
     setDockAvailable(false)
@@ -771,7 +1087,24 @@ export default function App() {
   return (
     <>
       {/* Debug panel — leva is stubbed out of production builds */}
-      {import.meta.env.DEV && <Leva collapsed />}
+      {import.meta.env.DEV && (
+        <>
+          <Leva collapsed title="DRIFTR · Admin" oneLineLabels />
+          <AdminPanel
+            systemId={systemId}
+            onTransport={adminTransportToSystem}
+            onAddCredits={adminAddCredits}
+            onAddDust={adminAddDust}
+            onHeal={adminHeal}
+            onUnlockOutfits={adminUnlockOutfits}
+            onFillTubes={adminFillTubes}
+            onFillCargo={adminFillCargo}
+            onUnlockLore={adminUnlockLore}
+            onClearLore={adminClearLore}
+            onWarp={adminWarp}
+          />
+        </>
+      )}
       <ThemeMusic
         playing={!booting && started && !paused && !docked}
         docked={docked}
@@ -780,8 +1113,10 @@ export default function App() {
         started={started}
         paused={worldPaused}
         docked={docked}
+        dockStationName={dockStationName}
         beltResetSeed={beltResetSeed}
         suspendRender={started && paused && !docked}
+        systemId={systemId}
         onLockChange={onLockChange}
         onTelemetry={onTelemetry}
         onDockAvailable={onDockAvailable}
@@ -789,25 +1124,41 @@ export default function App() {
         mapSnapshotRef={mapSnapshotRef}
         mapShipRef={mapShipRef}
         combatHudRef={combatHudRef}
+        attitudeHudRef={attitudeHudRef}
+        waypointRef={waypointRef}
         initialHull={initialHull}
         healRequest={healRequest}
         maxHp={shipMaxHp}
         torpedoOwned={torpedoOwned}
         torpedoAmmo={torpedoAmmo}
+        torpedoMaxAmmo={shipTorpedoMaxAmmo}
         onTorpedoAmmoChange={onTorpedoAmmoChange}
         thrusterOwned={thrusterOwned}
         sensorsOwned={sensorsOwned}
         playerCargoRef={playerCargoRef}
+        adminWarpTarget={adminWarpTarget}
         jettisonDump={jettisonDump}
         onJettisonCargo={onJettisonCargo}
         nyxDerelictSeen={nyxDerelictSeen}
         onNyxDerelictSeen={onNyxDerelictSeen}
+        nyxTugSeen={nyxTugSeen}
+        onNyxTugSeen={onNyxTugSeen}
+        nyxCassiniSeen={nyxCassiniSeen}
+        onNyxCassiniSeen={onNyxCassiniSeen}
         nyxCorridorUnlockedRef={nyxCorridorUnlockedRef}
         nyxTransitDockable={
-          nightShards > 0 ||
-          (docked && dockStationName === STATION_NAMES.nyx)
+          systemId === SYSTEM_IDS.sol &&
+          (nightShards > 0 ||
+            (docked && dockStationName === STATION_NAMES.nyx))
         }
-        nyxApoMarkActive={nyxHyperionRumorHeard && !nyxDerelictSeen}
+        nyxApoMarkActive={
+          systemId === SYSTEM_IDS.sol &&
+          nyxHyperionRumorHeard &&
+          !nyxDerelictSeen
+        }
+        nyxHyperionRumorHeard={
+          systemId === SYSTEM_IDS.sol && nyxHyperionRumorHeard
+        }
       />
       {started && !booting && (
         <LoreToast
@@ -829,6 +1180,7 @@ export default function App() {
             wobble={isNearHyperion(telemetry?.nearBody ?? null)}
           />
           <CombatChevron hudRef={combatHudRef} active={inFlight} />
+          <MapWaypointMarker waypointRef={waypointRef} active={inFlight} />
           <DamageFlash flashKey={damageFlash} active={inFlight} />
           <Hud
             telemetry={telemetry}
@@ -836,6 +1188,7 @@ export default function App() {
             cargo={cargo}
             armorTier={armorTier}
           />
+          <Navball attitudeRef={attitudeHudRef} active={inFlight} />
           {dockAvailable && !(telemetry && telemetry.hp <= 0) && (
             <Suspense fallback={null}>
               <DockPrompt
@@ -852,6 +1205,8 @@ export default function App() {
             snapshotRef={mapSnapshotRef}
             active={started}
             onRequestResume={resumeFlight}
+            onOpenChange={onMapOpenChange}
+            waypointRef={waypointRef}
           />
         </Suspense>
       )}
@@ -871,12 +1226,14 @@ export default function App() {
             armorTier={armorTier}
             torpedoOwned={torpedoOwned}
             torpedoAmmo={torpedoAmmo}
+            torpedoMagTier={torpedoMagTier}
             thrusterOwned={thrusterOwned}
             sensorsOwned={sensorsOwned}
             ghostBerth={ghostBerth}
             nyxWhisperHeard={nyxWhisperHeard}
             nyxTopicUnlocked={nyxTopicUnlocked}
             nyxHyperionLead={nyxHyperionLead}
+            nyxDerelictSeen={nyxDerelictSeen}
             onSell={sellMaterial}
             onSellAll={sellAllCargo}
             onRepair={repairShip}
@@ -884,6 +1241,7 @@ export default function App() {
             onUndock={undockFromStation}
             onNyxTopicClue={unlockNyxTopic}
             onKronosLead={onKronosLead}
+            limitedServices={dockStationName === STATION_NAMES.nyxAlt}
           />
         </Suspense>
       )}
@@ -904,6 +1262,7 @@ export default function App() {
               cargo,
               torpedoOwned,
               torpedoAmmo,
+              torpedoMagTier,
               thrusterOwned,
               sensorsOwned,
               heat: telemetry?.heat ?? saved.heat,
@@ -919,6 +1278,8 @@ export default function App() {
               nyxComlogUnlocked,
               nyxCorridorUnlocked,
               nyxDerelictSeen,
+              nyxTugSeen,
+              nyxCassiniSeen,
               nyxDualAshDone,
             }}
           />

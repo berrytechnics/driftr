@@ -43,7 +43,12 @@ export const STATION_NAMES = {
   thalassa: 'Thalassa Station',
   ares: 'Ares Station',
   kronos: 'Kronos Station',
+  /** Ghost apo pad in Sol — offline MFD */
   nyx: 'Nyx Transit',
+  /** Live pad orbiting alternate Ashen Nyx */
+  nyxAlt: 'Nyx Station',
+  /** Cold derelict tug in the alternate Vesper system — lore dock only */
+  nyxTug: 'Derelict Tug',
 } as const
 /** @deprecated Prefer STATION_NAMES.thalassa — kept for older imports */
 export const STATION_NAME = STATION_NAMES.thalassa
@@ -70,3 +75,41 @@ export const MOON_SIZES = {
   ouranosA: 4.2,
   ouranosB: 6.3,
 } as const
+
+/** Which sky the player is in — docking either Nyx pad with dust slips you across. */
+export const SYSTEM_IDS = {
+  sol: 'sol',
+  nyxAlt: 'nyxAlt',
+} as const
+export type SystemId = (typeof SYSTEM_IDS)[keyof typeof SYSTEM_IDS]
+
+/** Compact alternate sky — small indigo Vesper, cooler and dimmer than Sol. */
+export const ALT_STAR_NAME = 'Vesper'
+export const ALT_SUN_SIZE = 72
+export const ALT_SUN_COLOR = '#6b5cff'
+export const ALT_SUN_INTENSITY = 1.65
+/**
+ * Vesper chart — quiet gaps between catalog bodies; only Nyx keeps a name.
+ *   V-1 arid 7.2 @ 175 | V-2 rocky 10.5 @ 290 | Nyx ashen 5.7 @ 420
+ *   belt 150–620 | V-3 frozen 13.8 @ 810
+ */
+export const ALT_INNER_SIZE = 7.2
+export const ALT_INNER_ORBIT = 175
+export const ALT_MID_SIZE = 10.5
+export const ALT_MID_ORBIT = 290
+/** Ashen dwarf — same scale as Sol’s Nyx, tighter orbit around the small star. */
+export const ALT_NYX_SIZE = OUTER_DWARF_SIZE
+export const ALT_NYX_ORBIT = 420
+export const ALT_OUTER_SIZE = 13.8
+export const ALT_OUTER_ORBIT = 810
+/** Mild stretch so V-3 never quite settles into a reading. */
+export const ALT_OUTER_ECC = 0.12
+export const ALT_PLANET_NAMES = {
+  inner: 'V-1',
+  mid: 'V-2',
+  outer: 'V-3',
+} as const
+export const ALT_NYX_NAME = PLANET_NAMES.outerDwarf
+/** Sparse loose field of large rocks around Vesper (Nyx sits near mid-annulus). */
+export const ALT_BELT_INNER = 150
+export const ALT_BELT_OUTER = 620

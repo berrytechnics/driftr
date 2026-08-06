@@ -1,5 +1,5 @@
 import { useFrame, useThree } from '@react-three/fiber'
-import { useControls } from 'leva'
+import { folder, useControls } from 'leva'
 import {
   useEffect,
   useLayoutEffect,
@@ -45,6 +45,7 @@ import type { BuffDropsHandle } from '@/loot/BuffDrops'
 import type { MaterialDropsHandle, MaterialPickup } from '@/loot/MaterialDrops'
 import { playBuffPickupSound, playMaterialPickupSound } from '@/audio/gameAudio'
 import type { CombatHudState } from '@/combat/combatHud'
+import type { AttitudeHudState } from '@/ship/attitudeHud'
 import { ShipThrusters } from '@/ship/ShipThrusters'
 import { Spaceship } from '@/ship/Spaceship'
 import { useKeyboard } from '@/ship/useKeyboard'
@@ -52,6 +53,10 @@ import { useKeyboard } from '@/ship/useKeyboard'
 const _forward = new Vector3()
 const _right = new Vector3()
 const _up = new Vector3()
+const _invQ = new Quaternion()
+const _localVel = new Vector3()
+/** Min speed (u/s) before navball shows a distinct prograde marker. */
+const ATTITUDE_TRAVEL_SPEED = 0.5
 const _wish = new Vector3()
 const _camPos = new Vector3()
 const _lookAt = new Vector3()
@@ -68,6 +73,53 @@ const _deathPos = new Vector3()
 const _deathCamPos = new Vector3()
 const _deathCamUp = new Vector3()
 const _muzzle = new Vector3()
+
+function writeAttitudeHud(
+  out: AttitudeHudState | null | undefined,
+  quat: Quaternion,
+  velocity: Vector3,
+  shipPos: Vector3,
+  sunPos: Vector3,
+) {
+  if (!out) return
+  _forward.set(0, 0, -1).applyQuaternion(quat)
+  _right.set(1, 0, 0).applyQuaternion(quat)
+  _up.set(0, 1, 0).applyQuaternion(quat)
+  const horiz = Math.hypot(_forward.x, _forward.z)
+  out.pitch = Math.atan2(_forward.y, Math.max(horiz, 1e-8))
+  out.roll = Math.atan2(-_right.y, _up.y)
+  out.heading = (Math.atan2(_forward.x, -_forward.z) * 180) / Math.PI
+  const speed = velocity.length()
+  out.speed = speed
+  _invQ.copy(quat).invert()
+  if (speed > ATTITUDE_TRAVEL_SPEED) {
+    _localVel.copy(velocity).applyQuaternion(_invQ).multiplyScalar(1 / speed)
+    out.progradeX = _localVel.x
+    out.progradeY = _localVel.y
+    out.progradeZ = _localVel.z
+  } else {
+    out.progradeX = 0
+    out.progradeY = 0
+    out.progradeZ = -1
+  }
+  // Direction to Sol → ship-local; awayAngle 0 = nose along radial-out
+  _localVel.copy(sunPos).sub(shipPos)
+  const sunDist = _localVel.length()
+  if (sunDist > 1e-4) {
+    _localVel.multiplyScalar(1 / sunDist).applyQuaternion(_invQ)
+    out.sunX = _localVel.x
+    out.sunY = _localVel.y
+    out.sunZ = _localVel.z
+    // nose (−Z) · antiSun (−sunLocal) = sunLocal.z
+    const cosAway = Math.max(-1, Math.min(1, out.sunZ))
+    out.awayAngle = (Math.acos(cosAway) * 180) / Math.PI
+  } else {
+    out.sunX = 0
+    out.sunY = 0
+    out.sunZ = 1
+    out.awayAngle = 0
+  }
+}
 
 /** True if segment a→b intersects a sphere (covers fast tunneling). */
 function segmentHitsSphere(
@@ -209,6 +261,8 @@ type PlayerShipProps = {
   spawnClearance?: number
   /** All dockable stations — nearest in range opens the berth offer */
   dockBerths?: DockBerth[]
+  /** Hard-docked station name — used to reattach after a sky swap remount. */
+  dockStationName?: string
   /** Hard-docked to the station — ship follows berth, no pilot input */
   docked?: boolean
   /** True while within docking range of a station (not while docked) */
@@ -230,12 +284,19 @@ type PlayerShipProps = {
    * (and optional `maxHp`) after a purchase. Consumed once per seq.
    */
   healRequest?: { seq: number; hp: number; maxHp?: number } | null
+  /**
+   * Dev admin warp — bump `seq` with a world-space point. Consumed once per seq.
+   * Undocks if currently docked so the ship is free after the hop.
+   */
+  adminWarpRequest?: { seq: number; x: number; y: number; z: number } | null
   /** Current max hull from armor tier (stock 100, up to 175). */
   maxHp?: number
   /** Seeking torpedo launcher purchased at the station. */
   torpedoOwned?: boolean
-  /** Loaded warheads (0–4). */
+  /** Loaded warheads (0–capacity for current magazine tier). */
   torpedoAmmo?: number
+  /** Tube capacity from magazine upgrades (stock 4). */
+  torpedoMaxAmmo?: number
   /** Bandits the torpedo can lock / seek. */
   torpedoSeekTargets?: TorpedoSeekTarget[]
   /** Called when a tube is spent in flight. */
@@ -244,6 +305,8 @@ type PlayerShipProps = {
   thrusterOwned?: boolean
   /** Live engagement flag — blocks lighting the advanced thruster. */
   combatHudRef?: RefObject<CombatHudState>
+  /** Written every flight frame for the navball HUD. */
+  attitudeHudRef?: RefObject<AttitudeHudState>
   /** True while ballistic burn is active — blanks NPC map contacts */
   mapCloakRef?: MutableRefObject<boolean>
   /** Seconds remaining — cruise into night lights Nyx’s orbit on the map */
@@ -424,6 +487,7 @@ export function PlayerShip({
   spawnPlanetRef,
   spawnClearance = 8,
   dockBerths,
+  dockStationName,
   docked = false,
   onDockAvailable,
   paused = false,
@@ -431,13 +495,16 @@ export function PlayerShip({
   onTelemetry,
   initialHull,
   healRequest = null,
+  adminWarpRequest = null,
   maxHp: maxHpProp = BASE_MAX_HP,
   torpedoOwned = false,
   torpedoAmmo = 0,
+  torpedoMaxAmmo = TORPEDO_MAX_AMMO,
   torpedoSeekTargets,
   onTorpedoAmmoChange,
   thrusterOwned = false,
   combatHudRef,
+  attitudeHudRef,
   mapCloakRef,
   nyxOrbitGlowRef,
   hasCargoRef,
@@ -456,6 +523,9 @@ export function PlayerShip({
   const healRequestRef = useRef(healRequest)
   healRequestRef.current = healRequest
   const lastHealSeq = useRef(0)
+  const adminWarpRequestRef = useRef(adminWarpRequest)
+  adminWarpRequestRef.current = adminWarpRequest
+  const lastAdminWarpSeq = useRef(0)
   const dockAvailableRef = useRef(false)
   /** Berth currently in range / locked for hard-dock follow */
   const activeBerthRef = useRef<DockBerth | null>(null)
@@ -487,7 +557,12 @@ export function PlayerShip({
   const speedBuff = useRef(0)
   const fireBuff = useRef(0)
   const torpedoOwnedRef = useRef(torpedoOwned)
-  const torpedoAmmoRef = useRef(clampTorpedoAmmo(torpedoAmmo))
+  const torpedoMaxAmmoRef = useRef(
+    Math.max(1, Math.round(torpedoMaxAmmo)),
+  )
+  const torpedoAmmoRef = useRef(
+    clampTorpedoAmmo(torpedoAmmo, torpedoMaxAmmoRef.current),
+  )
   const thrusterOwnedRef = useRef(thrusterOwned)
   const thrusterActive = useRef(false)
   const thrusterKeyWasDown = useRef(false)
@@ -502,7 +577,11 @@ export function PlayerShip({
   const onJettisonCargoRef = useRef(onJettisonCargo)
   onJettisonCargoRef.current = onJettisonCargo
   torpedoOwnedRef.current = torpedoOwned
-  torpedoAmmoRef.current = clampTorpedoAmmo(torpedoAmmo)
+  torpedoMaxAmmoRef.current = Math.max(1, Math.round(torpedoMaxAmmo))
+  torpedoAmmoRef.current = clampTorpedoAmmo(
+    torpedoAmmo,
+    torpedoMaxAmmoRef.current,
+  )
   thrusterOwnedRef.current = thrusterOwned
   const keys = useKeyboard()
   const { camera, gl } = useThree()
@@ -557,43 +636,71 @@ export function PlayerShip({
     camHeight,
     lookAhead,
     modelYaw,
-  } = useControls('Flight', {
-    thrust: { value: 24, min: 1, max: 200, step: 0.5 },
-    boostMultiplier: { value: 1.7, min: 1, max: 5, step: 0.1 },
-    turnSpeed: { value: 0.65, min: 0.1, max: 4, step: 0.05 },
-    rollSpeed: { value: 1.0, min: 0.1, max: 5, step: 0.05 },
-    // Higher = nose snaps to the stick; lower = heavier lag
-    steerLag: {
-      value: 7,
-      min: 1,
-      max: 30,
-      step: 0.5,
-      label: 'Steer lag (higher = snappier)',
-    },
-    // EVE-like: space has drag so you ease toward a top speed and coast to a stop
-    damping: {
-      value: 1.7,
-      min: 0,
-      max: 3,
-      step: 0.05,
-      label: 'Drag (0 = vacuum)',
-    },
-    mouseSensitivity: {
-      value: 0.0005,
-      min: 0.0001,
-      max: 0.006,
-      step: 0.0001,
-    },
-    camDistance: { value: 0.22, min: 0.08, max: 40, step: 0.01 },
-    camHeight: { value: 0.045, min: 0, max: 12, step: 0.005 },
-    lookAhead: { value: 0.34, min: 0, max: 40, step: 0.01 },
-    modelYaw: {
-      value: 0,
-      min: -Math.PI,
-      max: Math.PI,
-      step: 0.01,
-      label: 'Model yaw fix',
-    },
+  } = useControls('Ship', {
+    flight: folder(
+      {
+        thrust: { value: 24, min: 1, max: 200, step: 0.5 },
+        boostMultiplier: {
+          value: 1.7,
+          min: 1,
+          max: 5,
+          step: 0.1,
+          label: 'Boost ×',
+        },
+        turnSpeed: { value: 0.65, min: 0.1, max: 4, step: 0.05 },
+        rollSpeed: { value: 1.0, min: 0.1, max: 5, step: 0.05 },
+        steerLag: {
+          value: 7,
+          min: 1,
+          max: 30,
+          step: 0.5,
+          label: 'Steer lag (↑ snappier)',
+        },
+        damping: {
+          value: 1.7,
+          min: 0,
+          max: 3,
+          step: 0.05,
+          label: 'Drag (0 = vacuum)',
+        },
+        mouseSensitivity: {
+          value: 0.0005,
+          min: 0.0001,
+          max: 0.006,
+          step: 0.0001,
+          label: 'Mouse sens',
+        },
+        camDistance: {
+          value: 0.22,
+          min: 0.08,
+          max: 40,
+          step: 0.01,
+          label: 'Cam distance',
+        },
+        camHeight: {
+          value: 0.045,
+          min: 0,
+          max: 12,
+          step: 0.005,
+          label: 'Cam height',
+        },
+        lookAhead: {
+          value: 0.34,
+          min: 0,
+          max: 40,
+          step: 0.01,
+          label: 'Look ahead',
+        },
+        modelYaw: {
+          value: 0,
+          min: -Math.PI,
+          max: Math.PI,
+          step: 0.01,
+          label: 'Model yaw fix',
+        },
+      },
+      { collapsed: false },
+    ),
   })
 
   const {
@@ -603,53 +710,60 @@ export function PlayerShip({
     heatBuild,
     heatCool,
     overheatCool,
-  } = useControls('Weapons', {
-    fireRate: {
-      value: 10,
-      min: 1,
-      max: 30,
-      step: 0.5,
-      label: 'Fire rate (bolts/s)',
-    },
-    boltSpeed: { value: 90, min: 40, max: 400, step: 5 },
-    boltLife: { value: 2.5, min: 0.4, max: 6, step: 0.1 },
-    heatBuild: {
-      // ~8s continuous fire to overheat (1 / 0.125)
-      value: 0.125,
-      min: 0.05,
-      max: 1.5,
-      step: 0.01,
-      label: 'Heat build (/s)',
-    },
-    heatCool: {
-      value: 0.28,
-      min: 0.05,
-      max: 1.5,
-      step: 0.01,
-      label: 'Heat cool (/s)',
-    },
-    overheatCool: {
-      // ~4.4s to clear a full overheat (was ~2.2s at 0.45)
-      value: 0.225,
-      min: 0.05,
-      max: 2,
-      step: 0.01,
-      label: 'Overheat cool (/s)',
-    },
+  } = useControls('Ship', {
+    weapons: folder(
+      {
+        fireRate: {
+          value: 10,
+          min: 1,
+          max: 30,
+          step: 0.5,
+          label: 'Fire rate (/s)',
+        },
+        boltSpeed: { value: 90, min: 40, max: 400, step: 5 },
+        boltLife: { value: 2.5, min: 0.4, max: 6, step: 0.1 },
+        heatBuild: {
+          value: 0.125,
+          min: 0.05,
+          max: 1.5,
+          step: 0.01,
+          label: 'Heat build (/s)',
+        },
+        heatCool: {
+          value: 0.28,
+          min: 0.05,
+          max: 1.5,
+          step: 0.01,
+          label: 'Heat cool (/s)',
+        },
+        overheatCool: {
+          value: 0.225,
+          min: 0.05,
+          max: 2,
+          step: 0.01,
+          label: 'Overheat cool (/s)',
+        },
+      },
+      { collapsed: true },
+    ),
   })
 
-  // Ship ignores gravity (planets use shared μ from App). Spawn helpers only.
-  const { orbitAltitude, showOrbitGuide } = useControls('Spawn', {
-    orbitAltitude: {
-      value: 120,
-      min: 20,
-      max: 300,
-      step: 1,
-      label: 'Start altitude',
-    },
-    showOrbitGuide: { value: false, label: 'Orbit guide' },
+  // Ship ignores gravity (planets use shared μ). Spawn helpers only.
+  const { orbitAltitude, showOrbitGuide } = useControls('Ship', {
+    spawn: folder(
+      {
+        orbitAltitude: {
+          value: 120,
+          min: 20,
+          max: 300,
+          step: 1,
+          label: 'Start altitude',
+        },
+        showOrbitGuide: { value: false, label: 'Orbit guide' },
+      },
+      { collapsed: true },
+    ),
   })
-
   useEffect(() => {
     const element = gl.domElement
 
@@ -831,13 +945,17 @@ export function PlayerShip({
     }
 
     // Undock edge — jettison clear of the berth for ship safety
+    const warpPending =
+      !!adminWarpRequestRef.current &&
+      adminWarpRequestRef.current.seq !== lastAdminWarpSeq.current
     if (wasDocked.current && !docked) {
       const berth = activeBerthRef.current
       const anchor =
         berth?.station.current ?? spawnAnchorRef?.current ?? null
       const planet =
         berth?.planet.current ?? spawnPlanetRef?.current ?? null
-      if (anchor) {
+      // Skip berth push when an admin warp will place us this frame
+      if (anchor && !warpPending) {
         placeShipAtAnchor(
           group,
           velocity.current,
@@ -867,6 +985,29 @@ export function PlayerShip({
     }
     wasDocked.current = docked
 
+    // Dev admin warp — after undock so the berth release doesn't overwrite it
+    const warp = adminWarpRequestRef.current
+    if (warp && warp.seq !== lastAdminWarpSeq.current) {
+      lastAdminWarpSeq.current = warp.seq
+      spawned.current = true
+      group.position.set(warp.x, warp.y, warp.z)
+      velocity.current.set(0, 0, 0)
+      _forward.set(1, 0.05, 0).normalize()
+      group.lookAt(
+        group.position.x + _forward.x,
+        group.position.y + _forward.y,
+        group.position.z + _forward.z,
+      )
+      lookWish.current.copy(group.quaternion)
+      cameraReady.current = false
+      spawnGrace.current = 1.5
+      thrustEngaged.current = 0
+      if (dockAvailableRef.current) {
+        dockAvailableRef.current = false
+        onDockAvailable?.(false)
+      }
+    }
+
     // Hard-dock — ride the station; world keeps orbiting
     if (docked) {
       mouse.current.x = 0
@@ -876,7 +1017,19 @@ export function PlayerShip({
       thrustEngaged.current = 0
       thrusterActive.current = false
       if (mapCloakRef) mapCloakRef.current = false
-      const berth = activeBerthRef.current
+      let berth = activeBerthRef.current
+      // Sky-swap remount / cold start while docked — reclaim the named pad
+      if (
+        dockStationName &&
+        dockBerths &&
+        (!berth || berth.name !== dockStationName)
+      ) {
+        const match = dockBerths.find((b) => b.name === dockStationName)
+        if (match) {
+          berth = match
+          activeBerthRef.current = match
+        }
+      }
       const anchor =
         berth?.station.current ?? spawnAnchorRef?.current ?? null
       const planet =
@@ -913,6 +1066,14 @@ export function PlayerShip({
       camera.up.copy(_up)
       camera.lookAt(_lookAt)
 
+      writeAttitudeHud(
+        attitudeHudRef?.current,
+        group.quaternion,
+        velocity.current,
+        group.position,
+        _body,
+      )
+
       telemetryAge.current += dt
       if (onTelemetry && telemetryAge.current > 0.1) {
         telemetryAge.current = 0
@@ -931,7 +1092,7 @@ export function PlayerShip({
           fireBuff: fireBuff.current,
           torpedoOwned: torpedoOwnedRef.current,
           torpedoAmmo: torpedoAmmoRef.current,
-          torpedoMaxAmmo: TORPEDO_MAX_AMMO,
+          torpedoMaxAmmo: torpedoMaxAmmoRef.current,
           torpedoLock: 0,
           thrusterOwned: thrusterOwnedRef.current,
           thrusterActive: false,
@@ -959,6 +1120,14 @@ export function PlayerShip({
       camera.position.copy(_deathCamPos)
       camera.up.copy(_deathCamUp)
       camera.lookAt(_deathPos)
+
+      writeAttitudeHud(
+        attitudeHudRef?.current,
+        group.quaternion,
+        velocity.current,
+        group.position,
+        _body,
+      )
 
       if (respawnTimer.current <= 0) {
         respawnTimer.current = -1
@@ -996,7 +1165,7 @@ export function PlayerShip({
           fireBuff: 0,
           torpedoOwned: torpedoOwnedRef.current,
           torpedoAmmo: torpedoAmmoRef.current,
-          torpedoMaxAmmo: TORPEDO_MAX_AMMO,
+          torpedoMaxAmmo: torpedoMaxAmmoRef.current,
           torpedoLock: 0,
           thrusterOwned: thrusterOwnedRef.current,
           thrusterActive: false,
@@ -1020,7 +1189,7 @@ export function PlayerShip({
             fireBuff: 0,
             torpedoOwned: torpedoOwnedRef.current,
             torpedoAmmo: torpedoAmmoRef.current,
-            torpedoMaxAmmo: TORPEDO_MAX_AMMO,
+            torpedoMaxAmmo: torpedoMaxAmmoRef.current,
             torpedoLock: 0,
             thrusterOwned: thrusterOwnedRef.current,
             thrusterActive: false,
@@ -1369,7 +1538,7 @@ export function PlayerShip({
         fireBuff: 0,
         torpedoOwned: torpedoOwnedRef.current,
         torpedoAmmo: torpedoAmmoRef.current,
-        torpedoMaxAmmo: TORPEDO_MAX_AMMO,
+        torpedoMaxAmmo: torpedoMaxAmmoRef.current,
         torpedoLock: 0,
         thrusterOwned: thrusterOwnedRef.current,
         thrusterActive: false,
@@ -1596,7 +1765,10 @@ export function PlayerShip({
           TORPEDO_DAMAGE,
         )
         if (ok) {
-          const next = clampTorpedoAmmo(torpedoAmmoRef.current - 1)
+          const next = clampTorpedoAmmo(
+            torpedoAmmoRef.current - 1,
+            torpedoMaxAmmoRef.current,
+          )
           torpedoAmmoRef.current = next
           onTorpedoAmmoChangeRef.current?.(next)
           torpedoCooldown.current = TORPEDO_COOLDOWN
@@ -1645,7 +1817,7 @@ export function PlayerShip({
         fireBuff: fireBuff.current,
         torpedoOwned: torpedoOwnedRef.current,
         torpedoAmmo: torpedoAmmoRef.current,
-        torpedoMaxAmmo: TORPEDO_MAX_AMMO,
+        torpedoMaxAmmo: torpedoMaxAmmoRef.current,
         torpedoLock: torpedoLock.current,
         thrusterOwned: thrusterOwnedRef.current,
         thrusterActive: thrusterActive.current,
@@ -1672,6 +1844,14 @@ export function PlayerShip({
     camera.up.copy(_up)
     camera.lookAt(_lookAt)
     cameraReady.current = true
+
+    writeAttitudeHud(
+      attitudeHudRef?.current,
+      group.quaternion,
+      velocity.current,
+      group.position,
+      _body,
+    )
   })
 
   return (

@@ -1,5 +1,5 @@
 import { useFrame } from '@react-three/fiber'
-import type { RefObject } from 'react'
+import { useRef, type RefObject } from 'react'
 import { Vector3, type Group, type Object3D } from 'three'
 import type { MapBodyKind, MapLorePing, MapSnapshot } from '@/map/systemMap'
 
@@ -21,6 +21,18 @@ export type TrackedBody = {
   inclination?: number
 }
 
+/** Station object + the body whose map pip owns the berth ring. */
+export type TrackedStation = {
+  name: string
+  object: RefObject<Object3D | null>
+  host: RefObject<Object3D | null>
+  hostSize: number
+  /** Default true — ghost Transit has no livable berth ring on Nyx */
+  hostRing?: boolean
+  /** Default true — gold pip at station (Hyperion apo clue gates Nyx Transit) */
+  showPip?: boolean
+}
+
 type MapTrackerProps = {
   snapshotRef: RefObject<MapSnapshot>
   sunPosition: [number, number, number]
@@ -33,8 +45,8 @@ type MapTrackerProps = {
   shipRef?: RefObject<Group | null>
   banditRefs?: RefObject<Group | null>[]
   patrolRefs?: RefObject<Group | null>[]
-  /** Dock stations — shown when the object exists. */
-  stationRefs?: RefObject<Object3D | null>[]
+  /** Dock stations — ring around host pip + pip at true berth. */
+  stations?: TrackedStation[]
   /** When true, bandit / patrol pips are omitted from the map snapshot */
   hideNpcsRef?: RefObject<boolean>
   /** Ship-relative contact radius for NPC pips (world units). */
@@ -50,6 +62,9 @@ type MapTrackerProps = {
 const _pos = new Vector3()
 const _sun = new Vector3()
 const _forward = new Vector3()
+const _prevShip = new Vector3()
+/** Min horizontal speed (u/s) before the map cone follows velocity. */
+const MAP_TRAVEL_SPEED = 0.5
 
 /** Writes a sun-centered XYZ snapshot each frame for the system map. */
 export function MapTracker({
@@ -64,13 +79,15 @@ export function MapTracker({
   shipRef,
   banditRefs,
   patrolRefs,
-  stationRefs,
+  stations: stationList,
   hideNpcsRef,
   sensorRangeRef,
   nyxOrbitGlowRef,
   nyxCorridorUnlockedRef,
   lorePingsRef,
 }: MapTrackerProps) {
+  const hadShipPos = useRef(false)
+
   useFrame((_, delta) => {
     const snap = snapshotRef.current
     _sun.set(...sunPosition)
@@ -139,9 +156,25 @@ export function MapTracker({
     const ship = shipRef?.current
     if (ship) {
       ship.getWorldPosition(_pos)
+      // Direction the cone should point on the ecliptic (XZ).
+      // Group yaw θ maps local −Z → (−sin θ, 0, −cos θ), so
+      // θ = atan2(−dir.x, −dir.z).
+      let dx = 0
+      let dz = -1
       _forward.set(0, 0, -1).applyQuaternion(ship.quaternion)
-      const heading =
-        (Math.atan2(_forward.x, -_forward.z) * 180) / Math.PI
+      dx = _forward.x
+      dz = _forward.z
+      if (hadShipPos.current && dt > 1e-6) {
+        const vx = (_pos.x - _prevShip.x) / dt
+        const vz = (_pos.z - _prevShip.z) / dt
+        if (vx * vx + vz * vz > MAP_TRAVEL_SPEED * MAP_TRAVEL_SPEED) {
+          dx = vx
+          dz = vz
+        }
+      }
+      _prevShip.copy(_pos)
+      hadShipPos.current = true
+      const heading = (Math.atan2(-dx, -dz) * 180) / Math.PI
       if (!snap.ship) snap.ship = { x: 0, y: 0, z: 0, heading: 0 }
       snap.ship.x = _pos.x - _sun.x
       snap.ship.y = _pos.y - _sun.y
@@ -149,6 +182,7 @@ export function MapTracker({
       snap.ship.heading = heading
     } else {
       snap.ship = null
+      hadShipPos.current = false
     }
 
     const range = sensorRangeRef?.current
@@ -199,15 +233,27 @@ export function MapTracker({
     if (!snap.stations) snap.stations = []
     const stations = snap.stations
     stations.length = 0
-    if (stationRefs) {
-      for (const ref of stationRefs) {
-        const station = ref.current
-        if (!station) continue
+    if (stationList) {
+      for (const entry of stationList) {
+        const station = entry.object.current
+        const host = entry.host.current
+        if (!station || !host) continue
         station.getWorldPosition(_pos)
+        const x = _pos.x - _sun.x
+        const y = _pos.y - _sun.y
+        const z = _pos.z - _sun.z
+        host.getWorldPosition(_pos)
         stations.push({
-          x: _pos.x - _sun.x,
-          y: _pos.y - _sun.y,
-          z: _pos.z - _sun.z,
+          name: entry.name,
+          x,
+          y,
+          z,
+          hostX: _pos.x - _sun.x,
+          hostY: _pos.y - _sun.y,
+          hostZ: _pos.z - _sun.z,
+          hostSize: entry.hostSize,
+          hostRing: entry.hostRing !== false,
+          showPip: entry.showPip !== false,
         })
       }
     }

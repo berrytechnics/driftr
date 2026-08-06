@@ -9,15 +9,84 @@ import {
   SUN_SIZE,
 } from '@/game/systemConfig'
 
-export const NYX_WHISPER_TEXT = 'Night watches.'
+/** Outer-arc intercept — short enough for a toast, clear as a phrase. */
+export const NYX_WHISPER_TEXT = 'Dead band whisper: …night watches…'
 export const GHOST_BERTH_LABEL = 'NYX TRANSIT · DECOMMISSIONED'
 export const GHOST_BERTH_PLAQUE =
   'DECOMM. ORD. · AFTER FIRST RETURN · NO CREW'
-export const NIGHT_SHARD_STATUS_LABEL = 'Night shards'
-export const ASH_FOR_SOL_TEXT = 'Ash for Sol.'
-export const ASH_FOR_SOL_DUAL_TEXT = 'Ash for Sol. Night for Nyx.'
+/** Dock MFD copy when hard-docked at the apo ghost pad. */
+export const NYX_OFFLINE_BLURB = 'Station is offline.'
+export const NYX_OFFLINE_STATUS = '○ COLD BERTH'
+export const NYX_OFFLINE_DESK_TITLE = 'STATION SYSTEMS'
+export const NYX_OFFLINE_DESK_NOTE =
+  'Primary bus dead. Auxiliary rails cold. Cargo lifts locked. Repair bay sealed. Outfitters offline since the last return.'
+/** NYX Transit berth chip — damaged pad, not the decommission plaque. */
+export const NYX_BERTH_OFFLINE_LABEL = 'OFFLINE'
+export const NIGHT_SHARD_STATUS_LABEL = 'Nyx dust'
+/** Jettison inside Hermes’ orbit — haul burns instead of floating as bait. */
+export const ASH_FOR_SOL_TEXT = 'Sol takes the haul as ash.'
+export const ASH_FOR_SOL_DUAL_TEXT =
+  'Sol takes the haul as ash. Somewhere dark, Nyx takes notice.'
 export const NYX_DERELICT_TOAST =
-  'Ghost berth. Wrong dust in the belt still answers.'
+  'Ghost Transit pad. Strange belt dust still wakes it.'
+/** Alternate sky — dockable cold tug. */
+export const ALT_TUG_TOAST =
+  'Hull cold. Registry scorched. Berth clamps still answer.'
+export const ALT_TUG_OFFLINE_BLURB = 'No crew. No ATC. Clamps only.'
+export const ALT_TUG_OFFLINE_STATUS = '○ DERELICT'
+export const ALT_TUG_OFFLINE_DESK_TITLE = 'CREW LOG · RECOVERED'
+export const ALT_TUG_OFFLINE_DESK_NOTE =
+  'Main bus silent. Holds sealed with Sol ore still latched. Nav clocks dead. The tug will take your clamps — nothing else wakes.'
+export const ALT_TUG_BERTH_LABEL = 'DERELICT TUG · UNREGISTERED'
+export const ALT_TUG_FOOTNOTE =
+  'They came for ore. The clamps still work. No one left to release them.'
+/** Recovered flight recorder — haulage tug that slipped into Vesper mid-scoop. */
+export type AltTugLogEntry = { stamp: string; body: string }
+export const ALT_TUG_CREW_LOG: AltTugLogEntry[] = [
+  {
+    stamp: 'SOL · DAY 0',
+    body: 'Cleared Thalassa Station empty. Contract: rock ore to Ares pad. Crew of three — Chen, Reyes, Mott. Clamps honest. Chart says home.',
+  },
+  {
+    stamp: 'BELT · SCOOP 12',
+    body: 'Grabs clean. Grades reading ordinary rock ore. One bag came up charcoal-dark, wrong tint — Mott tossed it as belt scrap. Pad quiet. Keep filling.',
+  },
+  {
+    stamp: 'BELT · SCOOP 31',
+    body: 'Stars twitched on the overlay. Nav checksum spat and cleared. Chen said finish the bag before we call it. We finished the bag.',
+  },
+  {
+    stamp: '— · UNSYNC',
+    body: 'Wrong light. The star is indigo and small. Worlds on the scope have no board names. Holds half-full of Sol ore. We did not jump. Nobody ordered a burn. We were still on the scoop when the sky changed.',
+  },
+  {
+    stamp: 'COMMS · LOOP',
+    body: 'Hailing Thalassa. Hailing Ares. Hailing Kronos ATC. Carrier empty on every band. Solar margin breached — cold — we can still see belt lights that aren’t ours. Reyes keeps the mike open overnight. Nothing answers with words.',
+  },
+  {
+    stamp: 'SURVEY · DAY 9?',
+    body: 'Tried the ash dwarf the old maps called Nyx. No Transit. Station on her flank ignores our codes — live lights, dead ears. Outer ice body won’t chart either. No exit marked. No beacon. We are inventorying every burn we have left.',
+  },
+  {
+    stamp: 'GALLEY · RATION',
+    body: 'Hydroponics never woke. Eating ore-binder paste and the last of the freeze packs. Mott stopped speaking except to count days on the bulkhead. The counts do not agree. Chen says the indigo sun watches too close.',
+  },
+  {
+    stamp: 'RECORDER · CORRUPT',
+    body: 'Reyes cut the log twice. Restored from buffer. He says someone is whispering on a dead band — night watches — and we must not reply. Chen replied anyway. Static only. Or not only. Mott will not leave the hold. Says the charcoal ore knows the way home if we listen.',
+  },
+  {
+    stamp: 'LAST',
+    body: 'Holds sealed. Clamps set. If you find this hull: we came for ore. We searched every dark for a door back to Sol. We did not find one. Rations gone. Reyes is singing to the mike. Chen — I am so—',
+  },
+]
+/** Pause / codex digest of the recovered recorder. */
+export const ALT_TUG_CREW_LOG_DIGEST =
+  'Recovered crew log: Sol ore haul slipped mid-scoop into the wrong sky. Hailed every desk. Found no exit. Starved, still calling on a dead carrier.'
+/** Alternate sky — Cassini-class probe husk (visual only). */
+export const ALT_CASSINI_TOAST =
+  'Old probe husk. No lock. No reply.'
+export const ALT_CASSINI_MAP_LABEL = 'Probe husk'
 export const NYX_COM_GHOST =
   '…solar margin breached… cold… we can still see the belt lights…'
 export const NYX_COMLOG_LABEL = 'COMLOG · NYX-1 · [CORRUPT]'
@@ -25,16 +94,21 @@ export const NYX_COMLOG_BODY =
   'Return docking: zero life signs. Facility sealed.'
 /** Hyperion → apo pad on Nyx’s path (not on the dwarf). */
 export const NYX_HYPERION_RUMOR =
-  'Far turn of her path — apoapsis. Ghost Transit waits empty.'
+  'At Nyx’s farthest turn — apoapsis — an empty ghost Transit still waits.'
 /** Map marker after Hyperion clue. */
 export const NYX_APO_MAP_LABEL = 'APO · TRANSIT'
 /** Near Nyx body — enable Ask / confirm Transit isn’t with her. */
 export const NYX_EMPTY_TOAST = 'No Transit on Nyx. Ask the docks.'
 export const NYX_TRANSIT_MAP_LABEL = 'NYX TRANSIT'
 export const NYX_BEACON_LABEL = 'NT-0'
+/** First pickup of the omen rock — before you know what it opens. */
+export const NYX_DUST_PICKUP_TOAST = 'Nyx dust — charcoal tint, not ore.'
 /** Consumed when hard-docking Nyx Transit. */
-export const NYX_TRANSIT_DOCK_TOAST = 'Dust takes the berth.'
-export const NYX_DUST_KEY_TOAST = 'Nyx dust — berth key'
+export const NYX_TRANSIT_DOCK_TOAST = 'Nyx dust wakes the cold berth.'
+/** Pickup toast once you’ve seen the ghost pad. */
+export const NYX_DUST_KEY_TOAST = 'Nyx dust — keys the Transit pads'
+/** Fired when docking either Nyx pad with dust slips you into the other sky. */
+export const NYX_ALT_TRANSPORT_TOAST = 'The berth slips you into another sky.'
 
 export const NYX_ASK_LABEL = 'Ask about Nyx'
 /** Thalassa / Ares / Nyx Transit — no lead, just dismissal. */
@@ -47,12 +121,14 @@ export const NYX_ASK_DEFLECT_ARES =
 export const NYX_ASK_DEFLECT_NYX =
   '…silence on the local band. Whoever ran this pad isn’t answering.'
 export const NYX_ASK_KRONOS_LEAD =
-  'Old dockmaster kept a side clock on Hyperion. Start there.'
+  'Old dockmaster watched Nyx’s timing from Hyperion. Start there.'
 export const NYX_ASK_KRONOS_RECAP =
-  'I told you — Hyperion. Side clock. That is all I will give.'
+  'I told you — Hyperion. Private watch on that moon. That is all I will give.'
 export const NYX_ASK_KRONOS_POST_WHISPER =
-  'You’ve been out there. Still — ask Hyperion. Old dockmaster kept time on that moon.'
-
+  'You’ve been out there. Still — ask Hyperion. Old dockmaster kept Nyx’s clock on that moon.'
+/** After the apo ghost pad — Kronos clarifies the belt omen, not what it opens. */
+export const NYX_ASK_KRONOS_POST_DERELICT =
+  'Wrong dust they meant: charcoal rock in Thalassa’s belt — sick tint, not ore, ice, or alloy. Said to wake the old Transit pads. This desk never logged how.'
 export type NyxAskReply = {
   text: string
   /** True when this reply grants the Hyperion lead (first Kronos ask). */
@@ -64,10 +140,16 @@ export function replyForNyxAsk(
   stationName: string,
   hyperionLead: boolean,
   whisperHeard = false,
+  derelictSeen = false,
 ): NyxAskReply {
   if (stationName === STATION_NAMES.kronos) {
     if (hyperionLead) {
-      return { text: NYX_ASK_KRONOS_RECAP, givesLead: false }
+      return {
+        text: derelictSeen
+          ? NYX_ASK_KRONOS_POST_DERELICT
+          : NYX_ASK_KRONOS_RECAP,
+        givesLead: false,
+      }
     }
     return {
       text: whisperHeard ? NYX_ASK_KRONOS_POST_WHISPER : NYX_ASK_KRONOS_LEAD,
@@ -104,6 +186,8 @@ export type NyxJournalFlags = {
   nyxCorridorUnlocked: boolean
   nyxDerelictSeen: boolean
   nyxDualAshDone: boolean
+  nyxTugSeen?: boolean
+  nyxCassiniSeen?: boolean
 }
 
 /** Build ordered journal entries from persisted lore progress. */
@@ -114,7 +198,7 @@ export function buildNyxJournal(flags: NyxJournalFlags): NyxJournalEntry[] {
     entries.push({
       id: 'dust',
       title: 'Belt omen',
-      body: `Nyx dust · ${flags.nightShards} shard${flags.nightShards === 1 ? '' : 's'} — keys the apo ghost pad (spent on hard-dock).`,
+      body: `Nyx dust · ${flags.nightShards} shard${flags.nightShards === 1 ? '' : 's'}. Keys Nyx Transit pads; spent when you cross between systems.`,
     })
   }
 
@@ -122,7 +206,7 @@ export function buildNyxJournal(flags: NyxJournalFlags): NyxJournalEntry[] {
     entries.push({
       id: 'corridor-early',
       title: 'Struck pad',
-      body: `Decommissioned berth — ${GHOST_BERTH_LABEL}. Map marks a faint ${NYX_TRANSIT_MAP_LABEL} path.`,
+      body: `Decommissioned berth — ${GHOST_BERTH_LABEL}. Map marks a faint ${NYX_TRANSIT_MAP_LABEL} corridor.`,
     })
   }
 
@@ -130,9 +214,11 @@ export function buildNyxJournal(flags: NyxJournalFlags): NyxJournalEntry[] {
     entries.push({
       id: 'kronos-atc',
       title: 'Kronos ATC',
-      body: flags.nyxWhisperHeard || flags.nyxFoundEmpty
-        ? NYX_ASK_KRONOS_POST_WHISPER
-        : NYX_ASK_KRONOS_LEAD,
+      body: flags.nyxDerelictSeen
+        ? NYX_ASK_KRONOS_POST_DERELICT
+        : flags.nyxWhisperHeard || flags.nyxFoundEmpty
+          ? NYX_ASK_KRONOS_POST_WHISPER
+          : NYX_ASK_KRONOS_LEAD,
     })
   }
 
@@ -172,7 +258,7 @@ export function buildNyxJournal(flags: NyxJournalFlags): NyxJournalEntry[] {
     entries.push({
       id: 'corridor',
       title: 'Map corridor',
-      body: `${NYX_TRANSIT_MAP_LABEL} ellipse unlocked on the system map.`,
+      body: `${NYX_TRANSIT_MAP_LABEL} corridor unlocked on the system map.`,
     })
   }
 
@@ -181,6 +267,27 @@ export function buildNyxJournal(flags: NyxJournalFlags): NyxJournalEntry[] {
       id: 'derelict',
       title: 'Ghost station',
       body: NYX_DERELICT_TOAST,
+    })
+  }
+
+  if (flags.nyxTugSeen) {
+    entries.push({
+      id: 'alt-tug',
+      title: 'Derelict tug',
+      body: ALT_TUG_TOAST,
+    })
+    entries.push({
+      id: 'alt-tug-log',
+      title: ALT_TUG_OFFLINE_DESK_TITLE,
+      body: ALT_TUG_CREW_LOG_DIGEST,
+    })
+  }
+
+  if (flags.nyxCassiniSeen) {
+    entries.push({
+      id: 'alt-cassini',
+      title: 'Probe husk',
+      body: ALT_CASSINI_TOAST,
     })
   }
 

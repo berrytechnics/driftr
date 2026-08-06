@@ -10,7 +10,7 @@ export const REPAIR_COST_PER_HP = 3
 /** Stock hull before plating upgrades. */
 export const BASE_MAX_HP = 100
 
-/** Tube capacity for the seeking torpedo launcher. */
+/** Stock tube capacity for the seeking torpedo launcher (mag tier 0). */
 export const TORPEDO_MAX_AMMO = 4
 
 /** One-time unlock — installs tubes and loads a full magazine. */
@@ -21,6 +21,77 @@ export const TORPEDO_RELOAD_COST = 85
 
 export const TORPEDO_WEAPON_ID = 'wpn-torpedo'
 export const TORPEDO_RELOAD_ID = 'ammo-torpedo'
+
+/** Sequential magazine expansions (buy in order; requires launcher). */
+export type TorpedoMagTierDef = {
+  id: string
+  /** Resulting torpedoMagTier after purchase (1–3). */
+  tier: 1 | 2 | 3
+  label: string
+  blurb: string
+  /** Tube capacity after this tier is installed. */
+  maxAmmo: number
+  cost: number
+}
+
+export const TORPEDO_MAG_TIERS: TorpedoMagTierDef[] = [
+  {
+    id: 'mod-torpedo-mag-1',
+    tier: 1,
+    label: 'Expanded tubes',
+    blurb: 'Extra magazine racks — raises tube capacity to 6.',
+    maxAmmo: 6,
+    cost: 280,
+  },
+  {
+    id: 'mod-torpedo-mag-2',
+    tier: 2,
+    label: 'Deep magazine',
+    blurb: 'Reinforced tube banks — raises tube capacity to 8.',
+    maxAmmo: 8,
+    cost: 520,
+  },
+  {
+    id: 'mod-torpedo-mag-3',
+    tier: 3,
+    label: 'Arsenal racks',
+    blurb: 'Full bay conversion — raises tube capacity to 10.',
+    maxAmmo: 10,
+    cost: 900,
+  },
+]
+
+export const TORPEDO_MAG_MAX_TIER = TORPEDO_MAG_TIERS.length
+
+/** Hard ceiling used by the in-flight warhead pool. */
+export const TORPEDO_ABSOLUTE_MAX_AMMO =
+  TORPEDO_MAG_TIERS[TORPEDO_MAG_TIERS.length - 1]?.maxAmmo ?? TORPEDO_MAX_AMMO
+
+export function clampTorpedoMagTier(tier: number) {
+  return Math.max(0, Math.min(TORPEDO_MAG_MAX_TIER, Math.floor(tier)))
+}
+
+/** Tube capacity for an installed magazine tier (0 = stock four tubes). */
+export function maxAmmoForTorpedoMagTier(tier: number) {
+  const t = clampTorpedoMagTier(tier)
+  if (t <= 0) return TORPEDO_MAX_AMMO
+  return TORPEDO_MAG_TIERS[t - 1]?.maxAmmo ?? TORPEDO_MAX_AMMO
+}
+
+export function nextTorpedoMagTier(tier: number): TorpedoMagTierDef | null {
+  const t = clampTorpedoMagTier(tier)
+  if (t >= TORPEDO_MAG_MAX_TIER) return null
+  return TORPEDO_MAG_TIERS[t] ?? null
+}
+
+export function canBuyTorpedoMagTier(
+  credits: number,
+  owned: boolean,
+  currentTier: number,
+) {
+  const next = nextTorpedoMagTier(currentTier)
+  return owned && !!next && credits >= next.cost
+}
 
 /** One-time unlock — ballistic cruise burn (no steer / no weapons). */
 export const THRUSTER_UNLOCK_COST = 720
@@ -132,12 +203,16 @@ export function canAffordRepair(credits: number, hp: number, maxHp: number) {
   return cost > 0 && credits >= cost
 }
 
-export function clampTorpedoAmmo(ammo: number) {
-  return Math.max(0, Math.min(TORPEDO_MAX_AMMO, Math.floor(ammo)))
+export function clampTorpedoAmmo(
+  ammo: number,
+  maxAmmo: number = TORPEDO_ABSOLUTE_MAX_AMMO,
+) {
+  const cap = Math.max(0, Math.floor(maxAmmo))
+  return Math.max(0, Math.min(cap, Math.floor(ammo)))
 }
 
-export function torpedoReloadSlots(ammo: number) {
-  return Math.max(0, TORPEDO_MAX_AMMO - clampTorpedoAmmo(ammo))
+export function torpedoReloadSlots(ammo: number, maxAmmo: number) {
+  return Math.max(0, maxAmmo - clampTorpedoAmmo(ammo, maxAmmo))
 }
 
 export function canBuyTorpedoUnlock(credits: number, owned: boolean) {
@@ -148,10 +223,11 @@ export function canBuyTorpedoReload(
   credits: number,
   owned: boolean,
   ammo: number,
+  maxAmmo: number,
 ) {
   return (
     owned &&
-    torpedoReloadSlots(ammo) > 0 &&
+    torpedoReloadSlots(ammo, maxAmmo) > 0 &&
     credits >= TORPEDO_RELOAD_COST
   )
 }

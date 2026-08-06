@@ -106,9 +106,9 @@ function applyVisual(shard: Shard, kind: MaterialKind, isNight: boolean) {
   if (!shard.mesh) return
   const mat = shard.mesh.material as MeshStandardMaterial
   if (isNight) {
-    mat.color.set(NIGHT_SHARD_COLOR)
+    mat.color.set('#c8b8f0')
     mat.emissive.set(NIGHT_SHARD_COLOR)
-    mat.emissiveIntensity = 0.55
+    mat.emissiveIntensity = 1.35
     return
   }
   mat.color.set(MATERIAL_COLOR[kind])
@@ -143,7 +143,7 @@ function activateShard(
   if (!shard.root) return
   shard.root.position.set(x, y, z)
   const s = isNight
-    ? 0.72
+    ? 1.05
     : isDump
       ? 0.75 + amount * 0.14
       : 0.55 + amount * 0.12

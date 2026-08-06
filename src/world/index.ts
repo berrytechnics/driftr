@@ -1,4 +1,5 @@
 export { AsteroidBelt } from './AsteroidBelt'
+export { Nebula } from './Nebula'
 export { Planet } from './Planet'
 export { PlanetMoons, OrbitingMoon, type MoonSpec } from './Moons'
 export { SpaceStation } from './SpaceStation'

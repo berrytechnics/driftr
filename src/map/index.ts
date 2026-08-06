@@ -1,5 +1,10 @@
-export { MapTracker, type TrackedBody } from './MapTracker'
+export { MapTracker, type TrackedBody, type TrackedStation } from './MapTracker'
 export { SystemMap } from './SystemMap'
+export { MapWaypointTracker } from './MapWaypointTracker'
+export {
+  createEmptyMapWaypoint,
+  type MapWaypointState,
+} from './mapWaypoint'
 export {
   createEmptyMapSnapshot,
   type MapBodyKind,

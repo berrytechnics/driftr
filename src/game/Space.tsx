@@ -1,7 +1,7 @@
 import { Environment, Lightformer } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import { Bloom, EffectComposer } from '@react-three/postprocessing'
-import { useControls } from 'leva'
+import { folder, useControls } from 'leva'
 import {
   lazy,
   memo,
@@ -54,8 +54,11 @@ import {
   type CombatHudState,
 } from '@/combat/combatHud'
 import type { HullSnapshot } from '@/game/persist'
-import { MapTracker } from '@/map/MapTracker'
+import { MapTracker, type TrackedStation } from '@/map/MapTracker'
+import { MapWaypointTracker } from '@/map/MapWaypointTracker'
+import type { MapWaypointState } from '@/map/mapWaypoint'
 import type { MapSnapshot } from '@/map/systemMap'
+import type { AttitudeHudState } from '@/ship/attitudeHud'
 import {
   DOCK_APPROACH_PAD,
   PlayerShip,
@@ -67,15 +70,20 @@ import {
 import type { TorpedoSeekTarget } from '@/ship/ShipTorpedoes'
 import { AsteroidBelt } from '@/world/AsteroidBelt'
 import { PlanetMoons } from '@/world/Moons'
+import { Nebula } from '@/world/Nebula'
 import { Planet } from '@/world/Planet'
 import { Starfield } from '@/world/Starfield'
 import { StableGodRays } from '@/world/StableGodRays'
 import { Sun } from '@/world/Sun'
 import { AshFlare } from '@/lore/AshFlare'
 import { NyxBeacon } from '@/lore/NyxBeacon'
-import { NyxDerelict, NYX_TRANSIT_DOCK_RANGE } from '@/lore/NyxDerelict'
-import { NYX_NEAR_PAD } from '@/lore/easterEggs'
+import {
+  NyxDerelict,
+  NYX_TRANSIT_DOCK_RANGE,
+} from '@/lore/NyxDerelict'
+import { NYX_NEAR_PAD, NYX_APOAPSIS } from '@/lore/easterEggs'
 import type { MapLorePing } from '@/map/systemMap'
+import type { AdminWarpRequest } from '@/dev/adminTypes'
 import {
   BELT_INNER,
   BELT_ORBIT,
@@ -101,6 +109,10 @@ import {
   STATION_NAMES,
   SUN_SIZE,
 } from '@/game/systemConfig'
+import {
+  NYX_TRANSIT_HIT_RADIUS,
+  STATION_HIT_RADIUS,
+} from '@/world/hitRadii'
 
 const SpaceStation = lazy(() =>
   import('@/world/SpaceStation').then((m) => ({ default: m.SpaceStation })),
@@ -168,6 +180,7 @@ export const Space = memo(function Space({
   started,
   paused,
   docked,
+  dockStationName,
   beltResetSeed = 0,
   onLockChange,
   onTelemetry,
@@ -176,11 +189,14 @@ export const Space = memo(function Space({
   mapSnapshotRef,
   mapShipRef,
   combatHudRef,
+  attitudeHudRef,
+  waypointRef,
   initialHull,
   healRequest = null,
   maxHp,
   torpedoOwned = false,
   torpedoAmmo = 0,
+  torpedoMaxAmmo,
   onTorpedoAmmoChange,
   thrusterOwned = false,
   sensorsOwned = false,
@@ -192,10 +208,14 @@ export const Space = memo(function Space({
   nyxCorridorUnlockedRef,
   nyxTransitDockable = false,
   nyxApoMarkActive = false,
+  nyxHyperionRumorHeard = false,
+  adminWarpTarget = null,
 }: {
   started: boolean
   paused: boolean
   docked: boolean
+  /** Current hard-dock pad — keeps spawn on Nyx Transit after a sky swap. */
+  dockStationName?: string
   beltResetSeed?: number
   onLockChange: (locked: boolean) => void
   onTelemetry: (telemetry: OrbitalTelemetry) => void
@@ -204,11 +224,14 @@ export const Space = memo(function Space({
   mapSnapshotRef: RefObject<MapSnapshot>
   mapShipRef: RefObject<Group | null>
   combatHudRef: RefObject<CombatHudState>
+  attitudeHudRef: RefObject<AttitudeHudState>
+  waypointRef: RefObject<MapWaypointState>
   initialHull?: HullSnapshot
   healRequest?: { seq: number; hp: number; maxHp?: number } | null
   maxHp?: number
   torpedoOwned?: boolean
   torpedoAmmo?: number
+  torpedoMaxAmmo?: number
   onTorpedoAmmoChange?: (ammo: number) => void
   thrusterOwned?: boolean
   sensorsOwned?: boolean
@@ -229,6 +252,10 @@ export const Space = memo(function Space({
   nyxTransitDockable?: boolean
   /** Sticky map mark at apo after Hyperion clue. */
   nyxApoMarkActive?: boolean
+  /** Hyperion apo clue — gold Transit pip on the map. */
+  nyxHyperionRumorHeard?: boolean
+  /** Dev admin warp target — resolved against Sol sun position. */
+  adminWarpTarget?: AdminWarpRequest | null
 }) {
   const sunMesh = useRef<Mesh>(null!)
   const mercuryPlanet = useRef<Group>(null)
@@ -403,8 +430,8 @@ export const Space = memo(function Space({
     setSunReady(!!mesh)
   }, [])
 
-  const planetHazards = useMemo<CollisionHazard[]>(
-    () => [
+  const planetHazards = useMemo<CollisionHazard[]>(() => {
+    const list: CollisionHazard[] = [
       {
         object: mercuryPlanet,
         radius: MERCURY_SIZE,
@@ -448,8 +475,6 @@ export const Space = memo(function Space({
         kind: 'planet',
         nearPad: NYX_NEAR_PAD,
       },
-      // Station is dockable (non-lethal) — see PlayerShip dock offer
-      // Moons
       {
         object: aresMoon,
         radius: MOON_SIZES.ares,
@@ -498,9 +523,20 @@ export const Space = memo(function Space({
         name: MOON_NAMES.ouranosB,
         kind: 'moon',
       },
-    ],
-    [],
-  )
+      // Live pads — lethal if you clip the hull; dock via the approach shell
+      { object: aresStation, radius: STATION_HIT_RADIUS.ares },
+      { object: thalassaStation, radius: STATION_HIT_RADIUS.thalassa },
+      { object: kronosStation, radius: STATION_HIT_RADIUS.kronos },
+    ]
+    // Keyed Nyx Transit only — ghost / offline apo pad stays ethereal
+    if (nyxTransitDockable) {
+      list.push({
+        object: nyxTransitStation,
+        radius: NYX_TRANSIT_HIT_RADIUS,
+      })
+    }
+    return list
+  }, [nyxTransitDockable])
   const hazardFields = useMemo(() => [asteroidHazards], [])
   const mapBodies = useMemo(
     () => [
@@ -617,32 +653,48 @@ export const Space = memo(function Space({
   )
 
   const mapStations = useMemo(() => {
-    const list = [aresStation, thalassaStation, kronosStation]
+    const list: TrackedStation[] = [
+      {
+        name: STATION_NAMES.ares,
+        object: aresStation,
+        host: innerPlanet,
+        hostSize: INNER_PLANET_SIZE,
+      },
+      {
+        name: STATION_NAMES.thalassa,
+        object: thalassaStation,
+        host: beltPlanet,
+        hostSize: BELT_PLANET_SIZE,
+      },
+      {
+        name: STATION_NAMES.kronos,
+        object: kronosStation,
+        host: gasGiant,
+        hostSize: GAS_GIANT_SIZE,
+      },
+    ]
     if (nyxApoMarkActive || nyxDerelictSeen || nyxTransitDockable) {
-      list.push(nyxTransitStation)
+      list.push({
+        name: STATION_NAMES.nyx,
+        object: nyxTransitStation,
+        host: outerDwarf,
+        hostSize: OUTER_DWARF_SIZE,
+        // Dead apo pad — never ring Nyx; gold pip only after Hyperion clue
+        hostRing: false,
+        showPip: nyxHyperionRumorHeard,
+      })
     }
     return list
-  }, [nyxApoMarkActive, nyxDerelictSeen, nyxTransitDockable])
+  }, [
+    nyxApoMarkActive,
+    nyxDerelictSeen,
+    nyxTransitDockable,
+    nyxHyperionRumorHeard,
+  ])
 
   const {
-    count,
-    depth,
-    radius,
-    factor,
-    saturation,
-    fade,
-    speed,
-  } = useControls('Stars', {
-    count: { value: 5000, min: 500, max: 20000, step: 100 },
-    depth: { value: 80, min: 10, max: 200, step: 1 },
-    radius: { value: 120, min: 20, max: 800, step: 5 },
-    factor: { value: 5, min: 1, max: 12, step: 0.1 },
-    saturation: { value: 0, min: 0, max: 1, step: 0.01 },
-    fade: true,
-    speed: { value: 0.4, min: 0, max: 4, step: 0.05 },
-  })
-
-  const {
+    ambient,
+    envFill,
     sunColor,
     sunIntensity,
     sunDistance,
@@ -652,159 +704,287 @@ export const Space = memo(function Space({
     bloomIntensity,
     bloomThreshold,
     godRays,
-  } = useControls('Sun', {
-    sunColor: '#ffdfb9',
-    sunIntensity: { value: 4.15, min: 0, max: 5, step: 0.05 },
-    sunDistance: { value: 520, min: 80, max: 1200, step: 5 },
-    elevation: { value: 18, min: -60, max: 80, step: 1 },
-    azimuth: { value: 35, min: 0, max: 360, step: 1 },
-    flowSpeed: {
-      value: 1,
-      min: 0,
-      max: 3,
-      step: 0.05,
-      label: 'Surface speed',
-    },
-    bloomIntensity: { value: 0.85, min: 0, max: 4, step: 0.05 },
-    bloomThreshold: { value: 0.65, min: 0, max: 1, step: 0.01 },
-    // Optional post god-rays — the sun already has shader rays/flares
-    godRays: { value: false, label: 'Post god rays' },
+    count,
+    depth,
+    radius,
+    factor,
+    saturation,
+    fade,
+    speed,
+    shellIntensity,
+    wispCount,
+    wispOpacity,
+    mu,
+  } = useControls('Env', {
+    lighting: folder(
+      {
+        ambient: {
+          value: 0.14,
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: 'Ambient',
+        },
+        envFill: {
+          value: 0.45,
+          min: 0,
+          max: 2,
+          step: 0.05,
+          label: 'Env fill',
+        },
+      },
+      { collapsed: true },
+    ),
+    sun: folder(
+      {
+        sunColor: { value: '#ffdfb9', label: 'Color' },
+        sunIntensity: {
+          value: 4.15,
+          min: 0,
+          max: 8,
+          step: 0.05,
+          label: 'Intensity',
+        },
+        sunDistance: {
+          value: 520,
+          min: 80,
+          max: 1200,
+          step: 5,
+          label: 'Distance',
+        },
+        elevation: { value: 18, min: -60, max: 80, step: 1 },
+        azimuth: { value: 35, min: 0, max: 360, step: 1 },
+        flowSpeed: {
+          value: 1,
+          min: 0,
+          max: 3,
+          step: 0.05,
+          label: 'Surface speed',
+        },
+      },
+      { collapsed: false },
+    ),
+    post: folder(
+      {
+        bloomIntensity: {
+          value: 0.85,
+          min: 0,
+          max: 4,
+          step: 0.05,
+          label: 'Bloom',
+        },
+        bloomThreshold: {
+          value: 0.65,
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: 'Bloom threshold',
+        },
+        godRays: { value: false, label: 'Post god rays' },
+      },
+      { collapsed: true },
+    ),
+    stars: folder(
+      {
+        count: { value: 5000, min: 500, max: 12000, step: 100 },
+        depth: { value: 80, min: 10, max: 200, step: 1 },
+        radius: { value: 120, min: 20, max: 800, step: 5 },
+        factor: { value: 5, min: 1, max: 12, step: 0.1 },
+        saturation: { value: 0, min: 0, max: 1, step: 0.01 },
+        fade: true,
+        speed: { value: 0.4, min: 0, max: 4, step: 0.05 },
+      },
+      { collapsed: true },
+    ),
+    nebula: folder(
+      {
+        shellIntensity: {
+          value: 0.38,
+          min: 0,
+          max: 1.2,
+          step: 0.02,
+          label: 'Shell',
+        },
+        wispCount: {
+          value: 40,
+          min: 0,
+          max: 120,
+          step: 1,
+          label: 'Wisps',
+        },
+        wispOpacity: {
+          value: 0.16,
+          min: 0,
+          max: 0.6,
+          step: 0.01,
+          label: 'Wisp opacity',
+        },
+      },
+      { collapsed: false },
+    ),
+    gravity: folder(
+      {
+        mu: {
+          value: 8000,
+          min: 500,
+          max: 500000,
+          step: 500,
+          label: 'μ (GM)',
+        },
+      },
+      { collapsed: true },
+    ),
   })
   const sunSize = SUN_SIZE
 
   const { scale, metalness, roughness, envMapIntensity } = useControls(
-    'Spaceship',
+    'Ship',
     {
-      scale: { value: 0.08, min: 0.01, max: 40, step: 0.01 },
-      metalness: { value: 0.38, min: 0, max: 1, step: 0.01 },
-      roughness: { value: 0.42, min: 0, max: 1, step: 0.01 },
-      envMapIntensity: {
-        value: 0.55,
-        min: 0,
-        max: 2,
-        step: 0.01,
-        label: 'Reflection',
-      },
+      look: folder(
+        {
+          scale: { value: 0.08, min: 0.01, max: 2, step: 0.01 },
+          metalness: { value: 0.38, min: 0, max: 1, step: 0.01 },
+          roughness: { value: 0.42, min: 0, max: 1, step: 0.01 },
+          envMapIntensity: {
+            value: 0.55,
+            min: 0,
+            max: 2,
+            step: 0.01,
+            label: 'Reflection',
+          },
+        },
+        { collapsed: true },
+      ),
     },
   )
 
-  // Gravity pulls planets around the sun — the ship is excluded (EVE-style flight)
-  const { mu } = useControls('Gravity', {
-    mu: {
-      value: 8000,
-      min: 500,
-      max: 500000,
-      step: 500,
-      label: 'μ (GM)',
-    },
-  })
-
-  const { beltCount, beltThickness, beltInclination, beltSizeScale } =
-    useControls('Asteroid belt', {
-      beltCount: { value: 7600, min: 200, max: 8000, step: 50, label: 'Count' },
-      beltThickness: {
-        value: 60,
-        min: 2,
-        max: 60,
-        step: 1,
-        label: 'Thickness',
-      },
-      beltSizeScale: {
-        value: 0.75,
-        min: 0.15,
-        max: 4,
-        step: 0.05,
-        label: 'Rock size',
-      },
-      beltInclination: {
-        value: 0.16,
-        min: -0.4,
-        max: 0.4,
-        step: 0.01,
-        label: 'Inclination',
-      },
-    })
-
   const {
+    beltCount,
+    beltThickness,
+    beltInclination,
+    beltSizeScale,
+    glowNightShard,
     meshDetail,
     largeLumps,
     mediumLumps,
     fineLumps,
-  } = useControls('Asteroid shape', {
-    meshDetail: {
-      value: 3,
-      min: 1,
-      max: 7,
-      step: 1,
-      label: 'Mesh detail',
-    },
-    largeLumps: {
-      value: 0.3,
-      min: 0,
-      max: 0.55,
-      step: 0.01,
-      label: 'Large lumps',
-    },
-    mediumLumps: {
-      value: 0.08,
-      min: 0,
-      max: 0.4,
-      step: 0.01,
-      label: 'Medium lumps',
-    },
-    fineLumps: {
-      value: 0.07,
-      min: 0,
-      max: 0.25,
-      step: 0.005,
-      label: 'Fine lumps',
-    },
-  })
-
-  const {
     rockFreq,
     rockBump,
     rockContrast,
     rockRoughness,
     rockMetalness,
-  } = useControls('Asteroid texture', {
-    rockFreq: {
-      value: 5.7,
-      min: 0.2,
-      max: 6,
-      step: 0.05,
-      label: 'Noise scale',
-    },
-    rockBump: {
-      value: 2.55,
-      min: 0,
-      max: 3,
-      step: 0.05,
-      label: 'Bump',
-    },
-    rockContrast: {
-      value: 0.45,
-      min: 0,
-      max: 0.9,
-      step: 0.01,
-      label: 'Contrast',
-    },
-    rockRoughness: {
-      value: 0.96,
-      min: 0.4,
-      max: 1,
-      step: 0.01,
-      label: 'Roughness',
-    },
-    rockMetalness: {
-      value: 0.06,
-      min: 0,
-      max: 0.5,
-      step: 0.01,
-      label: 'Metalness',
-    },
+  } = useControls('Belt', {
+    layout: folder(
+      {
+        beltCount: {
+          value: 7600,
+          min: 200,
+          max: 8000,
+          step: 50,
+          label: 'Count',
+        },
+        beltThickness: {
+          value: 60,
+          min: 2,
+          max: 120,
+          step: 1,
+          label: 'Thickness',
+        },
+        beltSizeScale: {
+          value: 0.75,
+          min: 0.15,
+          max: 4,
+          step: 0.05,
+          label: 'Rock size',
+        },
+        beltInclination: {
+          value: 0.16,
+          min: -0.4,
+          max: 0.4,
+          step: 0.01,
+          label: 'Inclination',
+        },
+        glowNightShard: {
+          value: false,
+          label: 'Glow Nyx dust rock',
+        },
+      },
+      { collapsed: false },
+    ),
+    shape: folder(
+      {
+        meshDetail: {
+          value: 3,
+          min: 1,
+          max: 7,
+          step: 1,
+          label: 'Mesh detail',
+        },
+        largeLumps: {
+          value: 0.3,
+          min: 0,
+          max: 0.55,
+          step: 0.01,
+          label: 'Large lumps',
+        },
+        mediumLumps: {
+          value: 0.08,
+          min: 0,
+          max: 0.4,
+          step: 0.01,
+          label: 'Medium lumps',
+        },
+        fineLumps: {
+          value: 0.07,
+          min: 0,
+          max: 0.25,
+          step: 0.005,
+          label: 'Fine lumps',
+        },
+      },
+      { collapsed: true },
+    ),
+    texture: folder(
+      {
+        rockFreq: {
+          value: 5.7,
+          min: 0.2,
+          max: 6,
+          step: 0.05,
+          label: 'Noise scale',
+        },
+        rockBump: {
+          value: 2.55,
+          min: 0,
+          max: 3,
+          step: 0.05,
+          label: 'Bump',
+        },
+        rockContrast: {
+          value: 0.45,
+          min: 0,
+          max: 0.9,
+          step: 0.01,
+          label: 'Contrast',
+        },
+        rockRoughness: {
+          value: 0.96,
+          min: 0.4,
+          max: 1,
+          step: 0.01,
+          label: 'Roughness',
+        },
+        rockMetalness: {
+          value: 0.06,
+          min: 0,
+          max: 0.5,
+          step: 0.01,
+          label: 'Metalness',
+        },
+      },
+      { collapsed: true },
+    ),
   })
-
   const asteroidShape = useMemo(
     () => ({ meshDetail, largeLumps, mediumLumps, fineLumps }),
     [meshDetail, largeLumps, mediumLumps, fineLumps],
@@ -830,12 +1010,32 @@ export const Space = memo(function Space({
     return [pos.x, pos.y, pos.z] as [number, number, number]
   }, [azimuth, elevation, sunDistance])
 
+  const adminWarpRequest = useMemo(() => {
+    if (!adminWarpTarget) return null
+    const orbit =
+      adminWarpTarget.id === 'sun'
+        ? SUN_SIZE + 80
+        : adminWarpTarget.id === 'inner'
+          ? MERCURY_ORBIT
+          : adminWarpTarget.id === 'belt'
+            ? (BELT_INNER + BELT_OUTER) * 0.5
+            : adminWarpTarget.id === 'outer'
+              ? GAS_ORBIT
+              : NYX_APOAPSIS
+    return {
+      seq: adminWarpTarget.seq,
+      x: sunPosition[0] + orbit,
+      y: sunPosition[1],
+      z: sunPosition[2],
+    }
+  }, [adminWarpTarget, sunPosition])
+
   return (
     <>
       <color attach="background" args={['#000008']} />
 
       {/* Soft space fill — enough to read planet color without washing them out */}
-      <ambientLight intensity={0.14} color="#7a8db0" />
+      <ambientLight intensity={ambient} color="#7a8db0" />
       {/* Directional = constant sunlight; aimed sun → camera (see SunLight) */}
       <SunLight
         sunPosition={sunPosition}
@@ -848,7 +1048,7 @@ export const Space = memo(function Space({
       <Environment
         background={false}
         resolution={128}
-        environmentIntensity={0.45}
+        environmentIntensity={envFill}
       >
         <Lightformer
           intensity={0.35}
@@ -1030,6 +1230,7 @@ export const Space = memo(function Space({
           inclination={beltInclination}
           shape={asteroidShape}
           texture={asteroidTexture}
+          glowNightShard={glowNightShard}
           paused={paused}
           hazardRef={asteroidHazards}
           onRockDestroyed={onRockDestroyed}
@@ -1223,10 +1424,19 @@ export const Space = memo(function Space({
           buffDropsRef={buffDrops}
           materialDropsRef={materialDrops}
           onMaterialPickup={onMaterialPickup}
-          spawnAnchorRef={thalassaStation}
-          spawnPlanetRef={beltPlanet}
+          spawnAnchorRef={
+            docked && dockStationName === STATION_NAMES.nyx
+              ? nyxTransitStation
+              : thalassaStation
+          }
+          spawnPlanetRef={
+            docked && dockStationName === STATION_NAMES.nyx
+              ? nyxTransitStation
+              : beltPlanet
+          }
           spawnClearance={8}
           dockBerths={dockBerths}
+          dockStationName={dockStationName}
           docked={docked}
           paused={paused}
           onLockChange={onLockChange}
@@ -1234,13 +1444,16 @@ export const Space = memo(function Space({
           onDockAvailable={onDockAvailable}
           initialHull={initialHull}
           healRequest={healRequest}
+          adminWarpRequest={adminWarpRequest}
           maxHp={maxHp}
           torpedoOwned={torpedoOwned}
           torpedoAmmo={torpedoAmmo}
+          torpedoMaxAmmo={torpedoMaxAmmo}
           torpedoSeekTargets={torpedoSeekTargets}
           onTorpedoAmmoChange={onTorpedoAmmoChange}
           thrusterOwned={thrusterOwned}
           combatHudRef={combatHudRef}
+          attitudeHudRef={attitudeHudRef}
           mapCloakRef={mapCloakRef}
           nyxOrbitGlowRef={nyxOrbitGlowRef}
           hasCargoRef={playerCargoRef}
@@ -1329,6 +1542,13 @@ export const Space = memo(function Space({
         active={!paused && !docked}
       />
 
+      <MapWaypointTracker
+        waypointRef={waypointRef}
+        snapshotRef={mapSnapshotRef}
+        sunPosition={sunPosition}
+        active={!paused && !docked}
+      />
+
       <MapTracker
         snapshotRef={mapSnapshotRef}
         sunPosition={sunPosition}
@@ -1341,12 +1561,28 @@ export const Space = memo(function Space({
         shipRef={mapShipRef}
         banditRefs={banditMapRefs}
         patrolRefs={patrolMapRefs}
-        stationRefs={mapStations}
+        stations={mapStations}
         hideNpcsRef={mapCloakRef}
         sensorRangeRef={sensorRangeRef}
         nyxOrbitGlowRef={nyxOrbitGlowRef}
         nyxCorridorUnlockedRef={nyxCorridorUnlockedRef}
         lorePingsRef={lorePingsRef}
+      />
+
+      <Nebula
+        origin={sunPosition}
+        shellIntensity={shellIntensity}
+        colorA="#243658"
+        colorB="#1a2840"
+        colorC="#3a2a48"
+        wispInner={MERCURY_ORBIT}
+        wispOuter={GAS_ORBIT + 200}
+        wispCount={wispCount}
+        wispMinScale={90}
+        wispMaxScale={220}
+        wispOpacity={wispOpacity}
+        seed={3}
+        paused={paused}
       />
 
       <Starfield

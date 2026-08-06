@@ -19,7 +19,6 @@ import {
   WebGLCubeRenderTarget,
 } from 'three'
 import {
-  createGlowGeometry,
   createSunFlaresGeometry,
   createSunRaysGeometry,
 } from '@/world/sun/geometry'
@@ -36,6 +35,10 @@ import {
   sunSphereVS,
 } from '@/world/sun/shaders'
 
+/** Corona shell scale vs core radius — keep tight so it reads on the limb, not a detached ring. */
+const GLOW_SHELL_SCALE_THERMAL = 1.045
+const GLOW_SHELL_SCALE_TINT = 1.028
+
 type SunProps = {
   position: [number, number, number]
   size: number
@@ -43,6 +46,11 @@ type SunProps = {
   intensity: number
   /** Surface animation speed */
   flowSpeed?: number
+  /**
+   * `thermal` — classic yellow-orange blackbody (Sol default).
+   * `tint` — sphere/glow follow `color` (cool stars, white-hot core).
+   */
+  palette?: 'thermal' | 'tint'
   sunRef?: RefObject<Mesh | null>
   onReady?: (mesh: Mesh | null) => void
 }
@@ -60,6 +68,7 @@ export function Sun({
   color,
   intensity,
   flowSpeed = 1,
+  palette = 'thermal',
   sunRef,
   onReady,
 }: SunProps) {
@@ -69,6 +78,7 @@ export function Sun({
   const { gl } = useThree()
 
   const hot = useMemo(() => new Color(color), [color])
+  const useTint = palette === 'tint' ? 1 : 0
 
   // --- Perlin cubemap bake ---
   const { cubeRT, cubeCam, perlinScene, perlinMat } = useMemo(() => {
@@ -99,6 +109,8 @@ export function Sun({
   }, [])
 
   const sunRadius = size * 0.993
+  const glowShellScale =
+    palette === 'tint' ? GLOW_SHELL_SCALE_TINT : GLOW_SHELL_SCALE_THERMAL
 
   const sunMat = useMemo(
     () =>
@@ -122,12 +134,17 @@ export function Sun({
           uVisibility: { value: 1 },
           uDirection: { value: 1 },
           uLightView: { value: _lightDir.clone() },
+          uSunColor: { value: new Color(1, 1, 1) },
+          uUseTint: { value: 0 },
         },
       }),
     [cubeRT],
   )
 
-  const glowGeo = useMemo(() => createGlowGeometry(sunRadius, 96), [sunRadius])
+  const glowGeo = useMemo(
+    () => new SphereGeometry(size * glowShellScale, 64, 64),
+    [size, glowShellScale],
+  )
   const glowMat = useMemo(
     () =>
       new ShaderMaterial({
@@ -139,16 +156,18 @@ export function Sun({
         // Must depth-test — false draws the halo over the ship when looking at the sun
         depthTest: true,
         blending: NormalBlending,
-        side: DoubleSide,
+        side: BackSide,
         toneMapped: false,
         uniforms: {
-          uRadius: { value: 0.55 },
           uTint: { value: 0.4 },
           uBrightness: { value: 1.15 },
-          uFalloffColor: { value: 0.55 },
+          uFalloffColor: { value: 0.72 },
+          uFresnelPower: { value: 2.4 },
           uVisibility: { value: 1 },
           uDirection: { value: 1 },
           uLightView: { value: _lightDir.clone() },
+          uSunColor: { value: new Color(1, 1, 1) },
+          uUseTint: { value: 0 },
         },
       }),
     [],
@@ -257,10 +276,48 @@ export function Sun({
 
   // Warm tint from sunColor → shift hue slightly via uHue on rays
   useEffect(() => {
-    const hue = hot.getHSL({ h: 0, s: 0, l: 0 }).h
-    raysMat.uniforms.uHue.value = hue * 0.35 + 0.12
-    flaresMat.uniforms.uHue.value = hue * 0.2
-  }, [hot, raysMat, flaresMat])
+    const hsl = hot.getHSL({ h: 0, s: 0, l: 0 })
+    if (useTint) {
+      raysMat.uniforms.uHue.value = hsl.h
+      flaresMat.uniforms.uHue.value = hsl.h
+      raysMat.uniforms.uHueSpread.value = 0.1
+      flaresMat.uniforms.uHueSpread.value = 0.08
+      raysMat.uniforms.uOpacity.value = 0.025
+      flaresMat.uniforms.uOpacity.value = 0.22
+      raysMat.uniforms.uLength.value = 0.1
+      // Keep disc in a bounded indigo range so bloom doesn’t crush to white
+      sunMat.uniforms.uBase.value = 1.6
+      sunMat.uniforms.uBrightnessOffset.value = 0.28
+      sunMat.uniforms.uBrightness.value = 1.05
+      // Low fresnel — a hot limb rim bloomed yellow against the indigo disc
+      sunMat.uniforms.uFresnelInfluence.value = 0.18
+      // Soft backface limb fringe — stays glued to the disc at any distance
+      glowMat.uniforms.uBrightness.value = 0.62
+      glowMat.uniforms.uFalloffColor.value = 0.68
+      glowMat.uniforms.uFresnelPower.value = 2.8
+      glowMat.uniforms.uTint.value = 0.55
+    } else {
+      raysMat.uniforms.uHue.value = hsl.h * 0.35 + 0.12
+      flaresMat.uniforms.uHue.value = hsl.h * 0.2
+      raysMat.uniforms.uHueSpread.value = 0.2
+      flaresMat.uniforms.uHueSpread.value = 0.16
+      raysMat.uniforms.uOpacity.value = 0.04
+      flaresMat.uniforms.uOpacity.value = 0.35
+      raysMat.uniforms.uLength.value = 0.5
+      sunMat.uniforms.uBase.value = 4.0
+      sunMat.uniforms.uBrightnessOffset.value = 1.0
+      sunMat.uniforms.uBrightness.value = 0.75
+      sunMat.uniforms.uFresnelInfluence.value = 0.8
+      glowMat.uniforms.uBrightness.value = 1.15
+      glowMat.uniforms.uFalloffColor.value = 0.72
+      glowMat.uniforms.uFresnelPower.value = 2.4
+      glowMat.uniforms.uTint.value = 0.4
+    }
+    sunMat.uniforms.uSunColor.value.copy(hot)
+    sunMat.uniforms.uUseTint.value = useTint
+    glowMat.uniforms.uSunColor.value.copy(hot)
+    glowMat.uniforms.uUseTint.value = useTint
+  }, [hot, useTint, raysMat, flaresMat, sunMat, glowMat])
 
   const cubemapFrame = useRef(0)
 

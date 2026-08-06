@@ -6,7 +6,7 @@ import {
   subscribeAudioSettings,
 } from "@/audio/audioSettings";
 import { cargoUnits, formatCredits, type CargoHold } from "@/loot/economy";
-import { ARMOR_MAX_TIER, TORPEDO_MAX_AMMO, armorTierLabel } from "@/loot/shop";
+import { ARMOR_MAX_TIER, armorTierLabel, maxAmmoForTorpedoMagTier } from "@/loot/shop";
 import { buildNyxJournal, NIGHT_SHARD_STATUS_LABEL } from "@/lore/easterEggs";
 
 export type PauseShipStatus = {
@@ -17,6 +17,7 @@ export type PauseShipStatus = {
   cargo: CargoHold;
   torpedoOwned: boolean;
   torpedoAmmo: number;
+  torpedoMagTier: number;
   thrusterOwned: boolean;
   sensorsOwned: boolean;
   heat: number;
@@ -32,6 +33,8 @@ export type PauseShipStatus = {
   nyxComlogUnlocked?: boolean;
   nyxCorridorUnlocked?: boolean;
   nyxDerelictSeen?: boolean;
+  nyxTugSeen?: boolean;
+  nyxCassiniSeen?: boolean;
   nyxDualAshDone?: boolean;
 };
 
@@ -52,7 +55,7 @@ const controls = [
   ["W / S", "Thrust / brake"],
   ["Q / E", "Roll"],
   ["Shift", "Boost"],
-  ["M", "System map (drag / scroll)"],
+  ["M", "Hold system map (drag / scroll)"],
   ["F", "Dock (near station)"],
   ["Esc", "Pause / resume"],
 ] as const;
@@ -165,6 +168,8 @@ export function PauseMenu({
         nyxComlogUnlocked: !!ship.nyxComlogUnlocked,
         nyxCorridorUnlocked: !!ship.nyxCorridorUnlocked,
         nyxDerelictSeen: !!ship.nyxDerelictSeen,
+        nyxTugSeen: !!ship.nyxTugSeen,
+        nyxCassiniSeen: !!ship.nyxCassiniSeen,
         nyxDualAshDone: !!ship.nyxDualAshDone,
       })
     : [];
@@ -566,7 +571,7 @@ export function PauseMenu({
                       [
                         "Torpedoes",
                         ship.torpedoOwned
-                          ? `${ship.torpedoAmmo}/${TORPEDO_MAX_AMMO} tubes`
+                          ? `${ship.torpedoAmmo}/${maxAmmoForTorpedoMagTier(ship.torpedoMagTier)} tubes`
                           : "Not installed",
                       ],
                       [

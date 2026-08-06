@@ -39,8 +39,9 @@ const _sun = new Vector3()
 const _player = new Vector3()
 const _vel = new Vector3()
 const _look = new Vector3()
-const GHOST = new Color('#8a7ab8')
-const KEYED = new Color('#a898d0')
+/** Cold, powered-down metal — not a lit commercial pad. */
+const GHOST = new Color('#5a564e')
+const KEYED = new Color('#6e6a60')
 
 /** Approach radius when the apo pad is treated as its own dock "planet". */
 export const NYX_TRANSIT_DOCK_RANGE = 36
@@ -63,12 +64,13 @@ function ghostMaterials(root: Object3D, keyed: boolean) {
       const mat = material as MeshStandardMaterial
       if ('color' in mat && mat.color) mat.color.copy(tint)
       if ('emissive' in mat && mat.emissive) mat.emissive.copy(tint)
-      if ('emissiveIntensity' in mat) mat.emissiveIntensity = keyed ? 0.38 : 0.26
+      // Near-dead emitters — keyed pad is solid enough to dock, not lit
+      if ('emissiveIntensity' in mat) mat.emissiveIntensity = keyed ? 0.08 : 0.04
       if ('transparent' in mat) mat.transparent = true
-      if ('opacity' in mat) mat.opacity = keyed ? 0.72 : 0.52
+      if ('opacity' in mat) mat.opacity = keyed ? 0.92 : 0.58
       if ('depthWrite' in mat) mat.depthWrite = keyed
-      if ('metalness' in mat) mat.metalness = 0.15
-      if ('roughness' in mat) mat.roughness = 0.85
+      if ('metalness' in mat) mat.metalness = keyed ? 0.42 : 0.22
+      if ('roughness' in mat) mat.roughness = keyed ? 0.72 : 0.9
       mat.needsUpdate = true
     }
   })

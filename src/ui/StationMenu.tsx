@@ -18,23 +18,39 @@ import {
   THRUSTER_MOD_ID,
   THRUSTER_SHOP,
   THRUSTER_UNLOCK_COST,
-  TORPEDO_MAX_AMMO,
+  TORPEDO_MAG_MAX_TIER,
+  TORPEDO_MAG_TIERS,
   TORPEDO_RELOAD_ID,
   TORPEDO_WEAPON_ID,
   WEAPON_SHOP,
   canBuySensorUnlock,
   canBuyThrusterUnlock,
+  canBuyTorpedoMagTier,
   canBuyTorpedoReload,
   canBuyTorpedoUnlock,
+  maxAmmoForTorpedoMagTier,
   missingHp,
   repairCost,
   torpedoReloadSlots,
   type StationDesk,
 } from '@/loot/shop'
+import { STATION_NAMES } from '@/game/systemConfig'
 import {
+  ALT_TUG_BERTH_LABEL,
+  ALT_TUG_CREW_LOG,
+  ALT_TUG_FOOTNOTE,
+  ALT_TUG_OFFLINE_BLURB,
+  ALT_TUG_OFFLINE_DESK_NOTE,
+  ALT_TUG_OFFLINE_DESK_TITLE,
+  ALT_TUG_OFFLINE_STATUS,
   GHOST_BERTH_LABEL,
   GHOST_BERTH_PLAQUE,
+  NYX_BERTH_OFFLINE_LABEL,
   NYX_COM_GHOST,
+  NYX_OFFLINE_BLURB,
+  NYX_OFFLINE_DESK_NOTE,
+  NYX_OFFLINE_DESK_TITLE,
+  NYX_OFFLINE_STATUS,
   rollNyxComGhost,
 } from '@/lore/easterEggs'
 import { CommsPortrait } from '@/ui/CommsPortrait'
@@ -48,6 +64,7 @@ type StationMenuProps = {
   armorTier: number
   torpedoOwned: boolean
   torpedoAmmo: number
+  torpedoMagTier: number
   thrusterOwned: boolean
   sensorsOwned: boolean
   /** Rare decommissioned Nyx transit pad ghost label */
@@ -58,6 +75,8 @@ type StationMenuProps = {
   nyxTopicUnlocked?: boolean
   /** Kronos ATC already pointed you at Hyperion */
   nyxHyperionLead?: boolean
+  /** Saw the apo ghost pad — Kronos can clarify the belt omen */
+  nyxDerelictSeen?: boolean
   onSell: (kind: MaterialKind) => void
   onSellAll: () => void
   onRepair: () => void
@@ -66,6 +85,8 @@ type StationMenuProps = {
   /** COM ghost / topic unlock from dock-side lore rolls */
   onNyxTopicClue?: () => void
   onKronosLead?: () => void
+  /** Cargo + hull repair only — no outfit desks (alternate Nyx Station). */
+  limitedServices?: boolean
 }
 
 const font = "'Share Tech Mono', ui-monospace, monospace"
@@ -80,11 +101,13 @@ function Corner({
   left,
   right,
   bottom,
+  color = 'rgba(120, 210, 255, 0.85)',
 }: {
   top?: boolean
   left?: boolean
   right?: boolean
   bottom?: boolean
+  color?: string
 }) {
   return (
     <div
@@ -97,10 +120,10 @@ function Corner({
         bottom: bottom ? 10 : undefined,
         left: left ? 10 : undefined,
         right: right ? 10 : undefined,
-        borderTop: top ? '2px solid rgba(120, 210, 255, 0.85)' : undefined,
-        borderBottom: bottom ? '2px solid rgba(120, 210, 255, 0.85)' : undefined,
-        borderLeft: left ? '2px solid rgba(120, 210, 255, 0.85)' : undefined,
-        borderRight: right ? '2px solid rgba(120, 210, 255, 0.85)' : undefined,
+        borderTop: top ? `2px solid ${color}` : undefined,
+        borderBottom: bottom ? `2px solid ${color}` : undefined,
+        borderLeft: left ? `2px solid ${color}` : undefined,
+        borderRight: right ? `2px solid ${color}` : undefined,
       }}
     />
   )
@@ -115,12 +138,14 @@ export function StationMenu({
   armorTier,
   torpedoOwned,
   torpedoAmmo,
+  torpedoMagTier,
   thrusterOwned,
   sensorsOwned,
   ghostBerth = false,
   nyxWhisperHeard = false,
   nyxTopicUnlocked = false,
   nyxHyperionLead = false,
+  nyxDerelictSeen = false,
   onSell,
   onSellAll,
   onRepair,
@@ -128,17 +153,54 @@ export function StationMenu({
   onUndock,
   onNyxTopicClue,
   onKronosLead,
+  limitedServices = false,
 }: StationMenuProps) {
   const [desk, setDesk] = useState<StationDesk>('cargo')
   const [plaqueOpen, setPlaqueOpen] = useState(false)
   const [comGhost, setComGhost] = useState<string | null>(null)
+  const offline =
+    stationName === STATION_NAMES.nyx ||
+    stationName === STATION_NAMES.nyxTug
+  const isTugOffline = stationName === STATION_NAMES.nyxTug
+  /** Alt-system Nyx Station — berths 01–03 dark, 04 clear. */
+  const isNyxAlt = stationName === STATION_NAMES.nyxAlt
+  const offlineBlurb = isTugOffline ? ALT_TUG_OFFLINE_BLURB : NYX_OFFLINE_BLURB
+  const offlineStatus = isTugOffline
+    ? ALT_TUG_OFFLINE_STATUS
+    : NYX_OFFLINE_STATUS
+  const offlineDeskTitle = isTugOffline
+    ? ALT_TUG_OFFLINE_DESK_TITLE
+    : NYX_OFFLINE_DESK_TITLE
+  const offlineDeskNote = isTugOffline
+    ? ALT_TUG_OFFLINE_DESK_NOTE
+    : NYX_OFFLINE_DESK_NOTE
+  const offlinePlatformLabel = isTugOffline ? 'DERELICT HULL' : 'GHOST PLATFORM'
   const units = cargoUnits(cargo)
   const holdValue = cargoValue(cargo)
   const damage = missingHp(hp, maxHp)
   const cost = repairCost(hp, maxHp)
   const hullPct = maxHp > 0 ? Math.round((hp / maxHp) * 100) : 0
-  const canRepair = damage > 0 && credits >= cost
-  const reloadSlots = torpedoReloadSlots(torpedoAmmo)
+  const canRepair = !offline && damage > 0 && credits >= cost
+  const reloadSlots = torpedoReloadSlots(
+    torpedoAmmo,
+    maxAmmoForTorpedoMagTier(torpedoMagTier),
+  )
+  const torpedoMaxAmmo = maxAmmoForTorpedoMagTier(torpedoMagTier)
+
+  const accent = offline
+    ? 'rgba(170, 150, 110, 0.55)'
+    : 'rgba(120, 210, 255, 0.85)'
+  const accentSoft = offline
+    ? 'rgba(150, 135, 105, 0.28)'
+    : 'rgba(120, 190, 230, 0.22)'
+  const textMain = offline ? '#d8d0c0' : '#d7e6df'
+  const textBright = offline ? '#e8e0d0' : '#c8e8ff'
+  const textMuted = offline
+    ? 'rgba(160, 148, 120, 0.65)'
+    : 'rgba(160, 200, 230, 0.75)'
+  const textFaint = offline
+    ? 'rgba(140, 128, 100, 0.45)'
+    : 'rgba(160, 200, 230, 0.4)'
 
   useEffect(() => {
     if (!(ghostBerth || nyxWhisperHeard)) return
@@ -159,9 +221,14 @@ export function StationMenu({
         placeItems: 'center',
         padding: 12,
         fontFamily: font,
-        color: '#d7e6df',
+        color: textMain,
         userSelect: 'none',
-        background: `
+        background: offline
+          ? `
+          radial-gradient(ellipse 70% 55% at 50% 42%, rgba(24, 20, 12, 0.45) 0%, rgba(0, 0, 0, 0.82) 70%),
+          linear-gradient(180deg, rgba(0,0,0,0.6) 0%, transparent 18%, transparent 82%, rgba(0,0,0,0.75) 100%)
+        `
+          : `
           radial-gradient(ellipse 70% 55% at 50% 42%, rgba(10, 24, 40, 0.4) 0%, rgba(0, 0, 0, 0.78) 70%),
           linear-gradient(180deg, rgba(0,0,0,0.55) 0%, transparent 18%, transparent 82%, rgba(0,0,0,0.7) 100%)
         `,
@@ -178,18 +245,18 @@ export function StationMenu({
           100% { top: 100%; }
         }
         .station-btn:hover {
-          background: rgba(120, 210, 255, 0.22) !important;
-          box-shadow: inset 0 0 0 1px rgba(120, 210, 255, 0.75),
-            0 0 18px rgba(120, 210, 255, 0.18);
+          background: ${offline ? 'rgba(170, 150, 110, 0.18)' : 'rgba(120, 210, 255, 0.22)'} !important;
+          box-shadow: inset 0 0 0 1px ${offline ? 'rgba(170, 150, 110, 0.65)' : 'rgba(120, 210, 255, 0.75)'},
+            0 0 18px ${offline ? 'rgba(140, 120, 80, 0.14)' : 'rgba(120, 210, 255, 0.18)'};
         }
         .station-btn:active {
-          background: rgba(120, 210, 255, 0.3) !important;
+          background: ${offline ? 'rgba(170, 150, 110, 0.28)' : 'rgba(120, 210, 255, 0.3)'} !important;
         }
         .station-btn:disabled {
           opacity: 0.35;
           cursor: default !important;
           box-shadow: none !important;
-          background: rgba(120, 210, 255, 0.05) !important;
+          background: ${offline ? 'rgba(120, 110, 90, 0.05)' : 'rgba(120, 210, 255, 0.05)'} !important;
         }
         .sell-btn:hover:not(:disabled) {
           background: rgba(255, 196, 92, 0.22) !important;
@@ -209,24 +276,24 @@ export function StationMenu({
         }
         .station-desk-tab {
           appearance: none;
-          border: 1px solid rgba(120, 190, 230, 0.22);
+          border: 1px solid ${accentSoft};
           background: rgba(0, 0, 0, 0.2);
-          color: rgba(160, 200, 230, 0.55);
+          color: ${textFaint};
           padding: 8px 14px;
           font-size: 11px;
           letter-spacing: 0.16em;
           text-transform: uppercase;
           font-family: ${font};
-          cursor: pointer;
+          cursor: ${offline ? 'default' : 'pointer'};
         }
         .station-desk-tab[data-active="true"] {
-          color: #b8e0ff;
-          border-color: rgba(120, 210, 255, 0.55);
-          background: rgba(120, 210, 255, 0.12);
+          color: ${offline ? '#d8c8a8' : '#b8e0ff'};
+          border-color: ${offline ? 'rgba(170, 150, 110, 0.45)' : 'rgba(120, 210, 255, 0.55)'};
+          background: ${offline ? 'rgba(170, 150, 110, 0.1)' : 'rgba(120, 210, 255, 0.12)'};
         }
         .station-desk-tab:hover:not([data-active="true"]) {
-          color: rgba(200, 230, 255, 0.85);
-          border-color: rgba(120, 210, 255, 0.4);
+          color: ${offline ? 'rgba(200, 185, 150, 0.75)' : 'rgba(200, 230, 255, 0.85)'};
+          border-color: ${offline ? 'rgba(170, 150, 110, 0.35)' : 'rgba(120, 210, 255, 0.4)'};
         }
         .station-mfd-grid {
           display: grid;
@@ -272,16 +339,25 @@ export function StationMenu({
           maxWidth: 1400,
           overflow: 'hidden',
           borderRadius: 6,
-          border: '3px solid #152028',
-          boxShadow: `
+          border: offline ? '3px solid #1a1814' : '3px solid #152028',
+          boxShadow: offline
+            ? `
+            0 0 0 1px rgba(170, 150, 110, 0.22),
+            0 0 0 8px #0a0908,
+            0 0 0 9px rgba(140, 120, 90, 0.1),
+            0 30px 80px rgba(0, 0, 0, 0.8),
+            inset 0 0 60px rgba(30, 24, 12, 0.4)
+          `
+            : `
             0 0 0 1px rgba(120, 210, 255, 0.28),
             0 0 0 8px #080c10,
             0 0 0 9px rgba(120, 210, 255, 0.12),
             0 30px 80px rgba(0, 0, 0, 0.75),
             inset 0 0 60px rgba(0, 30, 50, 0.35)
           `,
-          background:
-            'linear-gradient(180deg, rgba(14, 28, 40, 0.95) 0%, rgba(5, 10, 16, 0.97) 100%)',
+          background: offline
+            ? 'linear-gradient(180deg, rgba(22, 18, 14, 0.96) 0%, rgba(6, 5, 4, 0.98) 100%)'
+            : 'linear-gradient(180deg, rgba(14, 28, 40, 0.95) 0%, rgba(5, 10, 16, 0.97) 100%)',
         }}
       >
         <div
@@ -312,17 +388,20 @@ export function StationMenu({
               left: 0,
               right: 0,
               height: '35%',
-              background:
-                'linear-gradient(180deg, transparent, rgba(120, 200, 255, 0.06), transparent)',
-              animation: 'stationScan 5.5s linear infinite',
+              background: offline
+                ? 'linear-gradient(180deg, transparent, rgba(160, 140, 90, 0.04), transparent)'
+                : 'linear-gradient(180deg, transparent, rgba(120, 200, 255, 0.06), transparent)',
+              animation: offline
+                ? 'stationScan 9s linear infinite'
+                : 'stationScan 5.5s linear infinite',
             }}
           />
         </div>
 
-        <Corner top left />
-        <Corner top right />
-        <Corner bottom left />
-        <Corner bottom right />
+        <Corner top left color={accent} />
+        <Corner top right color={accent} />
+        <Corner bottom left color={accent} />
+        <Corner bottom right color={accent} />
 
         <div
           style={{
@@ -344,22 +423,22 @@ export function StationMenu({
               flexShrink: 0,
               marginBottom: 18,
               paddingBottom: 12,
-              borderBottom: '1px solid rgba(120, 190, 230, 0.2)',
+              borderBottom: `1px solid ${accentSoft}`,
               fontSize: 12,
               letterSpacing: '0.14em',
-              color: 'rgba(160, 200, 230, 0.75)',
+              color: textMuted,
             }}
           >
-            <span>DOCK-MFD · COMMERCE</span>
+            <span>{offline ? 'DOCK-MFD · OFFLINE' : 'DOCK-MFD · COMMERCE'}</span>
             <span
               style={{
-                color: '#7ec8ff',
+                color: offline ? '#b0a078' : '#7ec8ff',
                 animation: 'stationBlink 1.6s step-end infinite',
               }}
             >
-              ● HARD-DOCK
+              {offline ? offlineStatus : '● HARD-DOCK'}
             </span>
-            <span>ATC CLEAR</span>
+            <span>{offline ? 'NO ATC' : 'ATC CLEAR'}</span>
           </div>
 
           {comGhost && (
@@ -386,11 +465,13 @@ export function StationMenu({
                 style={{
                   fontSize: 11,
                   letterSpacing: '0.2em',
-                  color: 'rgba(120, 210, 255, 0.75)',
+                  color: offline
+                    ? 'rgba(170, 150, 110, 0.65)'
+                    : 'rgba(120, 210, 255, 0.75)',
                   marginBottom: 8,
                 }}
               >
-                ORBITAL PLATFORM
+                {offline ? offlinePlatformLabel : 'ORBITAL PLATFORM'}
               </div>
               <h1
                 style={{
@@ -398,8 +479,10 @@ export function StationMenu({
                   fontSize: 'clamp(28px, 4.5vw, 48px)',
                   fontWeight: 400,
                   letterSpacing: '0.1em',
-                  color: '#c8e8ff',
-                  textShadow: '0 0 18px rgba(120, 210, 255, 0.28)',
+                  color: textBright,
+                  textShadow: offline
+                    ? '0 0 18px rgba(140, 120, 80, 0.2)'
+                    : '0 0 18px rgba(120, 210, 255, 0.28)',
                 }}
               >
                 {stationName.toUpperCase()}
@@ -409,13 +492,18 @@ export function StationMenu({
                   margin: '0 0 18px',
                   fontSize: 'clamp(14px, 1.4vw, 17px)',
                   lineHeight: 1.5,
-                  color: 'rgba(180, 210, 230, 0.75)',
+                  color: offline
+                    ? 'rgba(170, 155, 125, 0.7)'
+                    : 'rgba(180, 210, 230, 0.75)',
                   letterSpacing: '0.04em',
                   maxWidth: 440,
                 }}
               >
-                Sell haulage, repair the hull, outfit weapons, then undock when
-                ready.
+                {offline
+                  ? offlineBlurb
+                  : limitedServices
+                    ? 'Cargo exchange and hull bay only. Outfit desks are dark on this pad.'
+                    : 'Sell haulage, repair the hull, outfit weapons, then undock when ready.'}
               </p>
 
               <CommsPortrait
@@ -423,10 +511,11 @@ export function StationMenu({
                 nyxTopicUnlocked={nyxTopicUnlocked}
                 nyxHyperionLead={nyxHyperionLead}
                 nyxWhisperHeard={nyxWhisperHeard}
+                nyxDerelictSeen={nyxDerelictSeen}
                 onKronosLead={onKronosLead}
               />
 
-              {ghostBerth && (
+              {isTugOffline ? (
                 <div
                   style={{
                     display: 'flex',
@@ -437,45 +526,111 @@ export function StationMenu({
                     letterSpacing: '0.14em',
                   }}
                 >
-                  {(['01', '02', '03'] as const).map((pad) => (
-                    <span
-                      key={pad}
-                      style={{
-                        border: '1px solid rgba(120, 190, 230, 0.28)',
-                        padding: '5px 10px',
-                        color: 'rgba(160, 200, 230, 0.65)',
-                        background: 'rgba(0, 0, 0, 0.22)',
-                      }}
-                    >
-                      BERTH {pad} · OPEN
-                    </span>
-                  ))}
                   <span
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setPlaqueOpen((v) => !v)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault()
-                        setPlaqueOpen((v) => !v)
-                      }
-                    }}
                     style={{
-                      border: '1px solid rgba(120, 100, 160, 0.28)',
+                      border: '1px solid rgba(140, 120, 90, 0.35)',
                       padding: '5px 10px',
-                      background: 'rgba(12, 8, 20, 0.35)',
-                      color: 'rgba(150, 130, 190, 0.55)',
-                      textDecoration: plaqueOpen ? 'none' : 'line-through',
-                      textDecorationColor: 'rgba(120, 100, 160, 0.35)',
+                      background: 'rgba(18, 14, 8, 0.45)',
+                      color: 'rgba(170, 150, 110, 0.65)',
                       animation: 'stationBlink 2.4s step-end infinite',
-                      cursor: 'pointer',
                     }}
                   >
-                    {plaqueOpen
-                      ? `BERTH 04 · ${GHOST_BERTH_PLAQUE}`
-                      : `BERTH 04 · ${GHOST_BERTH_LABEL}`}
+                    {ALT_TUG_BERTH_LABEL}
                   </span>
                 </div>
+              ) : (
+                (ghostBerth || offline || isNyxAlt) && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: 8,
+                      marginBottom: 28,
+                      fontSize: 10,
+                      letterSpacing: '0.14em',
+                    }}
+                  >
+                    {(['01', '02', '03'] as const).map((pad) => (
+                      <span
+                        key={pad}
+                        style={{
+                          border: `1px solid ${accentSoft}`,
+                          padding: '5px 10px',
+                          color:
+                            offline || isNyxAlt
+                              ? 'rgba(140, 128, 100, 0.45)'
+                              : 'rgba(160, 200, 230, 0.65)',
+                          background: 'rgba(0, 0, 0, 0.22)',
+                          textDecoration:
+                            offline || isNyxAlt ? 'line-through' : undefined,
+                          textDecorationColor:
+                            offline || isNyxAlt
+                              ? 'rgba(120, 110, 90, 0.4)'
+                              : undefined,
+                        }}
+                      >
+                        {offline
+                          ? `BERTH ${pad} · COLD`
+                          : isNyxAlt
+                            ? `BERTH ${pad} · NO COMMS`
+                            : `BERTH ${pad} · OPEN`}
+                      </span>
+                    ))}
+                    {isNyxAlt ? (
+                      <span
+                        style={{
+                          border: '1px solid rgba(100, 200, 160, 0.45)',
+                          padding: '5px 10px',
+                          background: 'rgba(8, 28, 20, 0.4)',
+                          color: 'rgba(140, 230, 190, 0.85)',
+                        }}
+                      >
+                        BERTH 04 · ONLINE
+                      </span>
+                    ) : (
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={() => {
+                          if (offline) return
+                          setPlaqueOpen((v) => !v)
+                        }}
+                        onKeyDown={(e) => {
+                          if (offline) return
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            setPlaqueOpen((v) => !v)
+                          }
+                        }}
+                        style={{
+                          border: offline
+                            ? '1px solid rgba(140, 120, 90, 0.35)'
+                            : '1px solid rgba(120, 100, 160, 0.28)',
+                          padding: '5px 10px',
+                          background: offline
+                            ? 'rgba(18, 14, 8, 0.45)'
+                            : 'rgba(12, 8, 20, 0.35)',
+                          color: offline
+                            ? 'rgba(170, 150, 110, 0.65)'
+                            : 'rgba(150, 130, 190, 0.55)',
+                          textDecoration:
+                            offline || plaqueOpen ? 'none' : 'line-through',
+                          textDecorationColor: offline
+                            ? 'rgba(140, 120, 90, 0.4)'
+                            : 'rgba(120, 100, 160, 0.35)',
+                          animation: 'stationBlink 2.4s step-end infinite',
+                          cursor: offline ? 'default' : 'pointer',
+                        }}
+                      >
+                        {offline
+                          ? `BERTH 04 · ${NYX_BERTH_OFFLINE_LABEL}`
+                          : plaqueOpen
+                            ? `BERTH 04 · ${GHOST_BERTH_PLAQUE}`
+                            : `BERTH 04 · ${GHOST_BERTH_LABEL}`}
+                      </span>
+                    )}
+                  </div>
+                )
               )}
 
               <div
@@ -488,7 +643,9 @@ export function StationMenu({
               >
                 <div
                   style={{
-                    border: '1px solid rgba(255, 196, 92, 0.35)',
+                    border: offline
+                      ? '1px solid rgba(170, 150, 110, 0.3)'
+                      : '1px solid rgba(255, 196, 92, 0.35)',
                     background: 'rgba(0, 0, 0, 0.28)',
                     padding: '12px 14px',
                   }}
@@ -497,19 +654,26 @@ export function StationMenu({
                     style={{
                       fontSize: 10,
                       letterSpacing: '0.18em',
-                      color: 'rgba(255, 196, 92, 0.65)',
+                      color: offline
+                        ? 'rgba(170, 150, 110, 0.55)'
+                        : 'rgba(255, 196, 92, 0.65)',
                       marginBottom: 6,
                     }}
                   >
                     CREDITS
                   </div>
-                  <div style={{ fontSize: 22, color: '#ffd78a' }}>
+                  <div
+                    style={{
+                      fontSize: 22,
+                      color: offline ? '#c8b890' : '#ffd78a',
+                    }}
+                  >
                     ₡ {formatCredits(credits)}
                   </div>
                 </div>
                 <div
                   style={{
-                    border: '1px solid rgba(120, 190, 230, 0.25)',
+                    border: `1px solid ${accentSoft}`,
                     background: 'rgba(0, 0, 0, 0.28)',
                     padding: '12px 14px',
                   }}
@@ -518,7 +682,7 @@ export function StationMenu({
                     style={{
                       fontSize: 10,
                       letterSpacing: '0.18em',
-                      color: 'rgba(160, 200, 230, 0.55)',
+                      color: textFaint,
                       marginBottom: 6,
                     }}
                   >
@@ -527,7 +691,7 @@ export function StationMenu({
                   <div
                     style={{
                       fontSize: 22,
-                      color: hullPct < 35 ? '#ff8a8a' : '#9ef0c8',
+                      color: hullPct < 35 ? '#ff8a8a' : offline ? '#b8a888' : '#9ef0c8',
                     }}
                   >
                     {Math.round(hp)} / {Math.round(maxHp)}
@@ -542,16 +706,22 @@ export function StationMenu({
                 style={{
                   appearance: 'none',
                   width: '100%',
-                  border: '1px solid rgba(120, 210, 255, 0.75)',
-                  background: 'rgba(120, 210, 255, 0.1)',
-                  color: '#b8e0ff',
+                  border: offline
+                    ? '1px solid rgba(170, 150, 110, 0.7)'
+                    : '1px solid rgba(120, 210, 255, 0.75)',
+                  background: offline
+                    ? 'rgba(170, 150, 110, 0.1)'
+                    : 'rgba(120, 210, 255, 0.1)',
+                  color: offline ? '#d8c8a8' : '#b8e0ff',
                   padding: '16px 22px',
                   fontSize: 16,
                   letterSpacing: '0.18em',
                   textTransform: 'uppercase',
                   fontFamily: font,
                   cursor: 'pointer',
-                  boxShadow: 'inset 0 0 0 1px rgba(120, 210, 255, 0.2)',
+                  boxShadow: offline
+                    ? 'inset 0 0 0 1px rgba(170, 150, 110, 0.18)'
+                    : 'inset 0 0 0 1px rgba(120, 210, 255, 0.2)',
                 }}
               >
                 ▲  Undock / Jettison
@@ -560,18 +730,22 @@ export function StationMenu({
                 style={{
                   margin: '12px 0 0',
                   fontSize: 12,
-                  color: 'rgba(160, 200, 230, 0.5)',
+                  color: textFaint,
                   letterSpacing: '0.06em',
                 }}
               >
-                Safety push clears the berth before free flight resumes
+                {offline
+                  ? 'Manual release only — no station tow, no clearances'
+                  : 'Safety push clears the berth before free flight resumes'}
               </p>
             </div>
 
             <div
               style={{
-                border: '1px solid rgba(120, 190, 230, 0.22)',
-                background: 'rgba(0, 8, 14, 0.45)',
+                border: `1px solid ${accentSoft}`,
+                background: offline
+                  ? 'rgba(10, 8, 5, 0.55)'
+                  : 'rgba(0, 8, 14, 0.45)',
                 padding: '16px 18px 14px',
                 minHeight: 0,
                 height: '100%',
@@ -581,6 +755,137 @@ export function StationMenu({
                 overflow: 'hidden',
               }}
             >
+              {offline ? (
+                <>
+                  <div
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      fontSize: 11,
+                      letterSpacing: '0.18em',
+                      color: textFaint,
+                      marginBottom: 12,
+                      paddingBottom: 10,
+                      borderBottom: `1px dashed ${accentSoft}`,
+                    }}
+                  >
+                    <span>{offlineDeskTitle}</span>
+                    <span>{isTugOffline ? 'BUFFER · PARTIAL' : 'BUS · DEAD'}</span>
+                  </div>
+                  <div className="station-desk-scroll">
+                    <p
+                      style={{
+                        margin: '0 0 18px',
+                        fontSize: 14,
+                        lineHeight: 1.55,
+                        color: 'rgba(170, 155, 125, 0.75)',
+                        letterSpacing: '0.03em',
+                      }}
+                    >
+                      {offlineDeskNote}
+                    </p>
+                    {isTugOffline ? (
+                      <>
+                        {ALT_TUG_CREW_LOG.map((entry) => (
+                          <div
+                            key={entry.stamp}
+                            style={{
+                              padding: '14px 0',
+                              borderBottom:
+                                '1px solid rgba(120, 110, 90, 0.12)',
+                            }}
+                          >
+                            <div
+                              style={{
+                                fontSize: 10,
+                                letterSpacing: '0.16em',
+                                color: 'rgba(170, 150, 110, 0.55)',
+                                marginBottom: 8,
+                              }}
+                            >
+                              {entry.stamp}
+                            </div>
+                            <p
+                              style={{
+                                margin: 0,
+                                fontSize: 13,
+                                lineHeight: 1.55,
+                                color: textBright,
+                                letterSpacing: '0.02em',
+                              }}
+                            >
+                              {entry.body}
+                            </p>
+                          </div>
+                        ))}
+                        <p
+                          style={{
+                            margin: '22px 0 0',
+                            fontSize: 12,
+                            lineHeight: 1.5,
+                            color: 'rgba(140, 128, 100, 0.5)',
+                            fontStyle: 'italic',
+                            letterSpacing: '0.04em',
+                          }}
+                        >
+                          {ALT_TUG_FOOTNOTE}
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        {(
+                          [
+                            ['CARGO EXCHANGE', 'LIFTS LOCKED'],
+                            ['HULL REPAIR', 'BAY SEALED'],
+                            ['ARMOR / OUTFIT', 'NO POWER'],
+                            ['PROPULSION DESK', 'NO POWER'],
+                            ['ORDNANCE', 'MAGAZINE COLD'],
+                            ['ATC / COMMS', 'NO CARRIER'],
+                          ] as const
+                        ).map(([label, status]) => (
+                          <div
+                            key={label}
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              gap: 12,
+                              alignItems: 'baseline',
+                              padding: '12px 0',
+                              borderBottom:
+                                '1px solid rgba(120, 110, 90, 0.12)',
+                              fontSize: 13,
+                            }}
+                          >
+                            <span style={{ color: textBright }}>{label}</span>
+                            <span
+                              style={{
+                                color: 'rgba(150, 130, 100, 0.55)',
+                                letterSpacing: '0.12em',
+                                fontSize: 11,
+                              }}
+                            >
+                              {status}
+                            </span>
+                          </div>
+                        ))}
+                        <p
+                          style={{
+                            margin: '22px 0 0',
+                            fontSize: 12,
+                            lineHeight: 1.5,
+                            color: 'rgba(140, 128, 100, 0.5)',
+                            fontStyle: 'italic',
+                            letterSpacing: '0.04em',
+                          }}
+                        >
+                          Nyx dust woke the berth. Everything else stayed shut.
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
               <div
                 style={{
                   display: 'flex',
@@ -805,6 +1110,8 @@ export function StationMenu({
                       </button>
                     </div>
 
+                    {!limitedServices && (
+                      <>
                     <div
                       style={{
                         marginTop: 16,
@@ -1127,40 +1434,24 @@ export function StationMenu({
                       <span>ORDNANCE</span>
                       <span>
                         {torpedoOwned
-                          ? `${torpedoAmmo}/${TORPEDO_MAX_AMMO} TUBES`
+                          ? `${torpedoAmmo}/${torpedoMaxAmmo} TUBES`
                           : 'NO LAUNCHER'}
                       </span>
                     </div>
 
-                    {WEAPON_SHOP.map((item) => {
-                      const isUnlock = item.id === TORPEDO_WEAPON_ID
-                      const isReload = item.id === TORPEDO_RELOAD_ID
-                      const ownedUnlock = isUnlock && torpedoOwned
-                      const canBuy = isUnlock
-                        ? canBuyTorpedoUnlock(credits, torpedoOwned)
-                        : isReload
-                          ? canBuyTorpedoReload(
-                              credits,
-                              torpedoOwned,
-                              torpedoAmmo,
-                            )
-                          : false
+                    {WEAPON_SHOP.filter(
+                      (item) => item.id === TORPEDO_WEAPON_ID,
+                    ).map((item) => {
+                      const ownedUnlock = torpedoOwned
+                      const canBuy = canBuyTorpedoUnlock(credits, torpedoOwned)
                       let status = `₡ ${formatCredits(item.cost ?? 0)}`
                       let buttonLabel = 'Purchase'
                       if (ownedUnlock) {
                         status = 'INSTALLED'
                         buttonLabel = 'Owned'
-                      } else if (isReload && !torpedoOwned) {
-                        status = 'REQUIRES LAUNCHER'
-                        buttonLabel = 'Locked'
-                      } else if (isReload && reloadSlots <= 0) {
-                        status = 'MAGAZINES FULL'
-                        buttonLabel = 'Full'
                       } else if (!canBuy && (item.cost ?? 0) > credits) {
                         buttonLabel = 'Insufficient credits'
-                      } else if (isReload) {
-                        buttonLabel = `Reload +1 · ₡ ${formatCredits(item.cost ?? 0)}`
-                      } else if (isUnlock) {
+                      } else {
                         buttonLabel = `Install · ₡ ${formatCredits(item.cost ?? 0)}`
                       }
 
@@ -1203,9 +1494,7 @@ export function StationMenu({
                             }}
                           >
                             {item.blurb}
-                            {isUnlock && !torpedoOwned
-                              ? ' Includes a full magazine.'
-                              : ''}
+                            {!torpedoOwned ? ' Includes a full magazine.' : ''}
                           </p>
                           <button
                             type="button"
@@ -1231,7 +1520,215 @@ export function StationMenu({
                         </div>
                       )
                     })}
+
+                    {torpedoOwned && (
+                      <>
+                        <div
+                          style={{
+                            marginTop: 8,
+                            paddingTop: 14,
+                            borderTop: '1px dashed rgba(120, 190, 230, 0.15)',
+                            fontSize: 11,
+                            letterSpacing: '0.18em',
+                            color: 'rgba(160, 200, 230, 0.55)',
+                            marginBottom: 8,
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                          }}
+                        >
+                          <span>MAGAZINE</span>
+                          <span>
+                            {torpedoMagTier >= TORPEDO_MAG_MAX_TIER
+                              ? 'MAX RACKS'
+                              : `TIER ${torpedoMagTier}/${TORPEDO_MAG_MAX_TIER}`}
+                          </span>
+                        </div>
+
+                        {TORPEDO_MAG_TIERS.map((tier) => {
+                          const owned = torpedoMagTier >= tier.tier
+                          const isNext = torpedoMagTier + 1 === tier.tier
+                          const canBuy =
+                            isNext &&
+                            canBuyTorpedoMagTier(
+                              credits,
+                              torpedoOwned,
+                              torpedoMagTier,
+                            )
+                          let status = `₡ ${formatCredits(tier.cost)}`
+                          let buttonLabel = `Install · ₡ ${formatCredits(tier.cost)}`
+                          if (owned) {
+                            status = `${tier.maxAmmo} TUBES`
+                            buttonLabel = 'Installed'
+                          } else if (!isNext) {
+                            status = 'LOCKED'
+                            buttonLabel = 'Requires prior tier'
+                          } else if (credits < tier.cost) {
+                            buttonLabel = 'Insufficient credits'
+                          }
+
+                          return (
+                            <div
+                              key={tier.id}
+                              style={{
+                                padding: '14px 0',
+                                borderBottom:
+                                  '1px solid rgba(120, 190, 230, 0.08)',
+                              }}
+                            >
+                              <div
+                                style={{
+                                  display: 'flex',
+                                  justifyContent: 'space-between',
+                                  gap: 12,
+                                  alignItems: 'baseline',
+                                  marginBottom: 8,
+                                }}
+                              >
+                                <div style={{ color: '#c8e8ff', fontSize: 16 }}>
+                                  {tier.label}
+                                </div>
+                                <div
+                                  style={{
+                                    color: owned ? '#9ef0c8' : '#ffd78a',
+                                    fontSize: 15,
+                                  }}
+                                >
+                                  {status}
+                                </div>
+                              </div>
+                              <p
+                                style={{
+                                  margin: '0 0 12px',
+                                  fontSize: 13,
+                                  lineHeight: 1.45,
+                                  color: 'rgba(160, 200, 230, 0.55)',
+                                  letterSpacing: '0.03em',
+                                }}
+                              >
+                                {tier.blurb}
+                                {isNext
+                                  ? ' New tubes are loaded on install.'
+                                  : ''}
+                              </p>
+                              <button
+                                type="button"
+                                className="station-btn weapon-btn"
+                                disabled={!canBuy}
+                                onClick={() => onBuy(tier.id)}
+                                style={{
+                                  appearance: 'none',
+                                  width: '100%',
+                                  border: '1px solid rgba(90, 208, 255, 0.55)',
+                                  background: 'rgba(90, 208, 255, 0.1)',
+                                  color: '#9ad8ff',
+                                  padding: '12px 16px',
+                                  fontSize: 13,
+                                  letterSpacing: '0.14em',
+                                  textTransform: 'uppercase',
+                                  fontFamily: font,
+                                  cursor: canBuy ? 'pointer' : 'default',
+                                }}
+                              >
+                                {buttonLabel}
+                              </button>
+                            </div>
+                          )
+                        })}
+                      </>
+                    )}
+
+                    {WEAPON_SHOP.filter(
+                      (item) => item.id === TORPEDO_RELOAD_ID,
+                    ).map((item) => {
+                      const canBuy = canBuyTorpedoReload(
+                        credits,
+                        torpedoOwned,
+                        torpedoAmmo,
+                        torpedoMaxAmmo,
+                      )
+                      let status = `₡ ${formatCredits(item.cost ?? 0)}`
+                      let buttonLabel = 'Purchase'
+                      if (!torpedoOwned) {
+                        status = 'REQUIRES LAUNCHER'
+                        buttonLabel = 'Locked'
+                      } else if (reloadSlots <= 0) {
+                        status = 'MAGAZINES FULL'
+                        buttonLabel = 'Full'
+                      } else if (!canBuy && (item.cost ?? 0) > credits) {
+                        buttonLabel = 'Insufficient credits'
+                      } else {
+                        buttonLabel = `Reload +1 · ₡ ${formatCredits(item.cost ?? 0)}`
+                      }
+
+                      return (
+                        <div
+                          key={item.id}
+                          style={{
+                            padding: '14px 0',
+                            borderBottom: '1px solid rgba(120, 190, 230, 0.08)',
+                          }}
+                        >
+                          <div
+                            style={{
+                              display: 'flex',
+                              justifyContent: 'space-between',
+                              gap: 12,
+                              alignItems: 'baseline',
+                              marginBottom: 8,
+                            }}
+                          >
+                            <div style={{ color: '#c8e8ff', fontSize: 16 }}>
+                              {item.label}
+                            </div>
+                            <div
+                              style={{
+                                color: '#ffd78a',
+                                fontSize: 15,
+                              }}
+                            >
+                              {status}
+                            </div>
+                          </div>
+                          <p
+                            style={{
+                              margin: '0 0 12px',
+                              fontSize: 13,
+                              lineHeight: 1.45,
+                              color: 'rgba(160, 200, 230, 0.55)',
+                              letterSpacing: '0.03em',
+                            }}
+                          >
+                            {item.blurb}
+                          </p>
+                          <button
+                            type="button"
+                            className="station-btn weapon-btn"
+                            disabled={!canBuy}
+                            onClick={() => onBuy(item.id)}
+                            style={{
+                              appearance: 'none',
+                              width: '100%',
+                              border: '1px solid rgba(90, 208, 255, 0.55)',
+                              background: 'rgba(90, 208, 255, 0.1)',
+                              color: '#9ad8ff',
+                              padding: '12px 16px',
+                              fontSize: 13,
+                              letterSpacing: '0.14em',
+                              textTransform: 'uppercase',
+                              fontFamily: font,
+                              cursor: canBuy ? 'pointer' : 'default',
+                            }}
+                          >
+                            {buttonLabel}
+                          </button>
+                        </div>
+                      )
+                    })}
+                      </>
+                    )}
                   </div>
+                </>
+              )}
                 </>
               )}
             </div>
@@ -1246,10 +1743,10 @@ export function StationMenu({
               justifyContent: 'space-between',
               fontSize: 11,
               letterSpacing: '0.12em',
-              color: 'rgba(160, 200, 230, 0.4)',
+              color: textFaint,
             }}
           >
-            <span>DRIFTR · DOCKED</span>
+            <span>{offline ? 'DRIFTR · COLD DOCK' : 'DRIFTR · DOCKED'}</span>
             <span>HOLD M · SYSTEM MAP</span>
           </div>
         </div>
