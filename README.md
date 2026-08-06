@@ -46,7 +46,7 @@ npm run preview  # serve the build locally (use this to test the PWA)
 | `F` (near a station) | Dock |
 | `Esc` | Pause / resume (also closes the map) |
 
-Music and SFX volume live under the control map in the start / pause menu and persist across sessions. The pause MFD also keeps a **Signal Journal · Nyx** that fills as you recover outer-system leads. **Reset progress** (same menus, confirm to wipe) clears credits, cargo, upgrades, lore, and hull back to a fresh run — needed because clearing `localStorage` while the tab is open gets overwritten by autosave / unload.
+Music and SFX volume live under the control map in the start / pause menu and persist across sessions. The pause MFD also keeps a **Signal Journal · Nyx** that fills as you recover outer-system leads. **Enable cheat menu** (same menus) opens the admin panel for sky hops, warps, and grant cheats for the rest of the tab session. **Reset progress** (same menus, confirm to wipe) clears credits, cargo, upgrades, lore, and hull back to a fresh run — needed because clearing `localStorage` while the tab is open gets overwritten by autosave / unload.
 
 Flight HUD includes a bottom-right **navball** (ecliptic horizon, pitch ladder, heading, and sun / prograde markers) plus an optional **map waypoint** diamond / edge chevron when you mark a body on the chart.
 
@@ -135,7 +135,8 @@ Cargo desk sells ore, ice, and alloy for credits. **Nyx Station** in Vesper only
 - Theme music in flight, station ambience when docked, separate volume sliders
 - Reset progress control on the start / pause menu (confirmed wipe of the local save)
 - Installable PWA with offline-ready assets (service worker on production builds)
-- Leva debug / Admin panel in local `dev` only (stubbed out of production) — hop skies, warp, unlock lore, grant outfits
+- Optional cheat / admin panel from the start / pause menu (sky hops, warps, grant outfits; Leva loads on demand)
+- Leva world-tuning panel in local `dev` only (stubbed out of production)
 
 ## Stack
 

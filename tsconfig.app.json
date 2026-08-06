@@ -10,7 +10,8 @@
     "ignoreDeprecations": "6.0",
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "leva-runtime": ["node_modules/leva"]
     },
 
     /* Bundler mode */

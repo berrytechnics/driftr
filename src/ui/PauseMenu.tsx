@@ -43,6 +43,9 @@ type PauseMenuProps = {
   onResume: () => void;
   /** Wipe credits, upgrades, cargo, lore — returns to flight-ready. */
   onResetProgress?: () => void;
+  /** Player-optional Leva cheat / admin panel. */
+  cheatsEnabled?: boolean;
+  onToggleCheats?: () => void;
   ship?: PauseShipStatus | null;
 };
 
@@ -143,6 +146,8 @@ export function PauseMenu({
   mode,
   onResume,
   onResetProgress,
+  cheatsEnabled = false,
+  onToggleCheats,
   ship = null,
 }: PauseMenuProps) {
   const isPaused = mode === "paused";
@@ -815,11 +820,12 @@ export function PauseMenu({
           </div>
 
           <div
-            className="pause-mfd-grid"
             style={{
               flex: "none",
               marginTop: 10,
-              overflow: "visible",
+              display: "flex",
+              flexDirection: "column",
+              gap: 8,
             }}
           >
             <button
@@ -843,45 +849,86 @@ export function PauseMenu({
             >
               {isPaused ? "▶  Resume flight" : "▶  Engage / Launch"}
             </button>
-            {onResetProgress ? (
-              <button
-                type="button"
-                className="cockpit-btn-danger"
-                onClick={() => {
-                  if (!resetArmed) {
-                    setResetArmed(true);
-                    return;
-                  }
-                  setResetArmed(false);
-                  onResetProgress();
-                }}
-                onBlur={() => setResetArmed(false)}
-                style={{
-                  appearance: "none",
-                  width: "100%",
-                  border: resetArmed
-                    ? "1px solid rgba(255, 120, 100, 0.85)"
-                    : "1px solid rgba(120, 200, 180, 0.28)",
-                  background: resetArmed
-                    ? "rgba(255, 80, 70, 0.14)"
-                    : "rgba(0, 8, 10, 0.35)",
-                  color: resetArmed ? "#ffb0a8" : "rgba(160, 210, 195, 0.7)",
-                  padding: "11px 16px",
-                  fontSize: 13,
-                  letterSpacing: "0.14em",
-                  textTransform: "uppercase",
-                  fontFamily: font,
-                  cursor: "pointer",
-                  boxShadow: resetArmed
-                    ? "inset 0 0 0 1px rgba(255, 120, 100, 0.25)"
-                    : "none",
-                }}
-              >
-                {resetArmed ? "Confirm wipe save" : "Reset progress"}
-              </button>
-            ) : (
-              <div aria-hidden />
-            )}
+            <div
+              className="pause-mfd-grid"
+              style={{
+                flex: "none",
+                overflow: "visible",
+              }}
+            >
+              {onResetProgress ? (
+                <button
+                  type="button"
+                  className="cockpit-btn-danger"
+                  onClick={() => {
+                    if (!resetArmed) {
+                      setResetArmed(true);
+                      return;
+                    }
+                    setResetArmed(false);
+                    onResetProgress();
+                  }}
+                  onBlur={() => setResetArmed(false)}
+                  style={{
+                    appearance: "none",
+                    width: "100%",
+                    border: resetArmed
+                      ? "1px solid rgba(255, 120, 100, 0.85)"
+                      : "1px solid rgba(120, 200, 180, 0.28)",
+                    background: resetArmed
+                      ? "rgba(255, 80, 70, 0.14)"
+                      : "rgba(0, 8, 10, 0.35)",
+                    color: resetArmed ? "#ffb0a8" : "rgba(160, 210, 195, 0.7)",
+                    padding: "11px 16px",
+                    fontSize: 13,
+                    letterSpacing: "0.14em",
+                    textTransform: "uppercase",
+                    fontFamily: font,
+                    cursor: "pointer",
+                    boxShadow: resetArmed
+                      ? "inset 0 0 0 1px rgba(255, 120, 100, 0.25)"
+                      : "none",
+                  }}
+                >
+                  {resetArmed ? "Confirm wipe save" : "Reset progress"}
+                </button>
+              ) : (
+                <div aria-hidden />
+              )}
+              {onToggleCheats ? (
+                <button
+                  type="button"
+                  className="cockpit-btn"
+                  onClick={onToggleCheats}
+                  style={{
+                    appearance: "none",
+                    width: "100%",
+                    border: cheatsEnabled
+                      ? "1px solid rgba(255, 196, 92, 0.55)"
+                      : "1px solid rgba(120, 200, 180, 0.28)",
+                    background: cheatsEnabled
+                      ? "rgba(255, 196, 92, 0.12)"
+                      : "rgba(0, 8, 10, 0.35)",
+                    color: cheatsEnabled
+                      ? "#ffd78a"
+                      : "rgba(160, 210, 195, 0.7)",
+                    padding: "11px 16px",
+                    fontSize: 13,
+                    letterSpacing: "0.14em",
+                    textTransform: "uppercase",
+                    fontFamily: font,
+                    cursor: "pointer",
+                    boxShadow: cheatsEnabled
+                      ? "inset 0 0 0 1px rgba(255, 196, 92, 0.2)"
+                      : "none",
+                  }}
+                >
+                  {cheatsEnabled ? "Hide cheat menu" : "Enable cheat menu"}
+                </button>
+              ) : (
+                <div aria-hidden />
+              )}
+            </div>
           </div>
 
           <div

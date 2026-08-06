@@ -1,4 +1,3 @@
-import { Leva } from 'leva'
 import {
   lazy,
   Suspense,
@@ -14,7 +13,6 @@ import {
   tryPlayStation,
   tryPlayTheme,
 } from '@/audio/ThemeMusic'
-import { AdminPanel } from '@/dev/AdminPanel'
 import type { AdminWarpId, AdminWarpRequest } from '@/dev/adminTypes'
 import { GameCanvas } from '@/game/GameCanvas'
 import {
@@ -109,6 +107,9 @@ import {
 const PauseMenu = lazy(() =>
   import('@/ui/PauseMenu').then((m) => ({ default: m.PauseMenu })),
 )
+const CheatPanel = lazy(() =>
+  import('@/dev/CheatPanel').then((m) => ({ default: m.CheatPanel })),
+)
 const StationMenu = lazy(() =>
   import('@/ui/StationMenu').then((m) => ({ default: m.StationMenu })),
 )
@@ -119,6 +120,17 @@ const DockPrompt = lazy(() =>
   import('@/ui/DockPrompt').then((m) => ({ default: m.DockPrompt })),
 )
 
+const CHEATS_SESSION_KEY = 'driftr-cheats'
+
+function loadCheatsEnabled() {
+  if (import.meta.env.DEV) return true
+  try {
+    return sessionStorage.getItem(CHEATS_SESSION_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
 export default function App() {
   const saved = useMemo(() => loadGameSave(), [])
   const initialHull = useMemo(() => hullFromSave(saved), [saved])
@@ -127,6 +139,7 @@ export default function App() {
   const [booting, setBooting] = useState(true)
   const [paused, setPaused] = useState(false)
   const [started, setStarted] = useState(() => saved.docked)
+  const [cheatsEnabled, setCheatsEnabled] = useState(loadCheatsEnabled)
   const [docked, setDocked] = useState(() => saved.docked)
   const [dockAvailable, setDockAvailable] = useState(false)
   const [dockStationName, setDockStationName] = useState<string>(
@@ -1084,17 +1097,25 @@ export default function App() {
 
   const onBootFinished = useCallback(() => setBooting(false), [])
 
+  const toggleCheats = useCallback(() => {
+    setCheatsEnabled((prev) => {
+      const next = !prev
+      try {
+        if (next) sessionStorage.setItem(CHEATS_SESSION_KEY, '1')
+        else sessionStorage.removeItem(CHEATS_SESSION_KEY)
+      } catch {
+        /* private mode */
+      }
+      return next
+    })
+  }, [])
+
   return (
     <>
-      {/* Debug panel — leva is stubbed out of production builds */}
-      {import.meta.env.DEV && (
-        <>
-          <Leva
-            collapsed
-            oneLineLabels
-            titleBar={{ title: 'DRIFTR · Admin' }}
-          />
-          <AdminPanel
+      {/* Optional cheat panel — enabled from pause / start MFD */}
+      {cheatsEnabled && (
+        <Suspense fallback={null}>
+          <CheatPanel
             systemId={systemId}
             onTransport={adminTransportToSystem}
             onAddCredits={adminAddCredits}
@@ -1107,7 +1128,7 @@ export default function App() {
             onClearLore={adminClearLore}
             onWarp={adminWarp}
           />
-        </>
+        </Suspense>
       )}
       <ThemeMusic
         playing={!booting && started && !paused && !docked}
@@ -1255,6 +1276,8 @@ export default function App() {
             mode={menuMode}
             onResume={resumeFlight}
             onResetProgress={resetProgress}
+            cheatsEnabled={cheatsEnabled}
+            onToggleCheats={toggleCheats}
             ship={{
               hp:
                 telemetry?.hp ??

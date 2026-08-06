@@ -1,4 +1,4 @@
-import { button, folder, useControls } from 'leva'
+import { button, folder, useControls } from 'leva-runtime'
 import { ALT_STAR_NAME, STAR_NAME, SYSTEM_IDS, type SystemId } from '@/game/systemConfig'
 import type { AdminWarpId } from '@/dev/adminTypes'
 
@@ -17,8 +17,8 @@ type AdminPanelProps = {
 }
 
 /**
- * Dev-only Leva folder for sky hops, cheats, lore flags, and warps.
- * Mounted from App in DEV builds only.
+ * Leva folder for sky hops, cheats, lore flags, and warps.
+ * Mounted via CheatPanel when the player enables cheats from pause.
  */
 export function AdminPanel({
   systemId,

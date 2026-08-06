@@ -13,7 +13,9 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       '@': path.resolve(rootDir, 'src'),
-      // Drop leva from the production bundle; schemas resolve to defaults
+      // Real leva for the optional player cheat panel (lazy-loaded)
+      'leva-runtime': path.resolve(rootDir, 'node_modules/leva'),
+      // Drop world-tuning leva from the production bundle; schemas → defaults
       ...(mode === 'production'
         ? { leva: path.resolve(rootDir, 'src/dev/levaStub.ts') }
         : {}),
