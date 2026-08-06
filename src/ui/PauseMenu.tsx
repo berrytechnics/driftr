@@ -35,6 +35,7 @@ export type PauseShipStatus = {
   nyxDerelictSeen?: boolean;
   nyxTugSeen?: boolean;
   nyxCassiniSeen?: boolean;
+  nyxGateSeen?: boolean;
   nyxDualAshDone?: boolean;
 };
 
@@ -175,6 +176,7 @@ export function PauseMenu({
         nyxDerelictSeen: !!ship.nyxDerelictSeen,
         nyxTugSeen: !!ship.nyxTugSeen,
         nyxCassiniSeen: !!ship.nyxCassiniSeen,
+        nyxGateSeen: !!ship.nyxGateSeen,
         nyxDualAshDone: !!ship.nyxDualAshDone,
       })
     : [];
@@ -638,39 +640,55 @@ export function PauseMenu({
                     </div>
                   ))}
                   {journal.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setJournalOpen((v) => !v)}
+                    <div
                       style={{
                         marginTop: 8,
-                        width: "100%",
-                        textAlign: "left",
                         border: "1px solid rgba(140, 120, 180, 0.4)",
                         background: "rgba(12, 8, 18, 0.5)",
                         color: "rgba(190, 175, 230, 0.9)",
                         fontFamily: font,
                         fontSize: 12,
                         letterSpacing: "0.1em",
-                        padding: "8px 10px",
-                        cursor: "pointer",
                       }}
                     >
-                      <div
+                      <button
+                        type="button"
+                        onClick={() => setJournalOpen((v) => !v)}
+                        aria-expanded={journalOpen}
                         style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          gap: 8,
+                          appearance: "none",
+                          width: "100%",
+                          textAlign: "left",
+                          border: "none",
+                          background: "transparent",
+                          color: "inherit",
+                          fontFamily: "inherit",
+                          fontSize: "inherit",
+                          letterSpacing: "inherit",
+                          padding: "8px 10px",
+                          cursor: "pointer",
                         }}
                       >
-                        <span>SIGNAL JOURNAL · NYX</span>
-                        <span style={{ opacity: 0.55 }}>
-                          {journalOpen ? "▲" : "▼"} {journal.length}
-                        </span>
-                      </div>
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            gap: 8,
+                          }}
+                        >
+                          <span>SIGNAL JOURNAL · NYX</span>
+                          <span style={{ opacity: 0.55 }}>
+                            {journalOpen ? "▲" : "▼"} {journal.length}
+                          </span>
+                        </div>
+                      </button>
                       {journalOpen && (
                         <div
                           style={{
-                            marginTop: 10,
+                            maxHeight: "min(240px, 32vh)",
+                            overflowY: "auto",
+                            overscrollBehavior: "contain",
+                            padding: "0 10px 10px",
                             display: "flex",
                             flexDirection: "column",
                             gap: 10,
@@ -710,7 +728,7 @@ export function PauseMenu({
                           ))}
                         </div>
                       )}
-                    </button>
+                    </div>
                   )}
                 </div>
               )}

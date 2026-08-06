@@ -1,6 +1,8 @@
-import { button, folder, useControls } from 'leva-runtime'
-import { ALT_STAR_NAME, STAR_NAME, SYSTEM_IDS, type SystemId } from '@/game/systemConfig'
+import { useRef } from 'react'
+import { button, folder, useControls } from 'leva'
 import type { AdminWarpId } from '@/dev/adminTypes'
+import { ALT_STAR_NAME, STAR_NAME, SYSTEM_IDS, type SystemId } from '@/game/systemConfig'
+import { SIPHON_REPAIR_SHARD_COST } from '@/lore/easterEggs'
 
 type AdminPanelProps = {
   systemId: SystemId
@@ -14,27 +16,22 @@ type AdminPanelProps = {
   onUnlockLore: () => void
   onClearLore: () => void
   onWarp: (id: AdminWarpId) => void
+  /** Revive every dormant Vesper siphon (powers the gate). */
+  onRepairAllSiphons: () => void
+  /** Wipe siphon repair progress (gate goes dark again). */
+  onClearSiphonRepairs: () => void
 }
 
 /**
  * Leva folder for sky hops, cheats, lore flags, and warps.
  * Mounted via CheatPanel when the player enables cheats from pause.
  */
-export function AdminPanel({
-  systemId,
-  onTransport,
-  onAddCredits,
-  onAddDust,
-  onHeal,
-  onUnlockOutfits,
-  onFillTubes,
-  onFillCargo,
-  onUnlockLore,
-  onClearLore,
-  onWarp,
-}: AdminPanelProps) {
+export function AdminPanel(props: AdminPanelProps) {
+  const propsRef = useRef(props)
+  propsRef.current = props
+
   const transportLabel =
-    systemId === SYSTEM_IDS.sol
+    props.systemId === SYSTEM_IDS.sol
       ? `Hop → ${ALT_STAR_NAME}`
       : `Hop → ${STAR_NAME}`
 
@@ -44,8 +41,9 @@ export function AdminPanel({
       sky: folder(
         {
           [transportLabel]: button(() => {
-            onTransport(
-              systemId === SYSTEM_IDS.sol
+            const p = propsRef.current
+            p.onTransport(
+              p.systemId === SYSTEM_IDS.sol
                 ? SYSTEM_IDS.nyxAlt
                 : SYSTEM_IDS.sol,
             )
@@ -55,47 +53,55 @@ export function AdminPanel({
       ),
       cheats: folder(
         {
-          'Credits +1000': button(() => onAddCredits(1000)),
-          'Nyx dust +1': button(() => onAddDust(1)),
-          'Heal hull': button(() => onHeal()),
-          'Unlock outfits': button(() => onUnlockOutfits()),
-          'Fill tubes': button(() => onFillTubes()),
-          'Fill cargo': button(() => onFillCargo()),
+          'Credits +1000': button(() => propsRef.current.onAddCredits(1000)),
+          'Nyx dust +1': button(() => propsRef.current.onAddDust(1)),
+          [`Nyx dust +${SIPHON_REPAIR_SHARD_COST}`]: button(() =>
+            propsRef.current.onAddDust(SIPHON_REPAIR_SHARD_COST),
+          ),
+          'Heal hull': button(() => propsRef.current.onHeal()),
+          'Unlock outfits': button(() => propsRef.current.onUnlockOutfits()),
+          'Fill tubes': button(() => propsRef.current.onFillTubes()),
+          'Fill cargo': button(() => propsRef.current.onFillCargo()),
+        },
+        { collapsed: false },
+      ),
+      siphon: folder(
+        {
+          'Repair all siphons': button(() =>
+            propsRef.current.onRepairAllSiphons(),
+          ),
+          'Clear siphon repairs': button(() =>
+            propsRef.current.onClearSiphonRepairs(),
+          ),
+          'Warp · siphon ring': button(() =>
+            propsRef.current.onWarp('siphon'),
+          ),
+          'Warp · misplanted gate': button(() =>
+            propsRef.current.onWarp('gate'),
+          ),
         },
         { collapsed: false },
       ),
       lore: folder(
         {
-          'Unlock all lore': button(() => onUnlockLore()),
-          'Clear lore flags': button(() => onClearLore()),
+          'Unlock all lore': button(() => propsRef.current.onUnlockLore()),
+          'Clear lore flags': button(() => propsRef.current.onClearLore()),
         },
         { collapsed: true },
       ),
       warp: folder(
         {
-          'Warp · near sun': button(() => onWarp('sun')),
-          'Warp · inner': button(() => onWarp('inner')),
-          'Warp · belt': button(() => onWarp('belt')),
-          'Warp · outer': button(() => onWarp('outer')),
-          'Warp · apo / far': button(() => onWarp('apo')),
+          'Warp · near sun': button(() => propsRef.current.onWarp('sun')),
+          'Warp · inner': button(() => propsRef.current.onWarp('inner')),
+          'Warp · belt': button(() => propsRef.current.onWarp('belt')),
+          'Warp · outer': button(() => propsRef.current.onWarp('outer')),
+          'Warp · apo / far': button(() => propsRef.current.onWarp('apo')),
         },
         { collapsed: true },
       ),
     },
-    [
-      transportLabel,
-      systemId,
-      onTransport,
-      onAddCredits,
-      onAddDust,
-      onHeal,
-      onUnlockOutfits,
-      onFillTubes,
-      onFillCargo,
-      onUnlockLore,
-      onClearLore,
-      onWarp,
-    ],
+    { collapsed: false, order: -1 },
+    [transportLabel],
   )
 
   return null

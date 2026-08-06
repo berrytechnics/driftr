@@ -8,6 +8,7 @@ import {
   SYSTEM_IDS,
   type SystemId,
 } from '@/game/systemConfig'
+import { isSiphonPadName } from '@/lore/siphonPads'
 import {
   BASE_MAX_HP,
   clampArmorTier,
@@ -25,6 +26,10 @@ function sanitizeSystemId(raw: unknown): SystemId {
 const KNOWN_STATIONS = new Set<string>(Object.values(STATION_NAMES))
 
 function sanitizeDockStationName(raw: unknown, systemId: SystemId): string {
+  if (typeof raw === 'string' && isSiphonPadName(raw)) {
+    // Siphon pads only exist in the alt sky
+    return systemId === SYSTEM_IDS.nyxAlt ? raw : STATION_NAMES.nyxAlt
+  }
   if (typeof raw === 'string' && KNOWN_STATIONS.has(raw)) {
     // Don't restore a Sol pad while in alt (or vice versa) after a bad save.
     if (systemId === SYSTEM_IDS.nyxAlt) {
@@ -44,6 +49,20 @@ function sanitizeDockStationName(raw: unknown, systemId: SystemId): string {
   return systemId === SYSTEM_IDS.nyxAlt
     ? STATION_NAMES.nyxAlt
     : STATION_NAMES.thalassa
+}
+
+function sanitizeSiphonRepaired(raw: unknown): number[] {
+  if (!Array.isArray(raw)) return []
+  const out: number[] = []
+  const seen = new Set<number>()
+  for (const v of raw) {
+    if (typeof v !== 'number' || !Number.isFinite(v)) continue
+    const id = Math.floor(v)
+    if (id < 0 || id > 64 || seen.has(id)) continue
+    seen.add(id)
+    out.push(id)
+  }
+  return out
 }
 
 const SAVE_KEY = '3js-save-v1'
@@ -86,6 +105,13 @@ export type GameSave = {
   nyxTugSeen: boolean
   /** Lore — approached the Cassini probe husk in alt Nyx space. */
   nyxCassiniSeen: boolean
+  /** Lore — approached the Unknown structure (alt gate) in alt Nyx space. */
+  nyxGateSeen: boolean
+  /**
+   * Indices of collector-ring siphons revived with Nyx dust
+   * (subset of SIPHON_INITIAL_DEAD).
+   */
+  vesperSiphonRepaired: number[]
   /** Lore — dual ash toast used once. */
   nyxDualAshDone: boolean
   /** Lore — Hyperion outer-arc handoff toast heard once. */
@@ -171,6 +197,8 @@ export function defaultGameSave(): GameSave {
     nyxDerelictSeen: false,
     nyxTugSeen: false,
     nyxCassiniSeen: false,
+    nyxGateSeen: false,
+    vesperSiphonRepaired: [],
     nyxDualAshDone: false,
     nyxHyperionRumorHeard: false,
     nyxTopicUnlocked: false,
@@ -260,6 +288,8 @@ export function loadGameSave(): GameSave {
     nyxDerelictSeen: !!raw.nyxDerelictSeen,
     nyxTugSeen: !!raw.nyxTugSeen,
     nyxCassiniSeen: !!raw.nyxCassiniSeen,
+    nyxGateSeen: !!raw.nyxGateSeen,
+    vesperSiphonRepaired: sanitizeSiphonRepaired(raw.vesperSiphonRepaired),
     nyxDualAshDone: !!raw.nyxDualAshDone,
     nyxHyperionRumorHeard: !!raw.nyxHyperionRumorHeard,
     // Migrate: any prior Nyx progress implies the ATC topic is available
@@ -273,6 +303,7 @@ export function loadGameSave(): GameSave {
       !!raw.nyxFoundEmpty ||
       !!raw.nyxTugSeen ||
       !!raw.nyxCassiniSeen ||
+      !!raw.nyxGateSeen ||
       (typeof raw.nightShards === 'number' && raw.nightShards > 0),
     nyxHyperionLead: !!raw.nyxHyperionLead,
     // Approaching Nyx / whisper already counts as "found her empty"
@@ -319,6 +350,8 @@ export function saveGameSave(save: GameSave) {
     nyxDerelictSeen: !!save.nyxDerelictSeen,
     nyxTugSeen: !!save.nyxTugSeen,
     nyxCassiniSeen: !!save.nyxCassiniSeen,
+    nyxGateSeen: !!save.nyxGateSeen,
+    vesperSiphonRepaired: sanitizeSiphonRepaired(save.vesperSiphonRepaired),
     nyxDualAshDone: !!save.nyxDualAshDone,
     nyxHyperionRumorHeard: !!save.nyxHyperionRumorHeard,
     nyxTopicUnlocked: !!save.nyxTopicUnlocked,

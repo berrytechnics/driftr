@@ -715,7 +715,9 @@ export const Space = memo(function Space({
     wispCount,
     wispOpacity,
     mu,
-  } = useControls('Env', {
+  } = useControls(
+    'Env',
+    {
     lighting: folder(
       {
         ambient: {
@@ -834,7 +836,9 @@ export const Space = memo(function Space({
       },
       { collapsed: true },
     ),
-  })
+  },
+    { order: 1 },
+  )
   const sunSize = SUN_SIZE
 
   const { scale, metalness, roughness, envMapIntensity } = useControls(
@@ -856,6 +860,7 @@ export const Space = memo(function Space({
         { collapsed: true },
       ),
     },
+    { order: 2 },
   )
 
   const {
@@ -984,7 +989,9 @@ export const Space = memo(function Space({
       },
       { collapsed: true },
     ),
-  })
+  },
+    { order: 3 },
+  )
   const asteroidShape = useMemo(
     () => ({ meshDetail, largeLumps, mediumLumps, fineLumps }),
     [meshDetail, largeLumps, mediumLumps, fineLumps],

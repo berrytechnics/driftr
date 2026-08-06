@@ -46,7 +46,7 @@ npm run preview  # serve the build locally (use this to test the PWA)
 | `F` (near a station) | Dock |
 | `Esc` | Pause / resume (also closes the map) |
 
-Music and SFX volume live under the control map in the start / pause menu and persist across sessions. The pause MFD also keeps a **Signal Journal · Nyx** that fills as you recover outer-system leads. **Enable cheat menu** (same menus) opens the admin panel for sky hops, warps, and grant cheats for the rest of the tab session. **Reset progress** (same menus, confirm to wipe) clears credits, cargo, upgrades, lore, and hull back to a fresh run — needed because clearing `localStorage` while the tab is open gets overwritten by autosave / unload.
+Music and SFX volume live under the control map in the start / pause menu and persist across sessions. The pause MFD also keeps a **Signal Journal · Nyx** that fills as you recover outer-system leads. **Enable cheat menu** (same menus) opens the admin panel for sky hops, warps, grant cheats, and Vesper siphon / gate tools for the rest of the tab session. **Reset progress** (same menus, confirm to wipe) clears credits, cargo, upgrades, lore, and hull back to a fresh run — needed because clearing `localStorage` while the tab is open gets overwritten by autosave / unload.
 
 Flight HUD includes a bottom-right **navball** (ecliptic horizon, pitch ladder, heading, and sun / prograde markers) plus an optional **map waypoint** diamond / edge chevron when you mark a body on the chart.
 
@@ -89,7 +89,9 @@ Pilots who push the outer lanes can piece the story together:
 
 ### Vesper
 
-Dust-keyed Transit docks can drop you under a small indigo star — **Vesper** — a compact, quieter chart (catalog worlds **V-1**–**V-3**, an ashen **Nyx**, sparse belt, denser nebula). A live **Nyx Station** orbits the dwarf here with limited services (cargo sell + hull repair; outfit desks are dark). Farther out, a cold **derelict tug** holds a recovered crew log, and a silent **probe husk** marks the black. Dock Nyx Station with dust aboard to spend another shard and hop skies again. Which system you are in survives reload; map waypoints clear on transport.
+Dust-keyed Transit docks can drop you under a small indigo star — **Vesper** — a compact, quieter chart (catalog worlds **V-1**–**V-3**, an ashen **Nyx**, sparse belt, denser nebula). A live **Nyx Station** orbits the dwarf here with limited services (cargo sell + hull repair; outfit desks are dark). Farther out, a cold **derelict tug** holds a recovered crew log, a silent **probe husk** marks the black, and a tilted **Misplanted Gate** — an empty survey ring you can thread — waits between Nyx and V-3.
+
+Outside every catalog orbit hangs a dense **satellite ring** of alien siphons. Present pads are dockable berths (`Siphon 00`…): live nodes already hum, while a few dormant ones take **Nyx dust** to revive. Repair every dark siphon and the gate wakes — lattice brightens, arcs crackle between the struts, and a dark portal spheres in the throat. Dock Nyx Station with dust aboard to spend another shard and hop skies again. Which system you are in (and which siphons you’ve repaired) survives reload; map waypoints clear on transport.
 
 Recovered leads also land in the pause-menu **Signal Journal**. The first-load briefing tells the vanishing story; **Reset progress** clears the “don’t show again” flag (and all lore flags) so it can return.
 
@@ -98,7 +100,7 @@ Recovered leads also land in the pause-menu **Signal Journal**. The first-load b
 1. **Mine** — blast asteroids for rock ore (dusty brown-gray), volatile ice (pale ash), and rare alloy (warmer gray). Rock color marks the primary haul; drops favor that material with a small chance of the others. Shards magnet toward your hull when you get close. Occasional speed and fire-rate buff pickups spawn too.
 2. **Fight** — bandits hunt the belt; patrols keep their own routes. Hull HP, weapon heat / overheat, hit flash, and off-screen chevrons keep combat readable. Soft additive explosions mark lethal hits. Jettison cargo with `J` to bait scavengers; die and you dump cargo (credits stay).
 3. **Dock** — approach any station and press `F`. Sell cargo, repair, buy armor / ordnance / cruise and sensor mods, then undock. With Nyx dust aboard you can also hard-dock the apo ghost pad — and slip into Vesper.
-4. **Save** — credits, cargo, hull, heat, armor, thruster, sensors, torpedoes (including magazine tier), buffs, active system (Sol / Vesper), lore progress (journal leads, Transit state, alt wrecks), and dock state autosave to `localStorage`. Use **Reset progress** on the start / pause menu for a clean wipe (DevTools clear alone is not reliable while the game is loaded).
+4. **Save** — credits, cargo, hull, heat, armor, thruster, sensors, torpedoes (including magazine tier), buffs, active system (Sol / Vesper), lore progress (journal leads, Transit state, alt wrecks, Vesper siphon repairs), and dock state autosave to `localStorage`. Use **Reset progress** on the start / pause menu for a clean wipe (DevTools clear alone is not reliable while the game is loaded).
 
 ## Station outfitters
 
@@ -131,12 +133,13 @@ Cargo desk sells ore, ice, and alloy for credits. **Nyx Station** in Vesper only
 - Cargo jettison bait that pulls bandits off your trail
 - Advanced thruster cruise and sensor upgrades from the station
 - Nyx questline — Ask ATC, Hyperion lead, apo ghost pad, dust-keyed hard dock, pause journal
-- Dust-gated sky hop into Vesper (Nyx Station, derelict tug log, probe husk)
+- Dust-gated sky hop into Vesper (Nyx Station, derelict tug log, probe husk, Misplanted Gate, satellite siphon ring)
+- Siphon berths you can repair with Nyx dust — full ring powers the gate’s portal and charge arcs
 - Theme music in flight, station ambience when docked, separate volume sliders
 - Reset progress control on the start / pause menu (confirmed wipe of the local save)
 - Installable PWA with offline-ready assets (service worker on production builds)
-- Optional cheat / admin panel from the start / pause menu (sky hops, warps, grant outfits; Leva loads on demand)
-- Leva world-tuning panel in local `dev` only (stubbed out of production)
+- Optional cheat / admin panel from the start / pause menu (sky hops, warps, grant outfits, siphon / gate cheats)
+- Leva world-tuning folder in the same panel while cheats are open (Env · Vesper includes siphon ring controls)
 
 ## Stack
 

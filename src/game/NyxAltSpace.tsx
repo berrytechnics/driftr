@@ -1,6 +1,7 @@
 import { Environment, Lightformer } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import { Bloom, EffectComposer } from '@react-three/postprocessing'
+import { folder, useControls } from 'leva'
 import {
   lazy,
   memo,
@@ -8,6 +9,7 @@ import {
   useCallback,
   useMemo,
   useRef,
+  useState,
   type RefObject,
 } from 'react'
 import {
@@ -15,6 +17,7 @@ import {
   Object3D,
   Vector3,
   type DirectionalLight,
+  type Mesh,
 } from 'three'
 import cassiniUrl from '@/assets/models/Cassini_Huygens.glb?url'
 import tugUrl from '@/assets/models/Ship_Tug.glb?url'
@@ -28,6 +31,8 @@ import type { AdminWarpRequest } from '@/dev/adminTypes'
 import {
   ALT_BELT_INNER,
   ALT_BELT_OUTER,
+  ALT_DYSON_INCLINATION,
+  ALT_DYSON_ORBIT,
   ALT_INNER_ORBIT,
   ALT_INNER_SIZE,
   ALT_MID_ORBIT,
@@ -48,9 +53,23 @@ import {
 import {
   ALT_CASSINI_MAP_LABEL,
   ALT_CASSINI_TOAST,
+  ALT_DYSON_MAP_LABEL,
+  ALT_GATE_MAP_LABEL,
+  ALT_GATE_TOAST,
   ALT_TUG_TOAST,
 } from '@/lore/easterEggs'
 import { FloatingWreck } from '@/lore/FloatingWreck'
+import {
+  GATE_MAP_SIZE,
+  MisplantedGate,
+} from '@/lore/MisplantedGate'
+import {
+  DYSON_MAP_SIZE,
+  VesperSatelliteRing,
+  createSiphonDockRefs,
+  listSiphonIndices,
+  siphonPadName,
+} from '@/lore/VesperSatelliteRing'
 import type { PlayerCargoStatus } from '@/loot/cargoBait'
 import type { MaterialKind } from '@/loot/economy'
 import {
@@ -74,6 +93,7 @@ import {
 import { AsteroidBelt } from '@/world/AsteroidBelt'
 import { Nebula } from '@/world/Nebula'
 import { Planet } from '@/world/Planet'
+import { StableGodRays } from '@/world/StableGodRays'
 import { Starfield } from '@/world/Starfield'
 import { Sun } from '@/world/Sun'
 import {
@@ -86,6 +106,8 @@ import { STATION_MODEL_URLS } from '@/world/SpaceStation'
 export const ALT_TUG_DOCK_RANGE = 42
 const TUG_OFFSET: [number, number, number] = [380, 28, 90]
 const CASSINI_OFFSET: [number, number, number] = [-240, -40, 200]
+/** Past Nyx toward V-3 — empty ring the surveyors dropped in the wrong sky. */
+const GATE_OFFSET: [number, number, number] = [580, 70, -220]
 
 const SpaceStation = lazy(() =>
   import('@/world/SpaceStation').then((m) => ({ default: m.SpaceStation })),
@@ -153,6 +175,10 @@ export const NyxAltSpace = memo(function NyxAltSpace({
   onNyxTugSeen,
   nyxCassiniSeen = false,
   onNyxCassiniSeen,
+  nyxGateSeen = false,
+  onNyxGateSeen,
+  vesperSiphonRepaired = [],
+  gatePowered = false,
   adminWarpTarget = null,
 }: {
   started: boolean
@@ -182,6 +208,10 @@ export const NyxAltSpace = memo(function NyxAltSpace({
   onNyxTugSeen?: (toast: string) => void
   nyxCassiniSeen?: boolean
   onNyxCassiniSeen?: (toast: string) => void
+  nyxGateSeen?: boolean
+  onNyxGateSeen?: (toast: string) => void
+  vesperSiphonRepaired?: readonly number[]
+  gatePowered?: boolean
   adminWarpTarget?: AdminWarpRequest | null
 }) {
   const innerPlanet = useRef<Group>(null)
@@ -191,23 +221,271 @@ export const NyxAltSpace = memo(function NyxAltSpace({
   const nyxStation = useRef<Group>(null)
   const tugStation = useRef<Group>(null)
   const cassiniWreck = useRef<Group>(null)
+  const misplantedGate = useRef<Group>(null)
+  const dysonRingMap = useRef<Group>(null)
+  const siphonDockRefs = useMemo(() => createSiphonDockRefs(), [])
   const mapCloakRef = useRef(false)
   const asteroidHazards = useRef<HazardField | null>(null)
+  const gateHazards = useRef<HazardField | null>(null)
+  const dysonHazards = useRef<HazardField | null>(null)
   const materialDrops = useRef<MaterialDropsHandle | null>(null)
   const dockedAtTug = docked && dockStationName === STATION_NAMES.nyxTug
+  const sunMesh = useRef<Mesh>(null!)
+  const [sunReady, setSunReady] = useState(false)
+  const onSunReady = useCallback((mesh: Mesh | null) => {
+    setSunReady(!!mesh)
+  }, [])
+
+  const {
+    ambient,
+    envFill,
+    sunColor,
+    sunIntensity,
+    sunDistance,
+    elevation,
+    azimuth,
+    flowSpeed,
+    bloomIntensity,
+    bloomThreshold,
+    godRays,
+    count,
+    depth,
+    radius,
+    factor,
+    saturation,
+    fade,
+    speed,
+    shellIntensity,
+    wispCount,
+    wispOpacity,
+    mu,
+    siphonOrbitSpeed,
+    siphonInclination,
+    siphonTiltYaw,
+    siphonTiltRoll,
+    siphonDisplayScale,
+    siphonBeaconGain,
+    siphonDockRange,
+    siphonAttachClearance,
+    siphonForcePowered,
+  } = useControls('Env · Vesper', {
+    lighting: folder(
+      {
+        ambient: {
+          value: 0.12,
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: 'Ambient',
+        },
+        envFill: {
+          value: 0.4,
+          min: 0,
+          max: 2,
+          step: 0.05,
+          label: 'Env fill',
+        },
+      },
+      { collapsed: true },
+    ),
+    sun: folder(
+      {
+        sunColor: { value: ALT_SUN_COLOR, label: 'Color' },
+        sunIntensity: {
+          value: ALT_SUN_INTENSITY,
+          min: 0,
+          max: 8,
+          step: 0.05,
+          label: 'Intensity',
+        },
+        sunDistance: {
+          value: 283,
+          min: 80,
+          max: 1200,
+          step: 5,
+          label: 'Distance',
+        },
+        elevation: { value: 8, min: -60, max: 80, step: 1 },
+        azimuth: { value: 180, min: 0, max: 360, step: 1 },
+        flowSpeed: {
+          value: 0.85,
+          min: 0,
+          max: 3,
+          step: 0.05,
+          label: 'Surface speed',
+        },
+      },
+      { collapsed: false },
+    ),
+    post: folder(
+      {
+        bloomIntensity: {
+          value: 0.38,
+          min: 0,
+          max: 4,
+          step: 0.05,
+          label: 'Bloom',
+        },
+        bloomThreshold: {
+          value: 0.72,
+          min: 0,
+          max: 1,
+          step: 0.01,
+          label: 'Bloom threshold',
+        },
+        godRays: { value: false, label: 'Post god rays' },
+      },
+      { collapsed: true },
+    ),
+    stars: folder(
+      {
+        count: { value: 4200, min: 500, max: 12000, step: 100 },
+        depth: { value: 90, min: 10, max: 200, step: 1 },
+        radius: { value: 1400, min: 20, max: 2000, step: 5 },
+        factor: { value: 3.2, min: 1, max: 12, step: 0.1 },
+        saturation: { value: 0.35, min: 0, max: 1, step: 0.01 },
+        fade: true,
+        speed: { value: 0.35, min: 0, max: 4, step: 0.05 },
+      },
+      { collapsed: true },
+    ),
+    nebula: folder(
+      {
+        shellIntensity: {
+          value: 0.48,
+          min: 0,
+          max: 1.2,
+          step: 0.02,
+          label: 'Shell',
+        },
+        wispCount: {
+          value: 56,
+          min: 0,
+          max: 120,
+          step: 1,
+          label: 'Wisps',
+        },
+        wispOpacity: {
+          value: 0.24,
+          min: 0,
+          max: 0.6,
+          step: 0.01,
+          label: 'Wisp opacity',
+        },
+      },
+      { collapsed: false },
+    ),
+    gravity: folder(
+      {
+        mu: {
+          value: 4000,
+          min: 500,
+          max: 500000,
+          step: 500,
+          label: 'μ (GM)',
+        },
+      },
+      { collapsed: true },
+    ),
+    siphon: folder(
+      {
+        siphonOrbitSpeed: {
+          value: 0.006,
+          min: 0,
+          max: 0.05,
+          step: 0.001,
+          label: 'Orbit speed',
+        },
+        siphonInclination: {
+          value: ALT_DYSON_INCLINATION,
+          min: -1.2,
+          max: 1.2,
+          step: 0.01,
+          label: 'Inclination',
+        },
+        siphonTiltYaw: {
+          value: 0.15,
+          min: -1,
+          max: 1,
+          step: 0.01,
+          label: 'Tilt yaw',
+        },
+        siphonTiltRoll: {
+          value: -0.08,
+          min: -1,
+          max: 1,
+          step: 0.01,
+          label: 'Tilt roll',
+        },
+        siphonDisplayScale: {
+          value: 3.6,
+          min: 1,
+          max: 8,
+          step: 0.1,
+          label: 'Pad scale',
+        },
+        siphonBeaconGain: {
+          value: 1,
+          min: 0,
+          max: 3,
+          step: 0.05,
+          label: 'Beacon gain',
+        },
+        siphonDockRange: {
+          value: 48,
+          min: 12,
+          max: 120,
+          step: 1,
+          label: 'Dock range',
+        },
+        siphonAttachClearance: {
+          value: 4.2,
+          min: 1,
+          max: 16,
+          step: 0.1,
+          label: 'Attach clearance',
+        },
+        siphonForcePowered: {
+          value: false,
+          label: 'Force gate + portal',
+        },
+      },
+      { collapsed: false },
+    ),
+  },
+    { order: 1 },
+  )
 
   const sunSize = ALT_SUN_SIZE
-  const sunColor = ALT_SUN_COLOR
-  const sunIntensity = ALT_SUN_INTENSITY
-  const sunPosition = useMemo(
-    () => [0, 40, -280] as [number, number, number],
+  const sunPosition = useMemo(() => {
+    const phi = ((90 - elevation) * Math.PI) / 180
+    const theta = (azimuth * Math.PI) / 180
+    const pos = new Vector3().setFromSphericalCoords(sunDistance, phi, theta)
+    return [pos.x, pos.y, pos.z] as [number, number, number]
+  }, [azimuth, elevation, sunDistance])
+  const hazardFields = useMemo(
+    () => [asteroidHazards, gateHazards, dysonHazards],
     [],
   )
-  const mu = 4000
-  const hazardFields = useMemo(() => [asteroidHazards], [])
 
   const adminWarpRequest = useMemo(() => {
     if (!adminWarpTarget) return null
+    if (adminWarpTarget.id === 'siphon') {
+      return {
+        seq: adminWarpTarget.seq,
+        x: sunPosition[0] + ALT_DYSON_ORBIT - 70,
+        y: sunPosition[1] + 90,
+        z: sunPosition[2] + 40,
+      }
+    }
+    if (adminWarpTarget.id === 'gate') {
+      return {
+        seq: adminWarpTarget.seq,
+        x: sunPosition[0] + GATE_OFFSET[0],
+        y: sunPosition[1] + GATE_OFFSET[1] + 30,
+        z: sunPosition[2] + GATE_OFFSET[2],
+      }
+    }
     const orbit =
       adminWarpTarget.id === 'sun'
         ? ALT_SUN_SIZE + 40
@@ -244,8 +522,18 @@ export const NyxAltSpace = memo(function NyxAltSpace({
     [],
   )
 
-  const dockBerths = useMemo<DockBerth[]>(
-    () => [
+  const dockBerths = useMemo<DockBerth[]>(() => {
+    const siphonBerths: DockBerth[] = listSiphonIndices().map((index, slot) => ({
+      station: siphonDockRefs[slot]!,
+      planet: siphonDockRefs[slot]!,
+      name: siphonPadName(index),
+      planetDockRange: siphonDockRange,
+      // Pad scaled up vs the ship — stand off beside the hull, frame both
+      attachClearance: siphonAttachClearance,
+      dockCamScale: 0.9,
+      facePad: true,
+    }))
+    return [
       {
         station: nyxStation,
         planet: nyxPlanet,
@@ -259,9 +547,9 @@ export const NyxAltSpace = memo(function NyxAltSpace({
         name: STATION_NAMES.nyxTug,
         planetDockRange: ALT_TUG_DOCK_RANGE,
       },
-    ],
-    [],
-  )
+      ...siphonBerths,
+    ]
+  }, [siphonDockRefs, siphonDockRange, siphonAttachClearance])
 
   const planetHazards = useMemo<CollisionHazard[]>(
     () => [
@@ -343,8 +631,24 @@ export const NyxAltSpace = memo(function NyxAltSpace({
         color: '#8a8070',
         kind: 'moon',
       },
+      {
+        name: ALT_GATE_MAP_LABEL,
+        object: misplantedGate,
+        size: GATE_MAP_SIZE,
+        color: '#6b5cff',
+        kind: 'moon',
+      },
+      {
+        name: ALT_DYSON_MAP_LABEL,
+        object: dysonRingMap,
+        size: DYSON_MAP_SIZE,
+        color: '#5a5088',
+        kind: 'moon',
+        guideOrbit: ALT_DYSON_ORBIT,
+        inclination: siphonInclination,
+      },
     ],
-    [],
+    [siphonInclination],
   )
 
   const mapStations = useMemo<TrackedStation[]>(
@@ -372,14 +676,18 @@ export const NyxAltSpace = memo(function NyxAltSpace({
   return (
     <>
       <color attach="background" args={['#02010a']} />
-      <ambientLight intensity={0.12} color="#6a78a8" />
+      <ambientLight intensity={ambient} color="#6a78a8" />
       <SunLight
         sunPosition={sunPosition}
         intensity={sunIntensity * 1.15}
         color={sunColor}
       />
 
-      <Environment background={false} resolution={128} environmentIntensity={0.4}>
+      <Environment
+        background={false}
+        resolution={128}
+        environmentIntensity={envFill}
+      >
         <Lightformer
           intensity={0.4}
           color="#7080c8"
@@ -395,11 +703,13 @@ export const NyxAltSpace = memo(function NyxAltSpace({
       </Environment>
 
       <Sun
+        sunRef={sunMesh}
+        onReady={onSunReady}
         position={sunPosition}
         size={sunSize}
         color={sunColor}
         intensity={sunIntensity}
-        flowSpeed={0.85}
+        flowSpeed={flowSpeed}
         palette="tint"
       />
 
@@ -495,6 +805,34 @@ export const NyxAltSpace = memo(function NyxAltSpace({
               toast={ALT_CASSINI_TOAST}
               paused={paused}
               stationRef={cassiniWreck}
+            />
+            <MisplantedGate
+              sunPosition={sunPosition}
+              offset={GATE_OFFSET}
+              playerRef={mapShipRef}
+              sightRange={160}
+              alreadySeen={nyxGateSeen}
+              onFirstSight={onNyxGateSeen}
+              toast={ALT_GATE_TOAST}
+              paused={paused}
+              gateRef={misplantedGate}
+              hazardRef={gateHazards}
+              powered={gatePowered || siphonForcePowered}
+            />
+            <VesperSatelliteRing
+              sunPosition={sunPosition}
+              paused={paused}
+              orbitSpeed={siphonOrbitSpeed}
+              inclination={siphonInclination}
+              tiltYaw={siphonTiltYaw}
+              tiltRoll={siphonTiltRoll}
+              displayScale={siphonDisplayScale}
+              beaconIntensity={siphonBeaconGain}
+              mapRef={dysonRingMap}
+              hazardRef={dysonHazards}
+              repairedIds={vesperSiphonRepaired}
+              powered={gatePowered || siphonForcePowered}
+              dockRefs={siphonDockRefs}
             />
           </>
         )}
@@ -610,34 +948,35 @@ export const NyxAltSpace = memo(function NyxAltSpace({
 
       <Nebula
         origin={sunPosition}
-        shellIntensity={0.48}
+        shellIntensity={shellIntensity}
         colorA="#3a2a78"
         colorB="#1e3a68"
         colorC="#6a3858"
         wispInner={ALT_BELT_INNER - 20}
         wispOuter={ALT_BELT_OUTER + 80}
-        wispCount={56}
-        wispOpacity={0.24}
+        wispCount={wispCount}
+        wispOpacity={wispOpacity}
         paused={paused}
       />
 
       <Starfield
-        radius={1400}
-        depth={90}
-        count={4200}
-        factor={3.2}
-        saturation={0.35}
-        fade
-        speed={0.35}
+        radius={radius}
+        depth={depth}
+        count={count}
+        factor={factor}
+        saturation={saturation}
+        fade={fade}
+        speed={speed}
       />
 
       <EffectComposer enableNormalPass={false} multisampling={0}>
         <Bloom
-          intensity={0.38}
-          luminanceThreshold={0.72}
+          intensity={bloomIntensity}
+          luminanceThreshold={bloomThreshold}
           luminanceSmoothing={0.9}
           mipmapBlur
         />
+        {godRays && sunReady ? <StableGodRays sun={sunMesh} /> : <></>}
       </EffectComposer>
     </>
   )

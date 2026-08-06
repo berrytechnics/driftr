@@ -89,9 +89,13 @@ function framingScale(snapshot: MapSnapshot) {
     const e = b.eccentricity ?? 0
     return e > 0 ? a * (1 + e) : a
   })
+  const guidedMoons = snapshot.bodies
+    .filter((b) => b.kind === 'moon' && typeof b.guideOrbit === 'number')
+    .map((b) => b.guideOrbit!)
   const maxOrbit = Math.max(
     snapshot.beltOuter * 1.08,
     ...planetOrbits.map((r) => r * 1.12),
+    ...guidedMoons.map((r) => r * 1.12),
     120,
   )
   return 7.2 / maxOrbit
@@ -237,7 +241,15 @@ type OrbitLayout = {
 function buildOrbitLayout(snap: MapSnapshot): OrbitLayout {
   const scale = framingScale(snap)
   const planets = snap.bodies.filter((b) => b.kind !== 'moon')
-  const orbits = planets.map((body) => {
+  // Planets always get guides; moons only when they declare an explicit orbit
+  // (e.g. Vesper satellite ring charts as a rail, not a world).
+  const guided = [
+    ...planets,
+    ...snap.bodies.filter(
+      (b) => b.kind === 'moon' && typeof b.guideOrbit === 'number',
+    ),
+  ]
+  const orbits = guided.map((body) => {
     const guide =
       body.guideOrbit ?? Math.hypot(body.x, body.y, body.z)
     return {
@@ -282,9 +294,11 @@ function buildOrbitLayout(snap: MapSnapshot): OrbitLayout {
 }
 
 function orbitSignature(snap: MapSnapshot) {
-  const planets = snap.bodies.filter((b) => b.kind !== 'moon')
+  const guided = snap.bodies.filter(
+    (b) => b.kind !== 'moon' || typeof b.guideOrbit === 'number',
+  )
   return (
-    planets
+    guided
       .map(
         (b) =>
           `${b.name}:${(b.guideOrbit ?? 0).toFixed(0)}:${(b.eccentricity ?? 0).toFixed(2)}:${(b.periapsisPhase ?? 0).toFixed(2)}:${(b.inclination ?? 0).toFixed(2)}:${Math.round(Math.hypot(b.x, b.y, b.z))}`,

@@ -55,6 +55,10 @@ export const GameCanvas = memo(function GameCanvas({
   onNyxTugSeen,
   nyxCassiniSeen = false,
   onNyxCassiniSeen,
+  nyxGateSeen = false,
+  onNyxGateSeen,
+  vesperSiphonRepaired = [],
+  gatePowered = false,
   adminWarpTarget = null,
 }: {
   /** Lazy-load heavy station assets after launch (or docked save). */
@@ -105,6 +109,10 @@ export const GameCanvas = memo(function GameCanvas({
   onNyxTugSeen?: (toast: string) => void
   nyxCassiniSeen?: boolean
   onNyxCassiniSeen?: (toast: string) => void
+  nyxGateSeen?: boolean
+  onNyxGateSeen?: (toast: string) => void
+  vesperSiphonRepaired?: readonly number[]
+  gatePowered?: boolean
   adminWarpTarget?: AdminWarpRequest | null
 }) {
   const alt = systemId === SYSTEM_IDS.nyxAlt
@@ -152,6 +160,10 @@ export const GameCanvas = memo(function GameCanvas({
           onNyxTugSeen={onNyxTugSeen}
           nyxCassiniSeen={nyxCassiniSeen}
           onNyxCassiniSeen={onNyxCassiniSeen}
+          nyxGateSeen={nyxGateSeen}
+          onNyxGateSeen={onNyxGateSeen}
+          vesperSiphonRepaired={vesperSiphonRepaired}
+          gatePowered={gatePowered}
           adminWarpTarget={adminWarpTarget}
         />
       ) : (

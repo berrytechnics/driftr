@@ -327,6 +327,15 @@ export type DockBerth = {
    * (planet radius + station altitude + approach pad).
    */
   planetDockRange: number
+  /** Chase-cam pullback while hard-docked (default 1). Smaller = closer. */
+  dockCamScale?: number
+  /** Ship standoff from the pad while hard-docked. */
+  attachClearance?: number
+  /**
+   * Face the pad after attach — needed for free-floating berths where
+   * station === planet (otherwise we look into empty space).
+   */
+  facePad?: boolean
 }
 
 /** Extra clearance beyond the station’s orbit altitude. */
@@ -412,15 +421,19 @@ function placeShipAtAnchor(
   anchor: Object3D,
   planet: Object3D | null | undefined,
   clearance: number,
+  facePad = false,
 ) {
   anchor.updateWorldMatrix(true, false)
   anchor.getWorldPosition(_hazardPos)
 
-  if (planet) {
+  const sameBody = !!planet && planet === anchor
+  if (planet && !sameBody) {
     planet.getWorldPosition(_deathPos)
     _forward.copy(_hazardPos).sub(_deathPos)
   } else {
-    _forward.set(0, 0, 1).transformDirection(anchor.matrixWorld)
+    // Free-floating pad — stand off on a camera-friendly diagonal
+    _forward.set(0.72, 0.28, 0.58).normalize()
+    _forward.transformDirection(anchor.matrixWorld)
   }
   if (_forward.lengthSq() < 1e-8) {
     _forward.set(0, 0, 1).transformDirection(anchor.matrixWorld)
@@ -433,14 +446,19 @@ function placeShipAtAnchor(
   group.position
     .copy(_hazardPos)
     .addScaledVector(_forward, clearance)
-    .addScaledVector(_up, Math.max(1.2, clearance * 0.2))
+    .addScaledVector(_up, Math.max(facePad ? 0.35 : 1.2, clearance * 0.2))
   // Nudge away so the orbiting station doesn't immediately sweep back into us
-  velocity.copy(_forward).multiplyScalar(3.5)
-  group.lookAt(
-    group.position.x + _forward.x,
-    group.position.y + _forward.y,
-    group.position.z + _forward.z,
-  )
+  velocity.copy(_forward).multiplyScalar(facePad ? 1.2 : 3.5)
+  if (facePad) {
+    // Aim the nose at the pad so the chase cam frames both craft and berth
+    group.lookAt(_hazardPos.x, _hazardPos.y, _hazardPos.z)
+  } else {
+    group.lookAt(
+      group.position.x + _forward.x,
+      group.position.y + _forward.y,
+      group.position.z + _forward.z,
+    )
+  }
 }
 
 function placeShip(
@@ -701,7 +719,9 @@ export function PlayerShip({
       },
       { collapsed: false },
     ),
-  })
+  },
+    { order: 2 },
+  )
 
   const {
     fireRate,
@@ -1034,13 +1054,17 @@ export function PlayerShip({
         berth?.station.current ?? spawnAnchorRef?.current ?? null
       const planet =
         berth?.planet.current ?? spawnPlanetRef?.current ?? null
+      const clearance = berth?.attachClearance ?? DOCK_ATTACH_CLEARANCE
+      const facePad = !!berth?.facePad
+      const camScale = berth?.dockCamScale ?? 1
       if (anchor) {
         placeShipAtAnchor(
           group,
           velocity.current,
           anchor,
           planet,
-          DOCK_ATTACH_CLEARANCE,
+          clearance,
+          facePad,
         )
         velocity.current.set(0, 0, 0)
         lookWish.current.copy(group.quaternion)
@@ -1054,12 +1078,16 @@ export function PlayerShip({
       _up.set(0, 1, 0).applyQuaternion(group.quaternion)
       _camPos
         .copy(group.position)
-        .addScaledVector(_forward, -camDistance * 1.35)
-        .addScaledVector(_up, camHeight * 1.2)
+        .addScaledVector(_forward, -camDistance * 1.35 * camScale)
+        .addScaledVector(_up, camHeight * 1.2 * camScale)
       _lookAt
         .copy(group.position)
-        .addScaledVector(_forward, lookAhead)
-        .addScaledVector(_up, camHeight)
+        .addScaledVector(
+          _forward,
+          // Peek slightly past the ship toward the pad when facing it
+          facePad ? lookAhead * 0.35 * camScale : lookAhead,
+        )
+        .addScaledVector(_up, camHeight * camScale)
       // Hard-lock like flight — soft lerp lagged the orbiting berth and
       // made view-dir wobble against the stars (frame-time dependent).
       camera.position.copy(_camPos)

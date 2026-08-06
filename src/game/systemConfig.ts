@@ -91,7 +91,7 @@ export const ALT_SUN_INTENSITY = 1.65
 /**
  * Vesper chart — quiet gaps between catalog bodies; only Nyx keeps a name.
  *   V-1 arid 7.2 @ 175 | V-2 rocky 10.5 @ 290 | Nyx ashen 5.7 @ 420
- *   belt 150–620 | V-3 frozen 13.8 @ 810
+ *   belt 150–620 | V-3 frozen 13.8 @ 810 | collector rail @ 980
  */
 export const ALT_INNER_SIZE = 7.2
 export const ALT_INNER_ORBIT = 175
@@ -113,3 +113,10 @@ export const ALT_NYX_NAME = PLANET_NAMES.outerDwarf
 /** Sparse loose field of large rocks around Vesper (Nyx sits near mid-annulus). */
 export const ALT_BELT_INNER = 150
 export const ALT_BELT_OUTER = 620
+/**
+ * Derelict collector ring outside every catalog orbit (past V-3 apo ≈907).
+ * Near-complete satellite rail meant to feed the misplanted gate — dark now.
+ */
+export const ALT_DYSON_ORBIT = 980
+/** Dramatic tilt so the ring reads as a silhouette from most approaches. */
+export const ALT_DYSON_INCLINATION = 0.52

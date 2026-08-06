@@ -68,25 +68,44 @@ export const ALT_TUG_CREW_LOG: AltTugLogEntry[] = [
     body: 'Tried the ash dwarf the old maps called Nyx. No Transit. Station on her flank ignores our codes — live lights, dead ears. Outer ice body won’t chart either. No exit marked. No beacon. We are inventorying every burn we have left.',
   },
   {
+    stamp: 'RING · CLOSE',
+    body: 'Found a tilted lattice past the dwarf — hollow throat, unfinished spars, tick marks in a survey hand. Chen said it looked like a pad raised to meet something. We drifted the throat twice. Threaded the gap. Hailed on every band we have. Mott scraped a strut for sample — same charcoal tint as the bad bag. No clamp. No Transit signature. No door. Just empty ring and the wrong sun through it.',
+  },
+  {
     stamp: 'GALLEY · RATION',
-    body: 'Hydroponics never woke. Eating ore-binder paste and the last of the freeze packs. Mott stopped speaking except to count days on the bulkhead. The counts do not agree. Chen says the indigo sun watches too close.',
+    body: 'Hydroponics never woke. Eating ore-binder paste and the last of the freeze packs. Mott stopped speaking except to count days on the bulkhead. The counts do not agree. Chen keeps looking back at the ring on the overlay like it owes us an answer.',
   },
   {
     stamp: 'RECORDER · CORRUPT',
-    body: 'Reyes cut the log twice. Restored from buffer. He says someone is whispering on a dead band — night watches — and we must not reply. Chen replied anyway. Static only. Or not only. Mott will not leave the hold. Says the charcoal ore knows the way home if we listen.',
+    body: 'Reyes cut the log twice. Restored from buffer. He says someone is whispering on a dead band — night watches — and we must not reply. Chen replied anyway. Static only. Or not only. Mott will not leave the hold. Says the charcoal ore knows the way home if we listen. Same ore as the ring scrap.',
   },
   {
     stamp: 'LAST',
-    body: 'Holds sealed. Clamps set. If you find this hull: we came for ore. We searched every dark for a door back to Sol. We did not find one. Rations gone. Reyes is singing to the mike. Chen — I am so—',
+    body: 'Holds sealed. Clamps set. If you find this hull: we came for ore. We searched the ash dwarf, the live-dead station, the empty ring. We searched every dark for a door back to Sol. We did not find one. Rations gone. Reyes is singing to the mike. Chen — I am so—',
   },
 ]
 /** Pause / codex digest of the recovered recorder. */
 export const ALT_TUG_CREW_LOG_DIGEST =
-  'Recovered crew log: Sol ore haul slipped mid-scoop into the wrong sky. Hailed every desk. Found no exit. Starved, still calling on a dead carrier.'
+  'Recovered crew log: Sol ore haul slipped mid-scoop into the wrong sky. Hailed every desk. Threaded an empty survey ring past the ash dwarf — no Transit, no answer. Found no exit. Starved, still calling on a dead carrier.'
 /** Alternate sky — Cassini-class probe husk (visual only). */
 export const ALT_CASSINI_TOAST =
   'Old probe husk. No lock. No reply.'
 export const ALT_CASSINI_MAP_LABEL = 'Probe husk'
+/** Alternate sky — misplanted Transit counterpart ring. */
+export const ALT_GATE_TOAST =
+  'Survey lattice. Ring empty. No Transit signature — the pad was never meant for this sky.'
+export const ALT_GATE_MAP_LABEL = 'Unknown structure'
+export const ALT_GATE_JOURNAL_TITLE = 'Unknown structure'
+export const ALT_GATE_JOURNAL_BODY =
+  'Tilted survey ring past the ashen dwarf. Hollow throat, unfinished struts, tick marks in a dead hand. Nothing answers. Looks like the Transit pad that was raised to meet Nyx — dropped here when the ellipse lied.'
+/** Outer Vesper collector rail — chart label only (no toast yet). */
+export const ALT_DYSON_MAP_LABEL = 'satellite ring'
+/** Cost in Nyx dust to awaken a dormant siphon node. */
+export const SIPHON_REPAIR_SHARD_COST = 5
+export const SIPHON_REPAIR_TOAST =
+  'Node answers. Plates drink again — the lattice remembers light.'
+export const SIPHON_RING_COMPLETE_TOAST =
+  'Every siphon breathes. The empty gate finds a current.'
 export const NYX_COM_GHOST =
   '…solar margin breached… cold… we can still see the belt lights…'
 export const NYX_COMLOG_LABEL = 'COMLOG · NYX-1 · [CORRUPT]'
@@ -188,6 +207,7 @@ export type NyxJournalFlags = {
   nyxDualAshDone: boolean
   nyxTugSeen?: boolean
   nyxCassiniSeen?: boolean
+  nyxGateSeen?: boolean
 }
 
 /** Build ordered journal entries from persisted lore progress. */
@@ -288,6 +308,14 @@ export function buildNyxJournal(flags: NyxJournalFlags): NyxJournalEntry[] {
       id: 'alt-cassini',
       title: 'Probe husk',
       body: ALT_CASSINI_TOAST,
+    })
+  }
+
+  if (flags.nyxGateSeen) {
+    entries.push({
+      id: 'alt-gate',
+      title: ALT_GATE_JOURNAL_TITLE,
+      body: ALT_GATE_JOURNAL_BODY,
     })
   }
 

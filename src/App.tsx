@@ -1,3 +1,4 @@
+import { Leva } from 'leva'
 import {
   lazy,
   Suspense,
@@ -102,7 +103,18 @@ import {
   NYX_WHISPER_COOLDOWN_S,
   NYX_WHISPER_TEXT,
   rollGhostBerth,
+  SIPHON_REPAIR_SHARD_COST,
+  SIPHON_REPAIR_TOAST,
+  SIPHON_RING_COMPLETE_TOAST,
 } from '@/lore/easterEggs'
+import {
+  isSiphonLive,
+  isSiphonPadName,
+  isSiphonRingComplete,
+  parseSiphonPadIndex,
+  SIPHON_INITIAL_DEAD,
+} from '@/lore/siphonPads'
+import { buildSiphonPadStats } from '@/ui/CollectorPadMenu'
 
 const PauseMenu = lazy(() =>
   import('@/ui/PauseMenu').then((m) => ({ default: m.PauseMenu })),
@@ -112,6 +124,9 @@ const CheatPanel = lazy(() =>
 )
 const StationMenu = lazy(() =>
   import('@/ui/StationMenu').then((m) => ({ default: m.StationMenu })),
+)
+const CollectorPadMenu = lazy(() =>
+  import('@/ui/CollectorPadMenu').then((m) => ({ default: m.CollectorPadMenu })),
 )
 const SystemMap = lazy(() =>
   import('@/map/SystemMap').then((m) => ({ default: m.SystemMap })),
@@ -123,7 +138,6 @@ const DockPrompt = lazy(() =>
 const CHEATS_SESSION_KEY = 'driftr-cheats'
 
 function loadCheatsEnabled() {
-  if (import.meta.env.DEV) return true
   try {
     return sessionStorage.getItem(CHEATS_SESSION_KEY) === '1'
   } catch {
@@ -174,6 +188,10 @@ export default function App() {
   const [nyxTugSeen, setNyxTugSeen] = useState(() => saved.nyxTugSeen)
   const [nyxCassiniSeen, setNyxCassiniSeen] = useState(
     () => saved.nyxCassiniSeen,
+  )
+  const [nyxGateSeen, setNyxGateSeen] = useState(() => saved.nyxGateSeen)
+  const [vesperSiphonRepaired, setVesperSiphonRepaired] = useState<number[]>(
+    () => saved.vesperSiphonRepaired,
   )
   const [nyxDualAshDone, setNyxDualAshDone] = useState(
     () => saved.nyxDualAshDone,
@@ -231,6 +249,8 @@ export default function App() {
   const nyxDerelictSeenRef = useRef(nyxDerelictSeen)
   const nyxTugSeenRef = useRef(nyxTugSeen)
   const nyxCassiniSeenRef = useRef(nyxCassiniSeen)
+  const nyxGateSeenRef = useRef(nyxGateSeen)
+  const vesperSiphonRepairedRef = useRef(vesperSiphonRepaired)
   const nyxDualAshDoneRef = useRef(nyxDualAshDone)
   const nyxHyperionRumorHeardRef = useRef(nyxHyperionRumorHeard)
   const nyxTopicUnlockedRef = useRef(nyxTopicUnlocked)
@@ -270,6 +290,8 @@ export default function App() {
   nyxDerelictSeenRef.current = nyxDerelictSeen
   nyxTugSeenRef.current = nyxTugSeen
   nyxCassiniSeenRef.current = nyxCassiniSeen
+  nyxGateSeenRef.current = nyxGateSeen
+  vesperSiphonRepairedRef.current = vesperSiphonRepaired
   nyxDualAshDoneRef.current = nyxDualAshDone
   nyxHyperionRumorHeardRef.current = nyxHyperionRumorHeard
   nyxTopicUnlockedRef.current = nyxTopicUnlocked
@@ -304,6 +326,8 @@ export default function App() {
       nyxDerelictSeen: nyxDerelictSeenRef.current,
       nyxTugSeen: nyxTugSeenRef.current,
       nyxCassiniSeen: nyxCassiniSeenRef.current,
+      nyxGateSeen: nyxGateSeenRef.current,
+      vesperSiphonRepaired: [...vesperSiphonRepairedRef.current],
       nyxDualAshDone: nyxDualAshDoneRef.current,
       nyxHyperionRumorHeard: nyxHyperionRumorHeardRef.current,
       nyxTopicUnlocked: nyxTopicUnlockedRef.current,
@@ -337,6 +361,8 @@ export default function App() {
     nyxDerelictSeen,
     nyxTugSeen,
     nyxCassiniSeen,
+    nyxGateSeen,
+    vesperSiphonRepaired,
     nyxDualAshDone,
     nyxHyperionRumorHeard,
     nyxTopicUnlocked,
@@ -733,6 +759,9 @@ export default function App() {
         nyxTugSeenRef.current = true
         setNyxTugSeen(true)
       }
+    } else if (isSiphonPadName(arrivedName)) {
+      setGhostBerth(false)
+      setLoreToast(null)
     } else {
       const showGhost = rollGhostBerth(nyxWhisperHeardRef.current)
       setGhostBerth(showGhost)
@@ -772,6 +801,49 @@ export default function App() {
     setLoreToast(toast)
     setLoreToastKey((k) => k + 1)
   }, [])
+
+  const onNyxGateSeen = useCallback((toast: string) => {
+    if (nyxGateSeenRef.current) return
+    setNyxGateSeen(true)
+    setLoreToast(toast)
+    setLoreToastKey((k) => k + 1)
+  }, [])
+
+  const repairSiphonPad = useCallback(() => {
+    if (!dockedRef.current) return
+    const index = parseSiphonPadIndex(dockStationName)
+    if (index == null) return
+    if (!SIPHON_INITIAL_DEAD.has(index)) return
+    if (vesperSiphonRepairedRef.current.includes(index)) return
+    if (nightShardsRef.current < SIPHON_REPAIR_SHARD_COST) return
+
+    nightShardsRef.current -= SIPHON_REPAIR_SHARD_COST
+    setNightShards(nightShardsRef.current)
+
+    const next = [...vesperSiphonRepairedRef.current, index].sort(
+      (a, b) => a - b,
+    )
+    vesperSiphonRepairedRef.current = next
+    setVesperSiphonRepaired(next)
+
+    const complete = isSiphonRingComplete(next)
+    setLoreToast(
+      complete ? SIPHON_RING_COMPLETE_TOAST : SIPHON_REPAIR_TOAST,
+    )
+    setLoreToastKey((k) => k + 1)
+  }, [dockStationName])
+
+  const siphonDockIndex = parseSiphonPadIndex(dockStationName)
+  const gatePowered = isSiphonRingComplete(vesperSiphonRepaired)
+  const siphonPadStats =
+    siphonDockIndex != null
+      ? buildSiphonPadStats(
+          siphonDockIndex,
+          isSiphonLive(siphonDockIndex, vesperSiphonRepaired),
+          gatePowered,
+        )
+      : null
+  const dockedAtSiphon = docked && siphonPadStats != null
 
   const undockFromStation = useCallback(() => {
     dockedRef.current = false
@@ -909,9 +981,27 @@ export default function App() {
     nyxTugSeenRef.current = true
     setNyxCassiniSeen(true)
     nyxCassiniSeenRef.current = true
+    setNyxGateSeen(true)
+    nyxGateSeenRef.current = true
     setNyxDualAshDone(true)
     nyxDualAshDoneRef.current = true
+    const allSiphons = [...SIPHON_INITIAL_DEAD].sort((a, b) => a - b)
+    vesperSiphonRepairedRef.current = allSiphons
+    setVesperSiphonRepaired(allSiphons)
     setNightShards((n) => Math.max(n, 3))
+  }, [])
+
+  const adminRepairAllSiphons = useCallback(() => {
+    const allSiphons = [...SIPHON_INITIAL_DEAD].sort((a, b) => a - b)
+    vesperSiphonRepairedRef.current = allSiphons
+    setVesperSiphonRepaired(allSiphons)
+    setLoreToast(SIPHON_RING_COMPLETE_TOAST)
+    setLoreToastKey((k) => k + 1)
+  }, [])
+
+  const adminClearSiphonRepairs = useCallback(() => {
+    vesperSiphonRepairedRef.current = []
+    setVesperSiphonRepaired([])
   }, [])
 
   const adminClearLore = useCallback(() => {
@@ -935,6 +1025,10 @@ export default function App() {
     nyxTugSeenRef.current = false
     setNyxCassiniSeen(false)
     nyxCassiniSeenRef.current = false
+    setNyxGateSeen(false)
+    nyxGateSeenRef.current = false
+    setVesperSiphonRepaired([])
+    vesperSiphonRepairedRef.current = []
     setNyxDualAshDone(false)
     nyxDualAshDoneRef.current = false
     setNightShards(0)
@@ -981,6 +1075,8 @@ export default function App() {
     nyxDerelictSeenRef.current = next.nyxDerelictSeen
     nyxTugSeenRef.current = next.nyxTugSeen
     nyxCassiniSeenRef.current = next.nyxCassiniSeen
+    nyxGateSeenRef.current = next.nyxGateSeen
+    vesperSiphonRepairedRef.current = next.vesperSiphonRepaired
     nyxDualAshDoneRef.current = next.nyxDualAshDone
     nyxHyperionRumorHeardRef.current = next.nyxHyperionRumorHeard
     nyxTopicUnlockedRef.current = next.nyxTopicUnlocked
@@ -1027,6 +1123,8 @@ export default function App() {
     setNyxDerelictSeen(next.nyxDerelictSeen)
     setNyxTugSeen(next.nyxTugSeen)
     setNyxCassiniSeen(next.nyxCassiniSeen)
+    setNyxGateSeen(next.nyxGateSeen)
+    setVesperSiphonRepaired(next.vesperSiphonRepaired)
     setNyxDualAshDone(next.nyxDualAshDone)
     setNyxHyperionRumorHeard(next.nyxHyperionRumorHeard)
     setNyxTopicUnlocked(next.nyxTopicUnlocked)
@@ -1112,7 +1210,13 @@ export default function App() {
 
   return (
     <>
-      {/* Optional cheat panel — enabled from pause / start MFD */}
+      {/* Single shared leva root — hidden until the player enables cheats */}
+      <Leva
+        hidden={!cheatsEnabled}
+        collapsed={false}
+        oneLineLabels
+        titleBar={{ title: 'DRIFTR · Cheats' }}
+      />
       {cheatsEnabled && (
         <Suspense fallback={null}>
           <CheatPanel
@@ -1127,6 +1231,8 @@ export default function App() {
             onUnlockLore={adminUnlockLore}
             onClearLore={adminClearLore}
             onWarp={adminWarp}
+            onRepairAllSiphons={adminRepairAllSiphons}
+            onClearSiphonRepairs={adminClearSiphonRepairs}
           />
         </Suspense>
       )}
@@ -1170,6 +1276,10 @@ export default function App() {
         onNyxTugSeen={onNyxTugSeen}
         nyxCassiniSeen={nyxCassiniSeen}
         onNyxCassiniSeen={onNyxCassiniSeen}
+        nyxGateSeen={nyxGateSeen}
+        onNyxGateSeen={onNyxGateSeen}
+        vesperSiphonRepaired={vesperSiphonRepaired}
+        gatePowered={gatePowered}
         nyxCorridorUnlockedRef={nyxCorridorUnlockedRef}
         nyxTransitDockable={
           systemId === SYSTEM_IDS.sol &&
@@ -1235,7 +1345,18 @@ export default function App() {
           />
         </Suspense>
       )}
-      {docked && (
+      {docked && dockedAtSiphon && siphonPadStats && (
+        <Suspense fallback={null}>
+          <CollectorPadMenu
+            stationName={dockStationName}
+            stats={siphonPadStats}
+            nightShards={nightShards}
+            onRepair={repairSiphonPad}
+            onUndock={undockFromStation}
+          />
+        </Suspense>
+      )}
+      {docked && !dockedAtSiphon && (
         <Suspense fallback={null}>
           <StationMenu
             stationName={dockStationName}
@@ -1307,6 +1428,7 @@ export default function App() {
               nyxDerelictSeen,
               nyxTugSeen,
               nyxCassiniSeen,
+              nyxGateSeen,
               nyxDualAshDone,
             }}
           />

@@ -8,17 +8,11 @@ const rootDir = path.dirname(fileURLToPath(import.meta.url))
 
 // https://vite.dev/config/
 // Cloudflare Pages (and local) serve from site root.
-export default defineConfig(({ mode }) => ({
+export default defineConfig({
   base: '/',
   resolve: {
     alias: {
       '@': path.resolve(rootDir, 'src'),
-      // Real leva for the optional player cheat panel (lazy-loaded)
-      'leva-runtime': path.resolve(rootDir, 'node_modules/leva'),
-      // Drop world-tuning leva from the production bundle; schemas → defaults
-      ...(mode === 'production'
-        ? { leva: path.resolve(rootDir, 'src/dev/levaStub.ts') }
-        : {}),
     },
   },
   build: {
@@ -127,4 +121,4 @@ export default defineConfig(({ mode }) => ({
       },
     }),
   ],
-}))
+})

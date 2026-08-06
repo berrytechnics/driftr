@@ -253,7 +253,9 @@ export function Nebula({
         fragmentShader: shellFS,
         blending: AdditiveBlending,
         depthWrite: false,
-        depthTest: false,
+        // Far-plane shell (gl_Position.z = w) must depth-test so planets/
+        // moons that already wrote the depth buffer occlude the veil.
+        depthTest: true,
         transparent: true,
         side: DoubleSide,
       }),
