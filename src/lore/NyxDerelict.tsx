@@ -11,26 +11,46 @@ import {
 } from 'three'
 import stationUrl from '@/assets/models/space__station.glb?url'
 import {
-  isNyxNearApoapsis,
-  NYX_DERELICT_PLAYER_RANGE,
-  NYX_DERELICT_TOAST,
-} from '@/lore/easterEggs'
+  OUTER_DWARF_ECC,
+  OUTER_DWARF_ORBIT,
+} from '@/game/systemConfig'
+import { NYX_DERELICT_PLAYER_RANGE, NYX_DERELICT_TOAST } from '@/lore/easterEggs'
+import { placeEllipticalOrbit } from '@/world/gravity'
 
 type NyxDerelictProps = {
-  nyxRef: RefObject<Object3D | null>
   sunPosition: [number, number, number]
   playerRef: RefObject<Object3D | null>
+  /** Must match Nyx Planet orbital elements in Space. */
+  periapsisPhase?: number
+  inclination?: number
+  /** Game freeze — hide mesh but keep pose if docked. */
   paused?: boolean
+  /** Hard-docked at Transit — keep apo pose for ship attach. */
+  docked?: boolean
+  /** Night shards held — denser mesh + DockBerth live. */
+  dockable?: boolean
   alreadySeen?: boolean
   onFirstSight?: (toast: string) => void
+  /** Exposed root for DockBerth hard-dock follow. */
+  stationRef?: RefObject<Group | null>
 }
 
-const _nyx = new Vector3()
-const _player = new Vector3()
 const _sun = new Vector3()
-const GHOST = new Color('#6a5a88')
+const _player = new Vector3()
+const _vel = new Vector3()
+const _look = new Vector3()
+const GHOST = new Color('#8a7ab8')
+const KEYED = new Color('#a898d0')
 
-function ghostMaterials(root: Object3D) {
+/** Approach radius when the apo pad is treated as its own dock "planet". */
+export const NYX_TRANSIT_DOCK_RANGE = 36
+
+/** Match Space.tsx Nyx Planet — phase / inclination of the ellipse. */
+export const NYX_ORBIT_PHASE = 5.6
+export const NYX_ORBIT_INCLINATION = 0.22
+
+function ghostMaterials(root: Object3D, keyed: boolean) {
+  const tint = keyed ? KEYED : GHOST
   root.traverse((child) => {
     const mesh = child as Mesh
     if (!mesh.isMesh) return
@@ -41,12 +61,12 @@ function ghostMaterials(root: Object3D) {
       : [mesh.material]
     for (const material of materials) {
       const mat = material as MeshStandardMaterial
-      if ('color' in mat && mat.color) mat.color.copy(GHOST)
-      if ('emissive' in mat && mat.emissive) mat.emissive.copy(GHOST)
-      if ('emissiveIntensity' in mat) mat.emissiveIntensity = 0.12
+      if ('color' in mat && mat.color) mat.color.copy(tint)
+      if ('emissive' in mat && mat.emissive) mat.emissive.copy(tint)
+      if ('emissiveIntensity' in mat) mat.emissiveIntensity = keyed ? 0.38 : 0.26
       if ('transparent' in mat) mat.transparent = true
-      if ('opacity' in mat) mat.opacity = 0.28
-      if ('depthWrite' in mat) mat.depthWrite = false
+      if ('opacity' in mat) mat.opacity = keyed ? 0.72 : 0.52
+      if ('depthWrite' in mat) mat.depthWrite = keyed
       if ('metalness' in mat) mat.metalness = 0.15
       if ('roughness' in mat) mat.roughness = 0.85
       mat.needsUpdate = true
@@ -55,24 +75,29 @@ function ghostMaterials(root: Object3D) {
 }
 
 /**
- * Decommissioned Nyx Transit berth — translucent ghost mesh, visible only
- * when Nyx is near apoapsis and the pilot is close. Not dockable.
+ * Nyx Transit ghost pad — parked at the apoapsis of Nyx’s ellipse (a place on
+ * her path, not on the dwarf). Night dust densifies it into a hard-dock berth.
  */
 export function NyxDerelict({
-  nyxRef,
   sunPosition,
   playerRef,
+  periapsisPhase = NYX_ORBIT_PHASE,
+  inclination = NYX_ORBIT_INCLINATION,
   paused = false,
+  docked = false,
+  dockable = false,
   alreadySeen = false,
   onFirstSight,
+  stationRef,
 }: NyxDerelictProps) {
   const root = useRef<Group>(null!)
   const seenRef = useRef(alreadySeen)
+  const keyedRef = useRef(dockable)
   seenRef.current = alreadySeen
   const { scene } = useGLTF(stationUrl, true, true)
   const model = useMemo(() => {
     const clone = scene.clone(true)
-    ghostMaterials(clone)
+    ghostMaterials(clone, false)
     return clone
   }, [scene])
 
@@ -82,24 +107,33 @@ export function NyxDerelict({
 
   useFrame(() => {
     const group = root.current
-    const nyx = nyxRef.current
-    if (!group || !nyx) return
-    if (paused) {
+    if (!group) return
+
+    if (keyedRef.current !== dockable) {
+      keyedRef.current = dockable
+      ghostMaterials(model, dockable)
+    }
+
+    _sun.set(...sunPosition)
+    placeEllipticalOrbit(
+      group.position,
+      _vel,
+      _sun,
+      OUTER_DWARF_ORBIT,
+      OUTER_DWARF_ECC,
+      1,
+      periapsisPhase,
+      inclination,
+      1, // apoapsis of Nyx’s path
+    )
+    // Face sunward (in from the far turn)
+    _look.copy(_sun)
+    group.lookAt(_look)
+
+    if (paused && !docked) {
       group.visible = false
       return
     }
-
-    nyx.getWorldPosition(_nyx)
-    _sun.set(...sunPosition)
-    const sunDist = _nyx.distanceTo(_sun)
-    const atApo = isNyxNearApoapsis(sunDist)
-
-    // Hold a fixed local berth offset from Nyx
-    group.position.copy(_nyx)
-    group.position.x += 14
-    group.position.y += 3
-    group.position.z += 8
-    group.lookAt(_nyx)
 
     const player = playerRef.current
     let nearPlayer = false
@@ -109,18 +143,25 @@ export function NyxDerelict({
         group.position.distanceTo(_player) < NYX_DERELICT_PLAYER_RANGE
     }
 
-    const show = atApo && nearPlayer
+    const show = docked || nearPlayer
     group.visible = show
-    if (show && !seenRef.current) {
+
+    if (nearPlayer && !seenRef.current) {
       seenRef.current = true
       onFirstSight?.(NYX_DERELICT_TOAST)
     }
   })
 
   return (
-    <group ref={root} visible={false}>
+    <group
+      ref={(node) => {
+        root.current = node!
+        if (stationRef) stationRef.current = node
+      }}
+      visible={false}
+    >
       <Center>
-        <primitive object={model} scale={0.32} />
+        <primitive object={model} scale={0.42} />
       </Center>
     </group>
   )

@@ -2,13 +2,23 @@ import { useFrame } from '@react-three/fiber'
 import { useRef, type MutableRefObject, type RefObject } from 'react'
 import { Vector3, type Object3D } from 'three'
 import {
+  OUTER_DWARF_ECC,
+  OUTER_DWARF_ORBIT,
+} from '@/game/systemConfig'
+import {
+  NYX_APO_MAP_LABEL,
   NYX_BEACON_APPROACH_RANGE,
   NYX_BEACON_COOLDOWN_S,
   NYX_BEACON_LABEL,
   NYX_BEACON_LIFE_S,
   NYX_BEACON_NEAR_RANGE,
 } from '@/lore/easterEggs'
+import {
+  NYX_ORBIT_INCLINATION,
+  NYX_ORBIT_PHASE,
+} from '@/lore/NyxDerelict'
 import type { MapLorePing } from '@/map/systemMap'
+import { placeEllipticalOrbit } from '@/world/gravity'
 
 type NyxBeaconProps = {
   nyxRef: RefObject<Object3D | null>
@@ -16,19 +26,31 @@ type NyxBeaconProps = {
   playerRef: RefObject<Object3D | null>
   lorePingsRef: MutableRefObject<MapLorePing[]>
   paused?: boolean
+  /** Persist apo pad mark after Hyperion clue (until ghost found). */
+  apoMarkActive?: boolean
+  periapsisPhase?: number
+  inclination?: number
 }
 
 const _nyx = new Vector3()
 const _player = new Vector3()
 const _sun = new Vector3()
+const _apo = new Vector3()
+const _vel = new Vector3()
 
-/** Rare cold distress ping near Nyx — writes into the map lore ping list. */
+/**
+ * Map lore pings: ephemeral NT-0 near Nyx, plus sticky apo Transit mark
+ * once Hyperion points you at the far turn.
+ */
 export function NyxBeacon({
   nyxRef,
   sunPosition,
   playerRef,
   lorePingsRef,
   paused = false,
+  apoMarkActive = false,
+  periapsisPhase = NYX_ORBIT_PHASE,
+  inclination = NYX_ORBIT_INCLINATION,
 }: NyxBeaconProps) {
   const cooldown = useRef(12)
   const activeLife = useRef(0)
@@ -59,6 +81,27 @@ export function NyxBeacon({
     }
 
     list.length = 0
+
+    if (apoMarkActive) {
+      placeEllipticalOrbit(
+        _apo,
+        _vel,
+        _sun,
+        OUTER_DWARF_ORBIT,
+        OUTER_DWARF_ECC,
+        1,
+        periapsisPhase,
+        inclination,
+        1,
+      )
+      list.push({
+        x: _apo.x - _sun.x,
+        y: _apo.y - _sun.y,
+        z: _apo.z - _sun.z,
+        label: NYX_APO_MAP_LABEL,
+      })
+    }
+
     if (ping.current && activeLife.current > 0) {
       list.push({ ...ping.current })
     }
@@ -74,6 +117,7 @@ export function NyxBeacon({
 
     ping.current = {
       x: _nyx.x - _sun.x,
+      y: _nyx.y - _sun.y,
       z: _nyx.z - _sun.z,
       label: NYX_BEACON_LABEL,
     }

@@ -17,6 +17,8 @@ export type TrackedBody = {
   eccentricity?: number
   /** Periapsis angle in the map XZ plane (radians) */
   periapsisPhase?: number
+  /** Orbital plane tilt (radians) */
+  inclination?: number
 }
 
 type MapTrackerProps = {
@@ -31,6 +33,8 @@ type MapTrackerProps = {
   shipRef?: RefObject<Group | null>
   banditRefs?: RefObject<Group | null>[]
   patrolRefs?: RefObject<Group | null>[]
+  /** Dock stations — shown when the object exists. */
+  stationRefs?: RefObject<Object3D | null>[]
   /** When true, bandit / patrol pips are omitted from the map snapshot */
   hideNpcsRef?: RefObject<boolean>
   /** Ship-relative contact radius for NPC pips (world units). */
@@ -47,7 +51,7 @@ const _pos = new Vector3()
 const _sun = new Vector3()
 const _forward = new Vector3()
 
-/** Writes a sun-centered XZ snapshot each frame for the hold-M system map. */
+/** Writes a sun-centered XYZ snapshot each frame for the system map. */
 export function MapTracker({
   snapshotRef,
   sunPosition,
@@ -60,6 +64,7 @@ export function MapTracker({
   shipRef,
   banditRefs,
   patrolRefs,
+  stationRefs,
   hideNpcsRef,
   sensorRangeRef,
   nyxOrbitGlowRef,
@@ -82,14 +87,13 @@ export function MapTracker({
     snap.nyxCorridorUnlocked = !!nyxCorridorUnlockedRef?.current
 
     const srcPings = lorePingsRef?.current
-    const dstPings = snap.lorePings
-    if (!dstPings) {
-      snap.lorePings = []
-    }
+    if (!snap.lorePings) snap.lorePings = []
     const out = snap.lorePings
     out.length = 0
     if (srcPings) {
-      for (const p of srcPings) out.push({ x: p.x, z: p.z, label: p.label })
+      for (const p of srcPings) {
+        out.push({ x: p.x, y: p.y ?? 0, z: p.z, label: p.label })
+      }
     }
 
     snap.starName = starName
@@ -108,6 +112,7 @@ export function MapTracker({
         list[i] = {
           name: src.name,
           x: 0,
+          y: 0,
           z: 0,
           size: src.size,
           color: src.color,
@@ -122,9 +127,11 @@ export function MapTracker({
       dst.guideOrbit = src.guideOrbit
       dst.eccentricity = src.eccentricity
       dst.periapsisPhase = src.periapsisPhase
+      dst.inclination = src.inclination
       if (obj) {
         obj.getWorldPosition(_pos)
         dst.x = _pos.x - _sun.x
+        dst.y = _pos.y - _sun.y
         dst.z = _pos.z - _sun.z
       }
     }
@@ -132,12 +139,12 @@ export function MapTracker({
     const ship = shipRef?.current
     if (ship) {
       ship.getWorldPosition(_pos)
-      // Ship forward is local −Z; map +Y is world −Z, so 0° points up on the map
       _forward.set(0, 0, -1).applyQuaternion(ship.quaternion)
       const heading =
         (Math.atan2(_forward.x, -_forward.z) * 180) / Math.PI
-      if (!snap.ship) snap.ship = { x: 0, z: 0, heading: 0 }
+      if (!snap.ship) snap.ship = { x: 0, y: 0, z: 0, heading: 0 }
       snap.ship.x = _pos.x - _sun.x
+      snap.ship.y = _pos.y - _sun.y
       snap.ship.z = _pos.z - _sun.z
       snap.ship.heading = heading
     } else {
@@ -150,6 +157,7 @@ export function MapTracker({
         ? range * range
         : Infinity
     const sx = snap.ship?.x ?? 0
+    const sy = snap.ship?.y ?? 0
     const sz = snap.ship?.z ?? 0
 
     const bandits = snap.bandits
@@ -160,11 +168,13 @@ export function MapTracker({
         if (!bandit || !bandit.visible) continue
         bandit.getWorldPosition(_pos)
         const x = _pos.x - _sun.x
+        const y = _pos.y - _sun.y
         const z = _pos.z - _sun.z
         const dx = x - sx
+        const dy = y - sy
         const dz = z - sz
-        if (dx * dx + dz * dz > rangeSq) continue
-        bandits.push({ x, z })
+        if (dx * dx + dy * dy + dz * dz > rangeSq) continue
+        bandits.push({ x, y, z })
       }
     }
 
@@ -176,11 +186,29 @@ export function MapTracker({
         if (!patrol || !patrol.visible) continue
         patrol.getWorldPosition(_pos)
         const x = _pos.x - _sun.x
+        const y = _pos.y - _sun.y
         const z = _pos.z - _sun.z
         const dx = x - sx
+        const dy = y - sy
         const dz = z - sz
-        if (dx * dx + dz * dz > rangeSq) continue
-        patrols.push({ x, z })
+        if (dx * dx + dy * dy + dz * dz > rangeSq) continue
+        patrols.push({ x, y, z })
+      }
+    }
+
+    if (!snap.stations) snap.stations = []
+    const stations = snap.stations
+    stations.length = 0
+    if (stationRefs) {
+      for (const ref of stationRefs) {
+        const station = ref.current
+        if (!station) continue
+        station.getWorldPosition(_pos)
+        stations.push({
+          x: _pos.x - _sun.x,
+          y: _pos.y - _sun.y,
+          z: _pos.z - _sun.z,
+        })
       }
     }
   })

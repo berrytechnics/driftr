@@ -75,7 +75,10 @@ import {
   isNearHyperion,
   isNearNyx,
   isNyxWhisperAltitude,
+  NYX_DUST_KEY_TOAST,
+  NYX_EMPTY_TOAST,
   NYX_HYPERION_RUMOR,
+  NYX_TRANSIT_DOCK_TOAST,
   NYX_WHISPER_COOLDOWN_S,
   NYX_WHISPER_TEXT,
   rollGhostBerth,
@@ -135,6 +138,13 @@ export default function App() {
   const [nyxHyperionRumorHeard, setNyxHyperionRumorHeard] = useState(
     () => saved.nyxHyperionRumorHeard,
   )
+  const [nyxTopicUnlocked, setNyxTopicUnlocked] = useState(
+    () => saved.nyxTopicUnlocked,
+  )
+  const [nyxHyperionLead, setNyxHyperionLead] = useState(
+    () => saved.nyxHyperionLead,
+  )
+  const [nyxFoundEmpty, setNyxFoundEmpty] = useState(() => saved.nyxFoundEmpty)
   const [hideIntroSynopsis, setHideIntroSynopsis] = useState(
     () => saved.hideIntroSynopsis,
   )
@@ -176,6 +186,9 @@ export default function App() {
   const nyxDerelictSeenRef = useRef(nyxDerelictSeen)
   const nyxDualAshDoneRef = useRef(nyxDualAshDone)
   const nyxHyperionRumorHeardRef = useRef(nyxHyperionRumorHeard)
+  const nyxTopicUnlockedRef = useRef(nyxTopicUnlocked)
+  const nyxHyperionLeadRef = useRef(nyxHyperionLead)
+  const nyxFoundEmptyRef = useRef(nyxFoundEmpty)
   const hideIntroSynopsisRef = useRef(hideIntroSynopsis)
   const nyxWhisperCooldown = useRef(0)
   const telemetryRef = useRef<OrbitalTelemetry | null>(null)
@@ -204,6 +217,9 @@ export default function App() {
   nyxDerelictSeenRef.current = nyxDerelictSeen
   nyxDualAshDoneRef.current = nyxDualAshDone
   nyxHyperionRumorHeardRef.current = nyxHyperionRumorHeard
+  nyxTopicUnlockedRef.current = nyxTopicUnlocked
+  nyxHyperionLeadRef.current = nyxHyperionLead
+  nyxFoundEmptyRef.current = nyxFoundEmpty
   hideIntroSynopsisRef.current = hideIntroSynopsis
 
   const persistNow = useCallback(() => {
@@ -230,6 +246,9 @@ export default function App() {
       nyxDerelictSeen: nyxDerelictSeenRef.current,
       nyxDualAshDone: nyxDualAshDoneRef.current,
       nyxHyperionRumorHeard: nyxHyperionRumorHeardRef.current,
+      nyxTopicUnlocked: nyxTopicUnlockedRef.current,
+      nyxHyperionLead: nyxHyperionLeadRef.current,
+      nyxFoundEmpty: nyxFoundEmptyRef.current,
       hideIntroSynopsis: hideIntroSynopsisRef.current,
     }
     saveGameSave(snapshot)
@@ -256,6 +275,9 @@ export default function App() {
     nyxDerelictSeen,
     nyxDualAshDone,
     nyxHyperionRumorHeard,
+    nyxTopicUnlocked,
+    nyxHyperionLead,
+    nyxFoundEmpty,
     hideIntroSynopsis,
     persistNow,
   ])
@@ -291,6 +313,19 @@ export default function App() {
     }
   }, [])
 
+  const unlockNyxTopic = useCallback(() => {
+    if (nyxTopicUnlockedRef.current) return
+    nyxTopicUnlockedRef.current = true
+    setNyxTopicUnlocked(true)
+  }, [])
+
+  const onKronosLead = useCallback(() => {
+    if (nyxHyperionLeadRef.current) return
+    nyxHyperionLeadRef.current = true
+    setNyxHyperionLead(true)
+    unlockNyxTopic()
+  }, [unlockNyxTopic])
+
   const onTelemetry = useCallback((value: OrbitalTelemetry) => {
     if (
       lastHp.current !== null &&
@@ -308,7 +343,16 @@ export default function App() {
     telemetryRef.current = value
     setTelemetry(value)
 
-    // Nyx apoapsis whisper
+    // Near Nyx — enable Ask (Transit is not on the dwarf)
+    if (isNearNyx(value.nearBody) && !nyxFoundEmptyRef.current) {
+      nyxFoundEmptyRef.current = true
+      setNyxFoundEmpty(true)
+      unlockNyxTopic()
+      setLoreToast(NYX_EMPTY_TOAST)
+      setLoreToastKey((k) => k + 1)
+    }
+
+    // Nyx outer-arc whisper
     const now = performance.now() / 1000
     if (
       isNearNyx(value.nearBody) &&
@@ -319,21 +363,25 @@ export default function App() {
       setNyxWhisperHeard(true)
       setNyxComlogUnlocked(true)
       setNyxCorridorUnlocked(true)
-      setLoreToast(NYX_WHISPER_TEXT)
-      setLoreToastKey((k) => k + 1)
+      unlockNyxTopic()
+      if (nyxFoundEmptyRef.current) {
+        setLoreToast(NYX_WHISPER_TEXT)
+        setLoreToastKey((k) => k + 1)
+      }
     }
 
-    // Hyperion rumor — once after whisper
+    // Hyperion (after Kronos Ask) → apo pad clue + map mark
     if (
-      nyxWhisperHeardRef.current &&
+      nyxHyperionLeadRef.current &&
       !nyxHyperionRumorHeardRef.current &&
       isNearHyperion(value.nearBody)
     ) {
       setNyxHyperionRumorHeard(true)
+      setNyxCorridorUnlocked(true)
       setLoreToast(NYX_HYPERION_RUMOR)
       setLoreToastKey((k) => k + 1)
     }
-  }, [])
+  }, [unlockNyxTopic])
 
   const onDockAvailable = useCallback(
     (available: boolean, stationName?: string) => {
@@ -349,7 +397,10 @@ export default function App() {
   const onMaterialPickup = useCallback((pickup: MaterialPickup) => {
     if (pickup.nightShard) {
       setNightShards((n) => n + 1)
-      setLoreToast('Nyx dust')
+      unlockNyxTopic()
+      setLoreToast(
+        nyxDerelictSeenRef.current ? NYX_DUST_KEY_TOAST : 'Nyx dust',
+      )
       setLoreToastKey((k) => k + 1)
       return
     }
@@ -357,7 +408,7 @@ export default function App() {
       ...prev,
       [pickup.kind]: prev[pickup.kind] + pickup.amount,
     }))
-  }, [])
+  }, [unlockNyxTopic])
 
   const sellMaterial = useCallback((kind: MaterialKind) => {
     setCargo((prev) => {
@@ -516,27 +567,47 @@ export default function App() {
   const dockAtStation = useCallback(() => {
     if (telemetryRef.current && telemetryRef.current.hp <= 0) return
     if (!dockAvailable && !dockedRef.current) return
+
+    const atNyxTransit = dockStationName === STATION_NAMES.nyx
+    if (atNyxTransit) {
+      if (nightShardsRef.current < 1) return
+      nightShardsRef.current -= 1
+      setNightShards(nightShardsRef.current)
+    }
+
     dockedRef.current = true
     setDocked(true)
     setDockAvailable(false)
-    const showGhost = rollGhostBerth(nyxWhisperHeardRef.current)
-    setGhostBerth(showGhost)
-    if (showGhost) setNyxCorridorUnlocked(true)
+
+    if (atNyxTransit) {
+      setGhostBerth(true)
+      setLoreToast(NYX_TRANSIT_DOCK_TOAST)
+      setLoreToastKey((k) => k + 1)
+    } else {
+      const showGhost = rollGhostBerth(nyxWhisperHeardRef.current)
+      setGhostBerth(showGhost)
+      if (showGhost) {
+        setNyxCorridorUnlocked(true)
+        unlockNyxTopic()
+      }
+      setLoreToast(null)
+    }
+
     setBeltResetSeed((seed) => seed + 1)
     setPaused(false)
-    setLoreToast(null)
     tryPlayStation()
     if (document.pointerLockElement) {
       document.exitPointerLock()
     }
-  }, [dockAvailable])
+  }, [dockAvailable, dockStationName, unlockNyxTopic])
 
   const onNyxDerelictSeen = useCallback((toast: string) => {
     if (nyxDerelictSeenRef.current) return
     setNyxDerelictSeen(true)
+    unlockNyxTopic()
     setLoreToast(toast)
     setLoreToastKey((k) => k + 1)
-  }, [])
+  }, [unlockNyxTopic])
 
   const undockFromStation = useCallback(() => {
     dockedRef.current = false
@@ -589,6 +660,9 @@ export default function App() {
     nyxDerelictSeenRef.current = next.nyxDerelictSeen
     nyxDualAshDoneRef.current = next.nyxDualAshDone
     nyxHyperionRumorHeardRef.current = next.nyxHyperionRumorHeard
+    nyxTopicUnlockedRef.current = next.nyxTopicUnlocked
+    nyxHyperionLeadRef.current = next.nyxHyperionLead
+    nyxFoundEmptyRef.current = next.nyxFoundEmpty
     hideIntroSynopsisRef.current = next.hideIntroSynopsis
     dockedRef.current = false
     startedRef.current = false
@@ -628,6 +702,9 @@ export default function App() {
     setNyxDerelictSeen(next.nyxDerelictSeen)
     setNyxDualAshDone(next.nyxDualAshDone)
     setNyxHyperionRumorHeard(next.nyxHyperionRumorHeard)
+    setNyxTopicUnlocked(next.nyxTopicUnlocked)
+    setNyxHyperionLead(next.nyxHyperionLead)
+    setNyxFoundEmpty(next.nyxFoundEmpty)
     setHideIntroSynopsis(next.hideIntroSynopsis)
     setGhostBerth(false)
     setLoreToast(null)
@@ -726,6 +803,11 @@ export default function App() {
         nyxDerelictSeen={nyxDerelictSeen}
         onNyxDerelictSeen={onNyxDerelictSeen}
         nyxCorridorUnlockedRef={nyxCorridorUnlockedRef}
+        nyxTransitDockable={
+          nightShards > 0 ||
+          (docked && dockStationName === STATION_NAMES.nyx)
+        }
+        nyxApoMarkActive={nyxHyperionRumorHeard && !nyxDerelictSeen}
       />
       {started && !booting && (
         <LoreToast
@@ -766,7 +848,11 @@ export default function App() {
       )}
       {started && (
         <Suspense fallback={null}>
-          <SystemMap snapshotRef={mapSnapshotRef} active={started} />
+          <SystemMap
+            snapshotRef={mapSnapshotRef}
+            active={started}
+            onRequestResume={resumeFlight}
+          />
         </Suspense>
       )}
       {docked && (
@@ -789,11 +875,15 @@ export default function App() {
             sensorsOwned={sensorsOwned}
             ghostBerth={ghostBerth}
             nyxWhisperHeard={nyxWhisperHeard}
+            nyxTopicUnlocked={nyxTopicUnlocked}
+            nyxHyperionLead={nyxHyperionLead}
             onSell={sellMaterial}
             onSellAll={sellAllCargo}
             onRepair={repairShip}
             onBuy={buyShopItem}
             onUndock={undockFromStation}
+            onNyxTopicClue={unlockNyxTopic}
+            onKronosLead={onKronosLead}
           />
         </Suspense>
       )}
@@ -821,7 +911,15 @@ export default function App() {
               speed: telemetry?.speed ?? 0,
               altitude: telemetry?.altitude ?? 0,
               nightShards,
+              nyxTopicUnlocked,
+              nyxHyperionLead,
+              nyxHyperionRumorHeard,
+              nyxFoundEmpty,
+              nyxWhisperHeard,
               nyxComlogUnlocked,
+              nyxCorridorUnlocked,
+              nyxDerelictSeen,
+              nyxDualAshDone,
             }}
           />
         </Suspense>

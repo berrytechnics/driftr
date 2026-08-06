@@ -43,6 +43,7 @@ export const STATION_NAMES = {
   thalassa: 'Thalassa Station',
   ares: 'Ares Station',
   kronos: 'Kronos Station',
+  nyx: 'Nyx Transit',
 } as const
 /** @deprecated Prefer STATION_NAMES.thalassa — kept for older imports */
 export const STATION_NAME = STATION_NAMES.thalassa

@@ -38,6 +38,8 @@ export const GameCanvas = memo(function GameCanvas({
   nyxDerelictSeen = false,
   onNyxDerelictSeen,
   nyxCorridorUnlockedRef,
+  nyxTransitDockable = false,
+  nyxApoMarkActive = false,
 }: {
   /** Lazy-load heavy station assets after launch (or docked save). */
   started: boolean
@@ -75,6 +77,8 @@ export const GameCanvas = memo(function GameCanvas({
   nyxDerelictSeen?: boolean
   onNyxDerelictSeen?: (toast: string) => void
   nyxCorridorUnlockedRef?: RefObject<boolean>
+  nyxTransitDockable?: boolean
+  nyxApoMarkActive?: boolean
 }) {
   return (
     <Canvas
@@ -115,6 +119,8 @@ export const GameCanvas = memo(function GameCanvas({
         nyxDerelictSeen={nyxDerelictSeen}
         onNyxDerelictSeen={onNyxDerelictSeen}
         nyxCorridorUnlockedRef={nyxCorridorUnlockedRef}
+        nyxTransitDockable={nyxTransitDockable}
+        nyxApoMarkActive={nyxApoMarkActive}
       />
     </Canvas>
   )

@@ -37,6 +37,7 @@ import {
   NYX_COM_GHOST,
   rollNyxComGhost,
 } from '@/lore/easterEggs'
+import { CommsPortrait } from '@/ui/CommsPortrait'
 
 type StationMenuProps = {
   stationName?: string
@@ -53,11 +54,18 @@ type StationMenuProps = {
   ghostBerth?: boolean
   /** Whisper unlocks COM ghost eligibility even without ghost berth */
   nyxWhisperHeard?: boolean
+  /** Natural Nyx clue found — ATC Ask about Nyx */
+  nyxTopicUnlocked?: boolean
+  /** Kronos ATC already pointed you at Hyperion */
+  nyxHyperionLead?: boolean
   onSell: (kind: MaterialKind) => void
   onSellAll: () => void
   onRepair: () => void
   onBuy: (id: string) => void
   onUndock: () => void
+  /** COM ghost / topic unlock from dock-side lore rolls */
+  onNyxTopicClue?: () => void
+  onKronosLead?: () => void
 }
 
 const font = "'Share Tech Mono', ui-monospace, monospace"
@@ -111,11 +119,15 @@ export function StationMenu({
   sensorsOwned,
   ghostBerth = false,
   nyxWhisperHeard = false,
+  nyxTopicUnlocked = false,
+  nyxHyperionLead = false,
   onSell,
   onSellAll,
   onRepair,
   onBuy,
   onUndock,
+  onNyxTopicClue,
+  onKronosLead,
 }: StationMenuProps) {
   const [desk, setDesk] = useState<StationDesk>('cargo')
   const [plaqueOpen, setPlaqueOpen] = useState(false)
@@ -132,9 +144,10 @@ export function StationMenu({
     if (!(ghostBerth || nyxWhisperHeard)) return
     if (!rollNyxComGhost()) return
     setComGhost(NYX_COM_GHOST)
+    onNyxTopicClue?.()
     const hide = window.setTimeout(() => setComGhost(null), 6500)
     return () => window.clearTimeout(hide)
-  }, [ghostBerth, nyxWhisperHeard])
+  }, [ghostBerth, nyxWhisperHeard, onNyxTopicClue])
 
   return (
     <div
@@ -393,7 +406,7 @@ export function StationMenu({
               </h1>
               <p
                 style={{
-                  margin: ghostBerth ? '0 0 16px' : '0 0 28px',
+                  margin: '0 0 18px',
                   fontSize: 'clamp(14px, 1.4vw, 17px)',
                   lineHeight: 1.5,
                   color: 'rgba(180, 210, 230, 0.75)',
@@ -404,6 +417,14 @@ export function StationMenu({
                 Sell haulage, repair the hull, outfit weapons, then undock when
                 ready.
               </p>
+
+              <CommsPortrait
+                stationName={stationName}
+                nyxTopicUnlocked={nyxTopicUnlocked}
+                nyxHyperionLead={nyxHyperionLead}
+                nyxWhisperHeard={nyxWhisperHeard}
+                onKronosLead={onKronosLead}
+              />
 
               {ghostBerth && (
                 <div

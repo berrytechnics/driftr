@@ -73,7 +73,7 @@ import { StableGodRays } from '@/world/StableGodRays'
 import { Sun } from '@/world/Sun'
 import { AshFlare } from '@/lore/AshFlare'
 import { NyxBeacon } from '@/lore/NyxBeacon'
-import { NyxDerelict } from '@/lore/NyxDerelict'
+import { NyxDerelict, NYX_TRANSIT_DOCK_RANGE } from '@/lore/NyxDerelict'
 import { NYX_NEAR_PAD } from '@/lore/easterEggs'
 import type { MapLorePing } from '@/map/systemMap'
 import {
@@ -190,6 +190,8 @@ export const Space = memo(function Space({
   nyxDerelictSeen = false,
   onNyxDerelictSeen,
   nyxCorridorUnlockedRef,
+  nyxTransitDockable = false,
+  nyxApoMarkActive = false,
 }: {
   started: boolean
   paused: boolean
@@ -223,6 +225,10 @@ export const Space = memo(function Space({
   nyxDerelictSeen?: boolean
   onNyxDerelictSeen?: (toast: string) => void
   nyxCorridorUnlockedRef?: RefObject<boolean>
+  /** Night shards > 0 — Nyx Transit becomes a DockBerth. */
+  nyxTransitDockable?: boolean
+  /** Sticky map mark at apo after Hyperion clue. */
+  nyxApoMarkActive?: boolean
 }) {
   const sunMesh = useRef<Mesh>(null!)
   const mercuryPlanet = useRef<Group>(null)
@@ -235,6 +241,7 @@ export const Space = memo(function Space({
   const thalassaStation = useRef<Group>(null)
   const aresStation = useRef<Group>(null)
   const kronosStation = useRef<Group>(null)
+  const nyxTransitStation = useRef<Group>(null)
   const aresMoon = useRef<Group>(null)
   const boreasMoon = useRef<Group>(null)
   const thalassaMoon = useRef<Group>(null)
@@ -284,8 +291,8 @@ export const Space = memo(function Space({
   )
   const bandit1Allies = useMemo(() => [bandit2MapRef], [])
   const bandit2Allies = useMemo(() => [banditMapRef], [])
-  const dockBerths = useMemo<DockBerth[]>(
-    () => [
+  const dockBerths = useMemo<DockBerth[]>(() => {
+    const berths: DockBerth[] = [
       {
         station: thalassaStation,
         planet: beltPlanet,
@@ -304,9 +311,18 @@ export const Space = memo(function Space({
         name: STATION_NAMES.kronos,
         planetDockRange: GAS_GIANT_SIZE + 55 + DOCK_APPROACH_PAD,
       },
-    ],
-    [],
-  )
+    ]
+    if (nyxTransitDockable) {
+      berths.push({
+        station: nyxTransitStation,
+        // Apo pad is its own approach center (not Nyx’s body)
+        planet: nyxTransitStation,
+        name: STATION_NAMES.nyx,
+        planetDockRange: NYX_TRANSIT_DOCK_RANGE,
+      })
+    }
+    return berths
+  }, [nyxTransitDockable])
   const torpedoSeekTargets = useMemo<TorpedoSeekTarget[]>(
     () => [
       { object: banditMapRef, combat: banditCombatRef },
@@ -493,36 +509,42 @@ export const Space = memo(function Space({
         object: mercuryPlanet,
         size: MERCURY_SIZE,
         color: '#a85a3a',
+        inclination: 0.18,
       },
       {
         name: PLANET_NAMES.inner,
         object: innerPlanet,
         size: INNER_PLANET_SIZE,
         color: '#c45c3e',
+        inclination: 0.12,
       },
       {
         name: PLANET_NAMES.mid,
         object: midPlanet,
         size: MID_PLANET_SIZE,
         color: '#9ec9e8',
+        inclination: -0.08,
       },
       {
         name: PLANET_NAMES.belt,
         object: beltPlanet,
         size: BELT_PLANET_SIZE,
         color: '#3d9e6f',
+        inclination: 0.05,
       },
       {
         name: PLANET_NAMES.gas,
         object: gasGiant,
         size: GAS_GIANT_SIZE,
         color: '#d4a574',
+        inclination: -0.04,
       },
       {
         name: PLANET_NAMES.outerGas,
         object: outerGasGiant,
         size: OUTER_GAS_SIZE,
         color: '#6b8cae',
+        inclination: 0.06,
       },
       {
         name: PLANET_NAMES.outerDwarf,
@@ -532,6 +554,7 @@ export const Space = memo(function Space({
         guideOrbit: OUTER_DWARF_ORBIT,
         eccentricity: OUTER_DWARF_ECC,
         periapsisPhase: 5.6,
+        inclination: 0.22,
       },
       {
         name: MOON_NAMES.ares,
@@ -592,6 +615,14 @@ export const Space = memo(function Space({
     ],
     [],
   )
+
+  const mapStations = useMemo(() => {
+    const list = [aresStation, thalassaStation, kronosStation]
+    if (nyxApoMarkActive || nyxDerelictSeen || nyxTransitDockable) {
+      list.push(nyxTransitStation)
+    }
+    return list
+  }, [nyxApoMarkActive, nyxDerelictSeen, nyxTransitDockable])
 
   const {
     count,
@@ -1138,12 +1169,16 @@ export const Space = memo(function Space({
           paused={paused}
         />
         <NyxDerelict
-          nyxRef={outerDwarf}
           sunPosition={sunPosition}
           playerRef={mapShipRef}
-          paused={paused || docked}
+          periapsisPhase={5.6}
+          inclination={0.22}
+          paused={paused}
+          docked={docked}
+          dockable={nyxTransitDockable}
           alreadySeen={nyxDerelictSeen}
           onFirstSight={onNyxDerelictSeen}
+          stationRef={nyxTransitStation}
         />
         <NyxBeacon
           nyxRef={outerDwarf}
@@ -1151,6 +1186,9 @@ export const Space = memo(function Space({
           playerRef={mapShipRef}
           lorePingsRef={lorePingsRef}
           paused={paused || docked}
+          apoMarkActive={nyxApoMarkActive}
+          periapsisPhase={5.6}
+          inclination={0.22}
         />
         <BuffDrops
           handleRef={buffDrops}
@@ -1303,6 +1341,7 @@ export const Space = memo(function Space({
         shipRef={mapShipRef}
         banditRefs={banditMapRefs}
         patrolRefs={patrolMapRefs}
+        stationRefs={mapStations}
         hideNpcsRef={mapCloakRef}
         sensorRangeRef={sensorRangeRef}
         nyxOrbitGlowRef={nyxOrbitGlowRef}

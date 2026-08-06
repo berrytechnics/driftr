@@ -46,8 +46,14 @@ export type GameSave = {
   nyxDerelictSeen: boolean
   /** Lore — dual ash toast used once. */
   nyxDualAshDone: boolean
-  /** Lore — Hyperion rumor heard once. */
+  /** Lore — Hyperion outer-arc handoff toast heard once. */
   nyxHyperionRumorHeard: boolean
+  /** Lore — found a natural Nyx clue; ATC Ask about Nyx unlocked. */
+  nyxTopicUnlocked: boolean
+  /** Lore — Kronos ATC pointed you at Hyperion. */
+  nyxHyperionLead: boolean
+  /** Lore — approached Nyx herself and found no Transit. */
+  nyxFoundEmpty: boolean
   /** Skip the first-load lore briefing modal. */
   hideIntroSynopsis: boolean
 }
@@ -118,6 +124,9 @@ export function defaultGameSave(): GameSave {
     nyxDerelictSeen: false,
     nyxDualAshDone: false,
     nyxHyperionRumorHeard: false,
+    nyxTopicUnlocked: false,
+    nyxHyperionLead: false,
+    nyxFoundEmpty: false,
     hideIntroSynopsis: false,
   }
 }
@@ -188,6 +197,20 @@ export function loadGameSave(): GameSave {
     nyxDerelictSeen: !!raw.nyxDerelictSeen,
     nyxDualAshDone: !!raw.nyxDualAshDone,
     nyxHyperionRumorHeard: !!raw.nyxHyperionRumorHeard,
+    // Migrate: any prior Nyx progress implies the ATC topic is available
+    nyxTopicUnlocked:
+      !!raw.nyxTopicUnlocked ||
+      !!raw.nyxWhisperHeard ||
+      !!raw.nyxCorridorUnlocked ||
+      !!raw.nyxDerelictSeen ||
+      !!raw.nyxHyperionLead ||
+      !!raw.nyxHyperionRumorHeard ||
+      !!raw.nyxFoundEmpty ||
+      (typeof raw.nightShards === 'number' && raw.nightShards > 0),
+    nyxHyperionLead: !!raw.nyxHyperionLead,
+    // Approaching Nyx / whisper already counts as "found her empty"
+    nyxFoundEmpty:
+      !!raw.nyxFoundEmpty || !!raw.nyxWhisperHeard || !!raw.nyxDerelictSeen,
     hideIntroSynopsis: !!raw.hideIntroSynopsis,
   }
 }
@@ -217,6 +240,9 @@ export function saveGameSave(save: GameSave) {
     nyxDerelictSeen: !!save.nyxDerelictSeen,
     nyxDualAshDone: !!save.nyxDualAshDone,
     nyxHyperionRumorHeard: !!save.nyxHyperionRumorHeard,
+    nyxTopicUnlocked: !!save.nyxTopicUnlocked,
+    nyxHyperionLead: !!save.nyxHyperionLead,
+    nyxFoundEmpty: !!save.nyxFoundEmpty,
     hideIntroSynopsis: !!save.hideIntroSynopsis,
   } satisfies GameSave)
 }

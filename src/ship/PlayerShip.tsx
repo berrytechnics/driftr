@@ -359,6 +359,9 @@ function placeShipAtAnchor(
   } else {
     _forward.set(0, 0, 1).transformDirection(anchor.matrixWorld)
   }
+  if (_forward.lengthSq() < 1e-8) {
+    _forward.set(0, 0, 1).transformDirection(anchor.matrixWorld)
+  }
   if (_forward.lengthSq() < 1e-8) _forward.set(1, 0.1, 0)
   _forward.normalize()
 

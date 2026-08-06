@@ -1,4 +1,5 @@
 export { Crosshair } from './Crosshair'
+export { CommsPortrait } from './CommsPortrait'
 export { DockPrompt } from './DockPrompt'
 export { FpsCounter } from './FpsCounter'
 export { Hud } from './Hud'
