@@ -13,6 +13,8 @@ import {
   CONTROL_SENS_MIN,
   getControlSettings,
   setCursorSensitivity,
+  setInvertPitch,
+  setInvertRoll,
   setPitchSensitivity,
   setRollSensitivity,
   subscribeControlSettings,
@@ -172,6 +174,55 @@ function SensSlider({
         {pct}%
       </span>
     </label>
+  );
+}
+
+function InvertToggle({
+  label,
+  active,
+  onToggle,
+}: {
+  label: string;
+  active: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="cockpit-btn"
+      onClick={onToggle}
+      aria-pressed={active}
+      style={{
+        appearance: "none",
+        display: "grid",
+        gridTemplateColumns: "1fr auto",
+        alignItems: "center",
+        gap: 8,
+        width: "100%",
+        border: active
+          ? "1px solid rgba(255, 196, 92, 0.65)"
+          : "1px solid rgba(120, 200, 180, 0.28)",
+        background: active
+          ? "rgba(255, 196, 92, 0.12)"
+          : "rgba(0, 8, 10, 0.35)",
+        color: active ? "#ffd78a" : "rgba(160, 210, 195, 0.75)",
+        padding: "8px 10px",
+        fontSize: 12,
+        letterSpacing: "0.12em",
+        textTransform: "uppercase",
+        fontFamily: font,
+        cursor: "pointer",
+        textAlign: "left",
+        boxShadow: active
+          ? "inset 0 0 0 1px rgba(255, 196, 92, 0.18)"
+          : "none",
+      }}
+    >
+      <span>{label}</span>
+      <span style={{ color: active ? "#9ef0c8" : "rgba(160, 210, 195, 0.45)" }}>
+        {active ? "ON" : "OFF"}
+      </span>
+    </button>
   );
 }
 
@@ -946,6 +997,27 @@ export function PauseMenu({
                     value={controlsSens.cursor}
                     onChange={setCursorSensitivity}
                   />
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: 8,
+                      marginTop: 2,
+                    }}
+                  >
+                    <InvertToggle
+                      label="Invert pitch"
+                      active={controlsSens.invertPitch}
+                      onToggle={() =>
+                        setInvertPitch(!controlsSens.invertPitch)
+                      }
+                    />
+                    <InvertToggle
+                      label="Invert roll"
+                      active={controlsSens.invertRoll}
+                      onToggle={() => setInvertRoll(!controlsSens.invertRoll)}
+                    />
+                  </div>
                 </div>
               </div>
 

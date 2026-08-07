@@ -7,6 +7,10 @@ export type ControlSettings = {
   roll: number
   /** HUD cursor speed while pointer-locked */
   cursor: number
+  /** Flip ↑/↓ pitch sense */
+  invertPitch: boolean
+  /** Flip ←/→ roll sense */
+  invertRoll: boolean
 }
 
 type Listener = (settings: ControlSettings) => void
@@ -15,6 +19,8 @@ const DEFAULTS: ControlSettings = {
   pitch: 1,
   roll: 1,
   cursor: 1,
+  invertPitch: false,
+  invertRoll: false,
 }
 
 const MIN = 0.25
@@ -42,6 +48,14 @@ function load(): ControlSettings {
         typeof parsed.cursor === 'number'
           ? clampSens(parsed.cursor)
           : DEFAULTS.cursor,
+      invertPitch:
+        typeof parsed.invertPitch === 'boolean'
+          ? parsed.invertPitch
+          : DEFAULTS.invertPitch,
+      invertRoll:
+        typeof parsed.invertRoll === 'boolean'
+          ? parsed.invertRoll
+          : DEFAULTS.invertRoll,
     }
   } catch {
     return { ...DEFAULTS }
@@ -86,6 +100,20 @@ export function setCursorSensitivity(value: number) {
   const next = clampSens(value)
   if (next === settings.cursor) return
   settings = { ...settings, cursor: next }
+  persist()
+  notify()
+}
+
+export function setInvertPitch(value: boolean) {
+  if (value === settings.invertPitch) return
+  settings = { ...settings, invertPitch: value }
+  persist()
+  notify()
+}
+
+export function setInvertRoll(value: boolean) {
+  if (value === settings.invertRoll) return
+  settings = { ...settings, invertRoll: value }
   persist()
   notify()
 }

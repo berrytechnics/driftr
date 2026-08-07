@@ -1232,12 +1232,14 @@ export function PlayerShip({
     let roll = 0
     const sens = controlSens.current
     const keyLook = turnSpeed * 2.8 * dt * sens.pitch
+    const pitchSign = sens.invertPitch ? -1 : 1
     if (!ballistic) {
-      if (input.ArrowUp) pitch -= keyLook
-      if (input.ArrowDown) pitch += keyLook
+      if (input.ArrowUp) pitch -= keyLook * pitchSign
+      if (input.ArrowDown) pitch += keyLook * pitchSign
       const keyRoll = rollSpeed * dt * sens.roll
-      if (input.ArrowLeft) roll += keyRoll
-      if (input.ArrowRight) roll -= keyRoll
+      const rollSign = sens.invertRoll ? -1 : 1
+      if (input.ArrowLeft) roll += keyRoll * rollSign
+      if (input.ArrowRight) roll -= keyRoll * rollSign
     }
 
     if (spawnGrace.current > 0) {
