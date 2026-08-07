@@ -6,6 +6,7 @@ import { Group, Vector3, type Object3D } from 'three'
 import type { CombatHudState } from '@/combat/combatHud'
 import type { AdminWarpRequest, GateArrivalRequest } from '@/dev/adminTypes'
 import type { HullSnapshot } from '@/game/persist'
+import { useGraphicsSettings } from '@/game/useGraphicsSettings'
 import {
   VOID_BELT_INNER,
   VOID_BELT_OUTER,
@@ -115,6 +116,7 @@ export const GateVoidSpace = memo(function GateVoidSpace({
   adminWarpTarget?: AdminWarpRequest | null
   gatePortalUsed?: boolean
 }) {
+  const gfx = useGraphicsSettings()
   const misplantedGate = useRef<Group>(null)
   const mothership = useRef<Group>(null)
   const gateHazards = useRef<HazardField | null>(null)
@@ -534,14 +536,16 @@ export const GateVoidSpace = memo(function GateVoidSpace({
         speed={speed}
       />
 
-      <EffectComposer enableNormalPass={false} multisampling={0}>
-        <Bloom
-          intensity={bloomIntensity}
-          luminanceThreshold={bloomThreshold}
-          luminanceSmoothing={0.9}
-          mipmapBlur
-        />
-      </EffectComposer>
+      {gfx.bloomScale > 0 && (
+        <EffectComposer enableNormalPass={false} multisampling={0}>
+          <Bloom
+            intensity={bloomIntensity * gfx.bloomScale}
+            luminanceThreshold={bloomThreshold}
+            luminanceSmoothing={0.9}
+            mipmapBlur
+          />
+        </EffectComposer>
+      )}
     </>
   )
 })

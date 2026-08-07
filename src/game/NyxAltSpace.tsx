@@ -19,6 +19,7 @@ import {
   type DirectionalLight,
   type Mesh,
 } from 'three'
+import { useGraphicsSettings } from '@/game/useGraphicsSettings'
 import cassiniUrl from '@/assets/models/Cassini_Huygens.glb?url'
 import tugUrl from '@/assets/models/Ship_Tug.glb?url'
 import arid from '@/assets/textures/planets/Arid.webp'
@@ -221,6 +222,7 @@ export const NyxAltSpace = memo(function NyxAltSpace({
   gateArrival?: GateArrivalRequest | null
   adminWarpTarget?: AdminWarpRequest | null
 }) {
+  const gfx = useGraphicsSettings()
   const innerPlanet = useRef<Group>(null)
   const midPlanet = useRef<Group>(null)
   const nyxPlanet = useRef<Group>(null)
@@ -986,15 +988,17 @@ export const NyxAltSpace = memo(function NyxAltSpace({
         speed={speed}
       />
 
-      <EffectComposer enableNormalPass={false} multisampling={0}>
-        <Bloom
-          intensity={bloomIntensity}
-          luminanceThreshold={bloomThreshold}
-          luminanceSmoothing={0.9}
-          mipmapBlur
-        />
-        {godRays && sunReady ? <StableGodRays sun={sunMesh} /> : <></>}
-      </EffectComposer>
+      {gfx.bloomScale > 0 && (
+        <EffectComposer enableNormalPass={false} multisampling={0}>
+          <Bloom
+            intensity={bloomIntensity * gfx.bloomScale}
+            luminanceThreshold={bloomThreshold}
+            luminanceSmoothing={0.9}
+            mipmapBlur
+          />
+          {godRays && sunReady ? <StableGodRays sun={sunMesh} /> : <></>}
+        </EffectComposer>
+      )}
     </>
   )
 })

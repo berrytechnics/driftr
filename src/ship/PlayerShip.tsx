@@ -15,6 +15,10 @@ import {
   NYX_ORBIT_GLOW_S,
 } from '@/lore/easterEggs'
 import { OrbitGuide } from '@/ship/OrbitGuide'
+import {
+  getControlSettings,
+  subscribeControlSettings,
+} from '@/ship/controlSettings'
 import { HitSpark } from '@/ship/HitSpark'
 import { EXPLOSION_LIFETIME, ShipExplosion } from '@/ship/ShipExplosion'
 import {
@@ -60,7 +64,6 @@ const ATTITUDE_TRAVEL_SPEED = 0.5
 const _wish = new Vector3()
 const _camPos = new Vector3()
 const _lookAt = new Vector3()
-const _qYaw = new Quaternion()
 const _qPitch = new Quaternion()
 const _qRoll = new Quaternion()
 const _body = new Vector3()
@@ -530,7 +533,6 @@ export function PlayerShip({
 }: PlayerShipProps) {
   const ship = useRef<Group>(null!)
   const velocity = useRef(new Vector3())
-  const mouse = useRef({ x: 0, y: 0 })
   /** Commanded attitude — ship eases toward this so turns have weight */
   const lookWish = useRef(new Quaternion())
   const spawned = useRef(false)
@@ -559,7 +561,7 @@ export function PlayerShip({
   /** Ignore world collisions briefly after spawn / respawn */
   const spawnGrace = useRef(0)
   const pausedRef = useRef(paused)
-  const firing = useRef(false)
+  const controlSens = useRef(getControlSettings())
   const fireCooldown = useRef(0)
   const nextGun = useRef(0)
   const heat = useRef(0)
@@ -614,6 +616,12 @@ export function PlayerShip({
 
   pausedRef.current = paused
 
+  useEffect(() => {
+    return subscribeControlSettings((s) => {
+      controlSens.current = s
+    })
+  }, [])
+
   // Sky remounts start with dockAvailableRef=false; App may still hold a stale
   // offer from the previous sky — push a clear so the Dock prompt can't stick.
   useLayoutEffect(() => {
@@ -657,7 +665,6 @@ export function PlayerShip({
     rollSpeed,
     steerLag,
     damping,
-    mouseSensitivity,
     camDistance,
     camHeight,
     lookAhead,
@@ -688,13 +695,6 @@ export function PlayerShip({
           max: 3,
           step: 0.05,
           label: 'Drag (0 = vacuum)',
-        },
-        mouseSensitivity: {
-          value: 0.0005,
-          min: 0.0001,
-          max: 0.006,
-          step: 0.0001,
-          label: 'Mouse sens',
         },
         camDistance: {
           value: 0.22,
@@ -805,54 +805,26 @@ export function PlayerShip({
     const onChange = () => {
       const locked = document.pointerLockElement === element
       if (!locked) {
-        mouse.current.x = 0
-        mouse.current.y = 0
-        firing.current = false
         for (const code of Object.keys(keys.current)) {
           keys.current[code] = false
         }
       }
       onLockChange?.(locked)
     }
-    const onMove = (event: MouseEvent) => {
-      if (document.pointerLockElement !== element) return
-      mouse.current.x += event.movementX
-      mouse.current.y += event.movementY
-    }
-    // Trackpads often emit wheel (two-finger pan) instead of — or as well as —
-    // mousemove, and OS "disable while typing" may still allow scroll gestures.
+    // Keep the page from scrolling under lock; trackpad no longer steers.
     const onWheel = (event: WheelEvent) => {
       if (document.pointerLockElement !== element) return
       event.preventDefault()
-      mouse.current.x += event.deltaX
-      mouse.current.y += event.deltaY
-    }
-    const onMouseDown = (event: MouseEvent) => {
-      if (event.button !== 0) return
-      if (document.pointerLockElement !== element) return
-      event.preventDefault()
-      firing.current = true
-    }
-    const onMouseUp = (event: MouseEvent) => {
-      if (event.button !== 0) return
-      firing.current = false
     }
 
     element.addEventListener('click', onClick)
-    // Capture on window — most reliable under pointer lock across browsers
-    window.addEventListener('mousedown', onMouseDown, true)
-    window.addEventListener('mouseup', onMouseUp, true)
     document.addEventListener('pointerlockchange', onChange)
-    document.addEventListener('mousemove', onMove)
     document.addEventListener('wheel', onWheel, { passive: false })
     onChange()
 
     return () => {
       element.removeEventListener('click', onClick)
-      window.removeEventListener('mousedown', onMouseDown, true)
-      window.removeEventListener('mouseup', onMouseUp, true)
       document.removeEventListener('pointerlockchange', onChange)
-      document.removeEventListener('mousemove', onMove)
       document.removeEventListener('wheel', onWheel)
     }
   }, [gl.domElement, onLockChange, keys])
@@ -913,9 +885,6 @@ export function PlayerShip({
 
     // Pause — freeze sim & death timer; hold framing
     if (paused) {
-      mouse.current.x = 0
-      mouse.current.y = 0
-      firing.current = false
       thrustGlow.current = 0
       thrustEngaged.current = 0
       // Buff timers freeze while paused (don't tick down)
@@ -1004,11 +973,8 @@ export function PlayerShip({
       spawnGrace.current = 2.5
       heat.current = 0
       overheated.current = false
-      firing.current = false
       thrustGlow.current = 0
       thrustEngaged.current = 0
-      mouse.current.x = 0
-      mouse.current.y = 0
       cameraReady.current = false
     }
     wasDocked.current = docked
@@ -1038,9 +1004,6 @@ export function PlayerShip({
 
     // Hard-dock — ride the station; world keeps orbiting
     if (docked) {
-      mouse.current.x = 0
-      mouse.current.y = 0
-      firing.current = false
       thrustGlow.current = 0
       thrustEngaged.current = 0
       thrusterActive.current = false
@@ -1142,8 +1105,6 @@ export function PlayerShip({
     // Death hold — freeze flight, keep camera on the blast, then respawn
     if (dead) {
       respawnTimer.current -= dt
-      mouse.current.x = 0
-      mouse.current.y = 0
       thrustGlow.current = 0
       thrustEngaged.current = 0
       thrusterActive.current = false
@@ -1184,8 +1145,6 @@ export function PlayerShip({
         setHidden(false)
         cameraReady.current = false
         spawnGrace.current = 2.5
-        mouse.current.x = 0
-        mouse.current.y = 0
         // Publish alive hull immediately so dock / HUD aren't stuck on hp:0
         telemetryAge.current = 0
         onTelemetry?.({
@@ -1250,9 +1209,6 @@ export function PlayerShip({
         thrusterActive.current = false
       } else if (!combatHudRef?.current.engaged) {
         thrusterActive.current = true
-        mouse.current.x = 0
-        mouse.current.y = 0
-        firing.current = false
       }
     }
     thrusterKeyWasDown.current = cDown
@@ -1271,24 +1227,17 @@ export function PlayerShip({
       }
     }
 
-    let yaw = ballistic ? 0 : -mouse.current.x * mouseSensitivity * turnSpeed
-    let pitch = ballistic ? 0 : -mouse.current.y * mouseSensitivity * turnSpeed
-    mouse.current.x = 0
-    mouse.current.y = 0
-
-    // Arrow-key look — trackpads are often muted by the OS while holding WASD
-    const keyLook = turnSpeed * 2.8 * dt
-    if (!ballistic) {
-      if (input.ArrowLeft) yaw += keyLook
-      if (input.ArrowRight) yaw -= keyLook
-      if (input.ArrowUp) pitch += keyLook
-      if (input.ArrowDown) pitch -= keyLook
-    }
-
+    // Keyboard flight — pitch + roll only (no yaw; bank to turn)
+    let pitch = 0
     let roll = 0
+    const sens = controlSens.current
+    const keyLook = turnSpeed * 2.8 * dt * sens.pitch
     if (!ballistic) {
-      if (input.KeyQ) roll += rollSpeed * dt
-      if (input.KeyE) roll -= rollSpeed * dt
+      if (input.ArrowUp) pitch -= keyLook
+      if (input.ArrowDown) pitch += keyLook
+      const keyRoll = rollSpeed * dt * sens.roll
+      if (input.ArrowLeft) roll += keyRoll
+      if (input.ArrowRight) roll -= keyRoll
     }
 
     if (spawnGrace.current > 0) {
@@ -1300,10 +1249,6 @@ export function PlayerShip({
     if (ballistic) {
       wish.copy(group.quaternion)
     } else {
-      if (yaw !== 0) {
-        _qYaw.setFromAxisAngle(_up.set(0, 1, 0), yaw)
-        wish.multiply(_qYaw)
-      }
       if (pitch !== 0) {
         _qPitch.setFromAxisAngle(_right.set(1, 0, 0), pitch)
         wish.multiply(_qPitch)
@@ -1556,7 +1501,6 @@ export function PlayerShip({
       hp.current = 0
       heat.current = 0
       overheated.current = false
-      firing.current = false
       speedBuff.current = 0
       fireBuff.current = 0
       thrustGlow.current = 0
@@ -1610,13 +1554,11 @@ export function PlayerShip({
       return
     }
 
-    // Guns — hold LMB or F (blocked while overheated / dock offer steals F /
+    // Guns — hold F (blocked while overheated / dock offer steals F /
     // advanced thruster burn)
     fireCooldown.current = Math.max(0, fireCooldown.current - dt)
-    if (ballistic) firing.current = false
     const wantsFire =
-      !ballistic &&
-      (firing.current || (!!input.KeyF && !dockAvailableRef.current))
+      !ballistic && !!input.KeyF && !dockAvailableRef.current
 
     if (overheated.current) {
       heat.current = Math.max(0, heat.current - overheatCool * dt)

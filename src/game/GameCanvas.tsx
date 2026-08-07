@@ -1,8 +1,12 @@
 import { Canvas } from '@react-three/fiber'
-import { memo, type RefObject } from 'react'
+import { memo, useEffect, useState, type RefObject } from 'react'
 import type { Group } from 'three'
 import type { CombatHudState } from '@/combat/combatHud'
 import type { AdminWarpRequest, GateArrivalRequest } from '@/dev/adminTypes'
+import {
+  getGraphicsSettings,
+  subscribeGraphicsSettings,
+} from '@/game/graphicsSettings'
 import type { HullSnapshot } from '@/game/persist'
 import { GateVoidSpace } from '@/game/GateVoidSpace'
 import { NyxAltSpace } from '@/game/NyxAltSpace'
@@ -123,6 +127,9 @@ export const GameCanvas = memo(function GameCanvas({
   gateArrival?: GateArrivalRequest | null
   adminWarpTarget?: AdminWarpRequest | null
 }) {
+  const [gfx, setGfx] = useState(getGraphicsSettings)
+  useEffect(() => subscribeGraphicsSettings(setGfx), [])
+
   const sky =
     systemId === SYSTEM_IDS.gateVoid
       ? 'void'
@@ -141,7 +148,7 @@ export const GameCanvas = memo(function GameCanvas({
         stencil: false,
         depth: true,
       }}
-      dpr={[1, 1.25]}
+      dpr={[1, gfx.maxDpr]}
     >
       {sky === 'void' ? (
         <GateVoidSpace

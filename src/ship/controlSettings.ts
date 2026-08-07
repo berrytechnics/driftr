@@ -1,0 +1,101 @@
+const STORAGE_KEY = '3js-controls-v1'
+
+export type ControlSettings = {
+  /** Pitch rate multiplier (arrow ↑/↓) */
+  pitch: number
+  /** Roll rate multiplier (arrow ←/→) */
+  roll: number
+  /** HUD cursor speed while pointer-locked */
+  cursor: number
+}
+
+type Listener = (settings: ControlSettings) => void
+
+const DEFAULTS: ControlSettings = {
+  pitch: 1,
+  roll: 1,
+  cursor: 1,
+}
+
+const MIN = 0.25
+const MAX = 2
+const listeners = new Set<Listener>()
+
+function clampSens(n: number) {
+  if (!Number.isFinite(n)) return 1
+  return Math.max(MIN, Math.min(MAX, n))
+}
+
+function load(): ControlSettings {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return { ...DEFAULTS }
+    const parsed = JSON.parse(raw) as Partial<ControlSettings>
+    return {
+      pitch:
+        typeof parsed.pitch === 'number'
+          ? clampSens(parsed.pitch)
+          : DEFAULTS.pitch,
+      roll:
+        typeof parsed.roll === 'number' ? clampSens(parsed.roll) : DEFAULTS.roll,
+      cursor:
+        typeof parsed.cursor === 'number'
+          ? clampSens(parsed.cursor)
+          : DEFAULTS.cursor,
+    }
+  } catch {
+    return { ...DEFAULTS }
+  }
+}
+
+let settings: ControlSettings = load()
+
+function persist() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(settings))
+  } catch {
+    // Quota / private mode — ignore
+  }
+}
+
+function notify() {
+  for (const listener of listeners) listener(settings)
+}
+
+export function getControlSettings(): ControlSettings {
+  return { ...settings }
+}
+
+export function setPitchSensitivity(value: number) {
+  const next = clampSens(value)
+  if (next === settings.pitch) return
+  settings = { ...settings, pitch: next }
+  persist()
+  notify()
+}
+
+export function setRollSensitivity(value: number) {
+  const next = clampSens(value)
+  if (next === settings.roll) return
+  settings = { ...settings, roll: next }
+  persist()
+  notify()
+}
+
+export function setCursorSensitivity(value: number) {
+  const next = clampSens(value)
+  if (next === settings.cursor) return
+  settings = { ...settings, cursor: next }
+  persist()
+  notify()
+}
+
+export function subscribeControlSettings(listener: Listener) {
+  listeners.add(listener)
+  return () => {
+    listeners.delete(listener)
+  }
+}
+
+export const CONTROL_SENS_MIN = MIN
+export const CONTROL_SENS_MAX = MAX

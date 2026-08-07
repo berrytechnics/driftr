@@ -38,19 +38,20 @@ npm run preview  # serve the build locally (use this to test the PWA)
 
 | Input | Action |
 | --- | --- |
-| Mouse / arrows | Steer |
+| `←` / `→` | Roll |
+| `↑` / `↓` | Pitch |
 | `W` / `S` | Thrust / brake |
 | `Shift` | Boost |
-| `Q` / `E` | Roll |
-| LMB / `F` | Fire cannons |
-| `T` | Torpedo (locks nearest foe ahead; requires station unlock) |
-| `C` | Advanced thruster — toggle ballistic cruise (requires unlock; blocked in combat) |
-| `J` | Jettison cargo (bandits race you for it) |
-| Hold `M` / `M` | System map — hold in flight (release to close); toggle while paused. Drag to orbit, scroll to zoom; click a body to mark a waypoint |
-| `F` (near a station) | Dock |
-| `Esc` | Pause / resume (also closes the map) |
+| `F` | Fire · dock |
+| `T` | Torpedo |
+| `C` | Cruise thruster |
+| `J` | Jettison cargo |
+| `M` | System map |
+| `P` | Pause (pointer stays locked) |
+| `Esc` | Unlock pointer / pause |
+| Mouse | HUD cursor |
 
-Music and SFX volume live under the control map in the start / pause menu and persist across sessions. The pause MFD also keeps a **Signal Journal · Nyx** that fills as you recover outer-system leads. **Enable cheat menu** (same menus) opens the admin panel for sky hops (Sol ↔ Vesper, plus a direct hop into the gate void), warps, grant cheats, and Vesper siphon / gate tools for the rest of the tab session. **Reset progress** (same menus, confirm to wipe) clears credits, cargo, upgrades, lore, and hull back to a fresh run — needed because clearing `localStorage` while the tab is open gets overwritten by autosave / unload.
+Music and SFX volume live under the control map in the start / pause menu and persist across sessions, with pitch / roll / cursor sensitivity and a Low / Med / High **graphics** preset (resolution, bloom, texture filtering) beneath. The pause MFD also keeps a **Signal Journal · Nyx** that fills as you recover outer-system leads. **Enable cheat menu** (same menus) opens the admin panel for sky hops (Sol ↔ Vesper, plus a direct hop into the gate void), warps, grant cheats, and Vesper siphon / gate tools for the rest of the tab session — the locked HUD cursor can operate Leva while soft-paused or with cheats open. **Exit game** closes the tab. **Reset progress** (same menus, confirm to wipe) clears credits, cargo, upgrades, lore, and hull back to a fresh run — needed because clearing `localStorage` while the tab is open gets overwritten by autosave / unload.
 
 Flight HUD includes a bottom-right **navball** (ecliptic horizon, pitch ladder, heading, and sun / prograde markers) plus an optional **map waypoint** diamond / edge chevron when you mark a body on the chart.
 
@@ -60,7 +61,7 @@ Buy the mod at any station Services desk. While lit you burn straight ahead at h
 
 ### Dock vs fire (`F`)
 
-Near a station berth, `F` docks. Elsewhere (and with LMB) it fires the cannons.
+Near a station berth, `F` docks. Elsewhere it fires the cannons.
 
 ## The system
 
@@ -125,7 +126,10 @@ Cargo desk sells ore, ice, and alloy for credits. **Nyx Station** in Vesper only
 
 - Boot splash that tracks asset load before the start menu
 - First-load lore briefing (Sol lane life and the Nyx Transit vanishing)
-- Flight model with thrusters, boost, mouse aiming, roll, and turn inertia
+- Flight model with thrusters, boost, keyboard attitude (pitch / roll — bank to turn), and turn inertia
+- Locked-pointer HUD cursor (mouse moves a reticle without unlocking; center crosshair remains the gun pip)
+- Soft pause on `P` (pointer stays locked; HUD cursor clicks the pause menu) plus Esc unlock-pause; pause menu Exit closes the tab
+- Pause-menu pitch / roll / cursor sensitivity and Low / Med / High graphics (resolution, bloom, texture filtering)
 - Navball attitude HUD and click-to-mark map waypoints with on-screen / edge tracking
 - Loot magnet that pulls nearby shards and buffs into scoop range
 - Color-coded asteroid types (ore / ice / alloy) so you can hunt a specific haul

@@ -2,6 +2,7 @@ import { useTexture } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import { useLayoutEffect, useRef, type RefObject } from 'react'
 import { Group, SRGBColorSpace, Vector3 } from 'three'
+import { useGraphicsSettings } from '@/game/useGraphicsSettings'
 import {
   gravityAcceleration,
   placeEllipticalOrbit,
@@ -71,15 +72,16 @@ export function Planet({
   const spinGroup = useRef<Group>(null!)
   const velocity = useRef(new Vector3())
   const texture = useTexture(map)
+  const gfx = useGraphicsSettings()
 
   // v ∝ √μ, so scale μ by k² to keep a circular orbit at speed k·v
   const effectiveMu = mu * orbitSpeedScale * orbitSpeedScale
 
   useLayoutEffect(() => {
     texture.colorSpace = SRGBColorSpace
-    texture.anisotropy = 8
+    texture.anisotropy = gfx.anisotropy
     texture.needsUpdate = true
-  }, [texture])
+  }, [texture, gfx.anisotropy])
 
   // Re-seed orbit when sun / μ / elements change via Leva
   useLayoutEffect(() => {

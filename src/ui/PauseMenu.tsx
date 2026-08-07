@@ -8,6 +8,21 @@ import {
 import { cargoUnits, formatCredits, type CargoHold } from "@/loot/economy";
 import { ARMOR_MAX_TIER, armorTierLabel, maxAmmoForTorpedoMagTier } from "@/loot/shop";
 import { buildNyxJournal, NIGHT_SHARD_STATUS_LABEL } from "@/lore/easterEggs";
+import {
+  CONTROL_SENS_MAX,
+  CONTROL_SENS_MIN,
+  getControlSettings,
+  setCursorSensitivity,
+  setPitchSensitivity,
+  setRollSensitivity,
+  subscribeControlSettings,
+} from "@/ship/controlSettings";
+import {
+  getGraphicsSettings,
+  setGraphicsQuality,
+  subscribeGraphicsSettings,
+  type GraphicsQuality,
+} from "@/game/graphicsSettings";
 
 export type PauseShipStatus = {
   hp: number;
@@ -44,6 +59,8 @@ type PauseMenuProps = {
   onResume: () => void;
   /** Wipe credits, upgrades, cargo, lore — returns to flight-ready. */
   onResetProgress?: () => void;
+  /** Close the browser tab / window. */
+  onExit?: () => void;
   /** Player-optional Leva cheat / admin panel. */
   cheatsEnabled?: boolean;
   onToggleCheats?: () => void;
@@ -51,17 +68,18 @@ type PauseMenuProps = {
 };
 
 const controls = [
-  ["Mouse / arrows", "Steer"],
-  ["LMB / F", "Fire cannons"],
-  ["T", "Torpedo (locks nearest foe ahead)"],
-  ["C", "Advanced thruster (toggle ballistic; unavailable in combat)"],
-  ["J", "Jettison cargo (race bandits for it)"],
+  ["← / →", "Roll"],
+  ["↑ / ↓", "Pitch"],
   ["W / S", "Thrust / brake"],
-  ["Q / E", "Roll"],
   ["Shift", "Boost"],
-  ["M", "Hold system map (drag / scroll)"],
-  ["F", "Dock (near station)"],
-  ["Esc", "Pause / resume"],
+  ["F", "Fire · dock"],
+  ["T", "Torpedo"],
+  ["C", "Cruise thruster"],
+  ["J", "Jettison cargo"],
+  ["M", "System map"],
+  ["P", "Pause (pointer locked)"],
+  ["Esc", "Unlock / pause"],
+  ["Mouse", "HUD cursor"],
 ] as const;
 
 const font = "'Share Tech Mono', ui-monospace, monospace";
@@ -112,6 +130,51 @@ function VolumeSlider({
   );
 }
 
+function SensSlider({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  onChange: (value: number) => void;
+}) {
+  const pct = Math.round(value * 100);
+  return (
+    <label
+      style={{
+        display: "grid",
+        gridTemplateColumns: "64px 1fr 48px",
+        alignItems: "center",
+        gap: 8,
+        fontSize: 13,
+        letterSpacing: "0.12em",
+      }}
+    >
+      <span style={{ color: "rgba(160, 210, 195, 0.65)" }}>{label}</span>
+      <input
+        type="range"
+        className="cockpit-slider"
+        min={CONTROL_SENS_MIN}
+        max={CONTROL_SENS_MAX}
+        step={0.05}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        aria-label={`${label} sensitivity`}
+      />
+      <span
+        style={{
+          textAlign: "right",
+          color: "#9ef0c8",
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {pct}%
+      </span>
+    </label>
+  );
+}
+
 function Corner({
   top,
   left,
@@ -147,6 +210,7 @@ export function PauseMenu({
   mode,
   onResume,
   onResetProgress,
+  onExit,
   cheatsEnabled = false,
   onToggleCheats,
   ship = null,
@@ -158,10 +222,14 @@ export function PauseMenu({
     ? "Pilot input suspended · simulation frozen"
     : "Acquire stick lock to depart Thalassa station";
   const [audio, setAudio] = useState(getAudioSettings);
+  const [controlsSens, setControlsSens] = useState(getControlSettings);
+  const [graphics, setGraphics] = useState(getGraphicsSettings);
   const [journalOpen, setJournalOpen] = useState(false);
   const [resetArmed, setResetArmed] = useState(false);
 
   useEffect(() => subscribeAudioSettings(setAudio), []);
+  useEffect(() => subscribeControlSettings(setControlsSens), []);
+  useEffect(() => subscribeGraphicsSettings(setGraphics), []);
 
   const journal = ship
     ? buildNyxJournal({
@@ -206,6 +274,7 @@ export function PauseMenu({
         fontFamily: font,
         color: "#d7e6df",
         userSelect: "none",
+        pointerEvents: "none",
         background: `
           radial-gradient(ellipse 70% 55% at 50% 42%, rgba(12, 28, 32, 0.35) 0%, rgba(0, 0, 0, 0.72) 70%),
           linear-gradient(180deg, rgba(0,0,0,0.55) 0%, transparent 18%, transparent 82%, rgba(0,0,0,0.7) 100%)
@@ -222,7 +291,8 @@ export function PauseMenu({
           0% { top: -35%; }
           100% { top: 100%; }
         }
-        .cockpit-btn:hover {
+        .cockpit-btn:hover,
+        .cockpit-btn.flight-cursor-hover {
           background: rgba(255, 196, 92, 0.2) !important;
           box-shadow: inset 0 0 0 1px rgba(255, 196, 92, 0.7),
             0 0 18px rgba(255, 196, 92, 0.15);
@@ -230,7 +300,8 @@ export function PauseMenu({
         .cockpit-btn:active {
           background: rgba(255, 196, 92, 0.28) !important;
         }
-        .cockpit-btn-danger:hover {
+        .cockpit-btn-danger:hover,
+        .cockpit-btn-danger.flight-cursor-hover {
           background: rgba(255, 100, 90, 0.18) !important;
           box-shadow: inset 0 0 0 1px rgba(255, 120, 100, 0.65),
             0 0 14px rgba(255, 80, 70, 0.12);
@@ -344,6 +415,7 @@ export function PauseMenu({
           height: "calc(100vh - 40px)",
           maxWidth: 1400,
           overflow: "hidden",
+          pointerEvents: "auto",
           borderRadius: 6,
           border: "3px solid #1a2422",
           boxShadow: `
@@ -834,6 +906,134 @@ export function PauseMenu({
                   />
                 </div>
               </div>
+
+              <div
+                style={{
+                  border: "1px solid rgba(120, 200, 180, 0.2)",
+                  background: "rgba(0, 8, 10, 0.4)",
+                  padding: "10px 12px 12px",
+                  flexShrink: 0,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontSize: 10,
+                    letterSpacing: "0.18em",
+                    color: "rgba(160, 210, 195, 0.55)",
+                    marginBottom: 8,
+                    paddingBottom: 5,
+                    borderBottom: "1px dashed rgba(120, 200, 180, 0.18)",
+                  }}
+                >
+                  <span>CONTROLS</span>
+                  <span>SENSITIVITY</span>
+                </div>
+                <div style={{ display: "grid", gap: 10 }}>
+                  <SensSlider
+                    label="PITCH"
+                    value={controlsSens.pitch}
+                    onChange={setPitchSensitivity}
+                  />
+                  <SensSlider
+                    label="ROLL"
+                    value={controlsSens.roll}
+                    onChange={setRollSensitivity}
+                  />
+                  <SensSlider
+                    label="CURSOR"
+                    value={controlsSens.cursor}
+                    onChange={setCursorSensitivity}
+                  />
+                </div>
+              </div>
+
+              <div
+                style={{
+                  border: "1px solid rgba(120, 200, 180, 0.2)",
+                  background: "rgba(0, 8, 10, 0.4)",
+                  padding: "10px 12px 12px",
+                  flexShrink: 0,
+                }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontSize: 10,
+                    letterSpacing: "0.18em",
+                    color: "rgba(160, 210, 195, 0.55)",
+                    marginBottom: 8,
+                    paddingBottom: 5,
+                    borderBottom: "1px dashed rgba(120, 200, 180, 0.18)",
+                  }}
+                >
+                  <span>GRAPHICS</span>
+                  <span>QUALITY</span>
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr 1fr",
+                    gap: 8,
+                  }}
+                >
+                  {(
+                    [
+                      ["low", "LOW"],
+                      ["medium", "MED"],
+                      ["high", "HIGH"],
+                    ] as const
+                  ).map(([id, label]) => {
+                    const active = graphics.quality === id;
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        className="cockpit-btn"
+                        onClick={() =>
+                          setGraphicsQuality(id as GraphicsQuality)
+                        }
+                        style={{
+                          appearance: "none",
+                          border: active
+                            ? "1px solid rgba(255, 196, 92, 0.75)"
+                            : "1px solid rgba(120, 200, 180, 0.28)",
+                          background: active
+                            ? "rgba(255, 196, 92, 0.14)"
+                            : "rgba(0, 8, 10, 0.35)",
+                          color: active
+                            ? "#ffd78a"
+                            : "rgba(160, 210, 195, 0.7)",
+                          padding: "9px 8px",
+                          fontSize: 12,
+                          letterSpacing: "0.14em",
+                          textTransform: "uppercase",
+                          fontFamily: font,
+                          cursor: "pointer",
+                          boxShadow: active
+                            ? "inset 0 0 0 1px rgba(255, 196, 92, 0.2)"
+                            : "none",
+                        }}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div
+                  style={{
+                    marginTop: 8,
+                    fontSize: 11,
+                    letterSpacing: "0.08em",
+                    color: "rgba(160, 210, 195, 0.45)",
+                    lineHeight: 1.45,
+                  }}
+                >
+                  Resolution · bloom · texture filter
+                </div>
+              </div>
             </div>
           </div>
 
@@ -867,6 +1067,29 @@ export function PauseMenu({
             >
               {isPaused ? "▶  Resume flight" : "▶  Engage / Launch"}
             </button>
+            {onExit ? (
+              <button
+                type="button"
+                className="cockpit-btn-danger"
+                onClick={onExit}
+                style={{
+                  appearance: "none",
+                  width: "100%",
+                  border: "1px solid rgba(255, 120, 100, 0.55)",
+                  background: "rgba(255, 80, 70, 0.08)",
+                  color: "#ffb0a8",
+                  padding: "11px 20px",
+                  fontSize: 13,
+                  letterSpacing: "0.18em",
+                  textTransform: "uppercase",
+                  fontFamily: font,
+                  cursor: "pointer",
+                  boxShadow: "inset 0 0 0 1px rgba(255, 120, 100, 0.15)",
+                }}
+              >
+                Exit game
+              </button>
+            ) : null}
             <div
               className="pause-mfd-grid"
               style={{

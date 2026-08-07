@@ -24,6 +24,7 @@ import {
 import { BanditShip } from '@/ship/BanditShip'
 import { PatrolShip } from '@/ship/PatrolShip'
 import type { LaserTarget } from '@/ship/ShipWeapons'
+import { useGraphicsSettings } from '@/game/useGraphicsSettings'
 import { sensorRangeForOwned } from '@/loot/shop'
 import stationAresUrl from '@/assets/models/space_station.glb?url'
 import stationKronosUrl from '@/assets/models/space__station.glb?url'
@@ -257,6 +258,7 @@ export const Space = memo(function Space({
   /** Dev admin warp target — resolved against Sol sun position. */
   adminWarpTarget?: AdminWarpRequest | null
 }) {
+  const gfx = useGraphicsSettings()
   const sunMesh = useRef<Mesh>(null!)
   const mercuryPlanet = useRef<Group>(null)
   const innerPlanet = useRef<Group>(null)
@@ -1602,15 +1604,17 @@ export const Space = memo(function Space({
         speed={speed}
       />
 
-      <EffectComposer enableNormalPass={false} multisampling={0}>
-        <Bloom
-          intensity={bloomIntensity}
-          luminanceThreshold={bloomThreshold}
-          luminanceSmoothing={0.85}
-          mipmapBlur
-        />
-        {godRays && sunReady ? <StableGodRays sun={sunMesh} /> : <></>}
-      </EffectComposer>
+      {gfx.bloomScale > 0 && (
+        <EffectComposer enableNormalPass={false} multisampling={0}>
+          <Bloom
+            intensity={bloomIntensity * gfx.bloomScale}
+            luminanceThreshold={bloomThreshold}
+            luminanceSmoothing={0.85}
+            mipmapBlur
+          />
+          {godRays && sunReady ? <StableGodRays sun={sunMesh} /> : <></>}
+        </EffectComposer>
+      )}
     </>
   )
 })

@@ -2,6 +2,7 @@ import { useTexture } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
 import { useLayoutEffect, useRef, type RefObject } from 'react'
 import { Group, SRGBColorSpace, Vector3, type Object3D } from 'three'
+import { useGraphicsSettings } from '@/game/useGraphicsSettings'
 
 export type MoonSpec = {
   size: number
@@ -46,12 +47,13 @@ export function OrbitingMoon({
   const spinGroup = useRef<Group>(null!)
   const angle = useRef(phase)
   const texture = useTexture(map)
+  const gfx = useGraphicsSettings()
 
   useLayoutEffect(() => {
     texture.colorSpace = SRGBColorSpace
-    texture.anisotropy = 4
+    texture.anisotropy = gfx.anisotropy
     texture.needsUpdate = true
-  }, [texture])
+  }, [texture, gfx.anisotropy])
 
   const placeAtAngle = (root: Group, theta: number) => {
     const planet = planetRef.current

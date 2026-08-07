@@ -85,6 +85,7 @@ import type { OrbitalTelemetry } from '@/ship/PlayerShip'
 import { CombatChevron } from '@/ui/CombatChevron'
 import { Crosshair } from '@/ui/Crosshair'
 import { DamageFlash } from '@/ui/DamageFlash'
+import { FlightCursor } from '@/ui/FlightCursor'
 import { FpsCounter } from '@/ui/FpsCounter'
 import { Hud } from '@/ui/Hud'
 import { MapWaypointMarker } from '@/ui/MapWaypointMarker'
@@ -154,7 +155,7 @@ export default function App() {
   const saved = useMemo(() => loadGameSave(), [])
   const initialHull = useMemo(() => hullFromSave(saved), [saved])
 
-  const [, setLocked] = useState(false)
+  const [locked, setLocked] = useState(false)
   const [booting, setBooting] = useState(true)
   const [paused, setPaused] = useState(false)
   /** Void has no berth — resume in flight instead of the launch / undock menu. */
@@ -1127,8 +1128,18 @@ export default function App() {
   const resumeFlight = useCallback(() => {
     setPaused(false)
     tryPlayTheme()
-    const canvas = document.querySelector('canvas')
-    void canvas?.requestPointerLock()
+    if (!document.pointerLockElement) {
+      const canvas = document.querySelector('canvas')
+      void canvas?.requestPointerLock()
+    }
+  }, [])
+
+  const exitGame = useCallback(() => {
+    window.close()
+    // Browsers often block close() on tabs the script didn't open
+    window.setTimeout(() => {
+      window.location.href = 'about:blank'
+    }, 80)
   }, [])
 
   const onIntroContinue = useCallback((dontShowAgain: boolean) => {
@@ -1256,6 +1267,26 @@ export default function App() {
     return () => window.removeEventListener('keyup', onKeyUp)
   }, [started, paused, docked, resumeFlight])
 
+  // Soft pause — freeze sim without unlocking the pointer so the HUD cursor
+  // can operate the pause menu.
+  useEffect(() => {
+    if (booting || docked) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== 'KeyP' || event.repeat) return
+      if (!startedRef.current) return
+      if (showIntroModal) return
+      event.preventDefault()
+      if (paused) {
+        resumeFlight()
+        return
+      }
+      // Only soft-pause while the pointer is locked (keep the HUD cursor armed)
+      if (locked) setPaused(true)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [booting, docked, paused, locked, resumeFlight, showIntroModal])
+
   useEffect(() => {
     if (
       !started ||
@@ -1279,6 +1310,9 @@ export default function App() {
   const menuMode = started || paused ? 'paused' : 'start'
   const worldPaused = !started || paused
   const inFlight = !booting && started && !paused && !docked
+  const cursorActive = !booting && started && !docked && locked
+  /** Soft-pause menu + Leva cheats while the pointer stays locked */
+  const cursorInteractive = cursorActive && (paused || cheatsEnabled)
 
   const onBootFinished = useCallback(() => {
     setBooting(false)
@@ -1438,6 +1472,7 @@ export default function App() {
           )}
         </>
       )}
+      <FlightCursor active={cursorActive} interactive={cursorInteractive} />
       {started && (
         <Suspense fallback={null}>
           <SystemMap
@@ -1502,6 +1537,7 @@ export default function App() {
             mode={menuMode}
             onResume={resumeFlight}
             onResetProgress={resetProgress}
+            onExit={exitGame}
             cheatsEnabled={cheatsEnabled}
             onToggleCheats={toggleCheats}
             ship={{
