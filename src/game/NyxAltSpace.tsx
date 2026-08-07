@@ -20,8 +20,9 @@ import {
   type Mesh,
 } from 'three'
 import { useGraphicsSettings } from '@/game/useGraphicsSettings'
-import cassiniUrl from '@/assets/models/Cassini_Huygens.glb?url'
-import tugUrl from '@/assets/models/Ship_Tug.glb?url'
+import cassiniUrl from '@/assets/models/props/probe_cassini.glb?url'
+import gatewrightUrl from '@/assets/models/ships/ship_gatewright.glb?url'
+import tugUrl from '@/assets/models/ships/ship_tug.glb?url'
 import arid from '@/assets/textures/planets/Arid.webp'
 import ashen from '@/assets/textures/planets/Ashen.webp'
 import frozen from '@/assets/textures/planets/Frozen.webp'
@@ -74,6 +75,10 @@ import {
   listSiphonIndices,
   siphonPadName,
 } from '@/lore/VesperSatelliteRing'
+import {
+  GATEWRIGHT_PROFILE,
+  gatewrightMapLabel,
+} from '@/lore/voidAncestors'
 import type { PlayerCargoStatus } from '@/loot/cargoBait'
 import type { MaterialKind } from '@/loot/economy'
 import {
@@ -100,16 +105,16 @@ import { Planet } from '@/world/Planet'
 import { StableGodRays } from '@/world/StableGodRays'
 import { Starfield } from '@/world/Starfield'
 import { Sun } from '@/world/Sun'
-import {
-  FLOATING_WRECK_HIT_RADIUS,
-  STATION_HIT_RADIUS,
-} from '@/world/hitRadii'
 import { STATION_MODEL_URLS } from '@/world/SpaceStation'
 
 /** Self-centered approach shell for the free-floating tug. */
 export const ALT_TUG_DOCK_RANGE = 42
+/** Larger expedition hull — stand off a bit farther than the tug. */
+export const ALT_GATEWRIGHT_DOCK_RANGE = 58
 const TUG_OFFSET: [number, number, number] = [380, 28, 90]
 const CASSINI_OFFSET: [number, number, number] = [-240, -40, 200]
+/** Parked near the misplanted gate / unfinished Gate-2 work. */
+const GATEWRIGHT_OFFSET: [number, number, number] = [450, 40, -120]
 
 const SpaceStation = lazy(() =>
   import('@/world/SpaceStation').then((m) => ({ default: m.SpaceStation })),
@@ -179,6 +184,9 @@ export const NyxAltSpace = memo(function NyxAltSpace({
   onNyxCassiniSeen,
   nyxGateSeen = false,
   onNyxGateSeen,
+  vesperGatewrightSeen = false,
+  onVesperGatewrightSeen,
+  vesperGatewrightDocked = false,
   gatePortalUsed = false,
   vesperSiphonRepaired = [],
   gatePowered = false,
@@ -215,6 +223,9 @@ export const NyxAltSpace = memo(function NyxAltSpace({
   onNyxCassiniSeen?: (toast: string) => void
   nyxGateSeen?: boolean
   onNyxGateSeen?: (toast: string) => void
+  vesperGatewrightSeen?: boolean
+  onVesperGatewrightSeen?: (toast: string) => void
+  vesperGatewrightDocked?: boolean
   gatePortalUsed?: boolean
   vesperSiphonRepaired?: readonly number[]
   gatePowered?: boolean
@@ -229,6 +240,7 @@ export const NyxAltSpace = memo(function NyxAltSpace({
   const outerPlanet = useRef<Group>(null)
   const nyxStation = useRef<Group>(null)
   const tugStation = useRef<Group>(null)
+  const gatewrightStation = useRef<Group>(null)
   const cassiniWreck = useRef<Group>(null)
   const misplantedGate = useRef<Group>(null)
   const dysonRingMap = useRef<Group>(null)
@@ -237,8 +249,14 @@ export const NyxAltSpace = memo(function NyxAltSpace({
   const asteroidHazards = useRef<HazardField | null>(null)
   const gateHazards = useRef<HazardField | null>(null)
   const dysonHazards = useRef<HazardField | null>(null)
+  const nyxStationHazards = useRef<HazardField | null>(null)
+  const tugHazards = useRef<HazardField | null>(null)
+  const gatewrightHazards = useRef<HazardField | null>(null)
+  const cassiniHazards = useRef<HazardField | null>(null)
   const materialDrops = useRef<MaterialDropsHandle | null>(null)
   const dockedAtTug = docked && dockStationName === STATION_NAMES.nyxTug
+  const dockedAtGatewright =
+    docked && dockStationName === STATION_NAMES.vesperGatewright
   const sunMesh = useRef<Mesh>(null!)
   const [sunReady, setSunReady] = useState(false)
   const onSunReady = useCallback((mesh: Mesh | null) => {
@@ -473,7 +491,15 @@ export const NyxAltSpace = memo(function NyxAltSpace({
     return [pos.x, pos.y, pos.z] as [number, number, number]
   }, [azimuth, elevation, sunDistance])
   const hazardFields = useMemo(
-    () => [asteroidHazards, gateHazards, dysonHazards],
+    () => [
+      asteroidHazards,
+      gateHazards,
+      dysonHazards,
+      nyxStationHazards,
+      tugHazards,
+      gatewrightHazards,
+      cassiniHazards,
+    ],
     [],
   )
 
@@ -563,6 +589,15 @@ export const NyxAltSpace = memo(function NyxAltSpace({
         name: STATION_NAMES.nyxTug,
         planetDockRange: ALT_TUG_DOCK_RANGE,
       },
+      {
+        station: gatewrightStation,
+        planet: gatewrightStation,
+        name: STATION_NAMES.vesperGatewright,
+        planetDockRange: ALT_GATEWRIGHT_DOCK_RANGE,
+        attachClearance: 18,
+        dockCamScale: 0.95,
+        facePad: true,
+      },
       ...siphonBerths,
     ]
   }, [siphonDockRefs, siphonDockRange, siphonAttachClearance])
@@ -593,9 +628,6 @@ export const NyxAltSpace = memo(function NyxAltSpace({
         name: ALT_PLANET_NAMES.outer,
         kind: 'planet',
       },
-      { object: nyxStation, radius: STATION_HIT_RADIUS.nyxAlt },
-      { object: tugStation, radius: FLOATING_WRECK_HIT_RADIUS.tug },
-      { object: cassiniWreck, radius: FLOATING_WRECK_HIT_RADIUS.cassini },
     ],
     [],
   )
@@ -682,8 +714,15 @@ export const NyxAltSpace = memo(function NyxAltSpace({
         hostSize: 6,
         hostRing: false,
       },
+      {
+        name: gatewrightMapLabel(vesperGatewrightDocked),
+        object: gatewrightStation,
+        host: gatewrightStation,
+        hostSize: 10,
+        hostRing: false,
+      },
     ],
-    [],
+    [vesperGatewrightDocked],
   )
 
   const emptyBandits = useMemo(() => [], [])
@@ -789,6 +828,7 @@ export const NyxAltSpace = memo(function NyxAltSpace({
             scale={0.3}
             paused={paused}
             stationRef={nyxStation}
+            hazardRef={nyxStationHazards}
           />
         )}
         {started && (
@@ -807,6 +847,24 @@ export const NyxAltSpace = memo(function NyxAltSpace({
               paused={paused}
               docked={dockedAtTug}
               stationRef={tugStation}
+              hazardRef={tugHazards}
+            />
+            <FloatingWreck
+              modelUrl={gatewrightUrl}
+              scale={0.48}
+              sunPosition={sunPosition}
+              offset={GATEWRIGHT_OFFSET}
+              tumbleSpeed={0.018}
+              playerRef={mapShipRef}
+              sightRange={120}
+              alreadySeen={vesperGatewrightSeen}
+              onFirstSight={onVesperGatewrightSeen}
+              toast={GATEWRIGHT_PROFILE.toast}
+              paused={paused}
+              docked={dockedAtGatewright}
+              stationRef={gatewrightStation}
+              hazardRef={gatewrightHazards}
+              ghost={false}
             />
             <FloatingWreck
               modelUrl={cassiniUrl}
@@ -821,6 +879,7 @@ export const NyxAltSpace = memo(function NyxAltSpace({
               toast={ALT_CASSINI_TOAST}
               paused={paused}
               stationRef={cassiniWreck}
+              hazardRef={cassiniHazards}
             />
             <MisplantedGate
               sunPosition={sunPosition}
@@ -989,11 +1048,14 @@ export const NyxAltSpace = memo(function NyxAltSpace({
       />
 
       {gfx.bloomScale > 0 && (
-        <EffectComposer enableNormalPass={false} multisampling={0}>
+        <EffectComposer
+          enableNormalPass={false}
+          multisampling={gfx.composerMultisampling}
+        >
           <Bloom
             intensity={bloomIntensity * gfx.bloomScale}
             luminanceThreshold={bloomThreshold}
-            luminanceSmoothing={0.9}
+            luminanceSmoothing={0.92}
             mipmapBlur
           />
           {godRays && sunReady ? <StableGodRays sun={sunMesh} /> : <></>}

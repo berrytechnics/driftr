@@ -9,13 +9,19 @@ import {
   type MeshStandardMaterial,
   type Object3D,
 } from 'three'
-import stationUrl from '@/assets/models/space__station.glb?url'
+import stationUrl from '@/assets/models/stations/station_kronos.glb?url'
 import {
   OUTER_DWARF_ECC,
   OUTER_DWARF_ORBIT,
 } from '@/game/systemConfig'
 import { NYX_DERELICT_PLAYER_RANGE, NYX_DERELICT_TOAST } from '@/lore/easterEggs'
+import type { HazardField } from '@/ship/PlayerShip'
 import { placeEllipticalOrbit } from '@/world/gravity'
+import {
+  buildHullColliders,
+  createMeshHazardField,
+  type HullCollider,
+} from '@/world/meshHazard'
 
 type NyxDerelictProps = {
   sunPosition: [number, number, number]
@@ -33,6 +39,8 @@ type NyxDerelictProps = {
   onFirstSight?: (toast: string) => void
   /** Exposed root for DockBerth hard-dock follow. */
   stationRef?: RefObject<Group | null>
+  /** Mesh-surface lethality only while keyed / dockable. */
+  hazardRef?: RefObject<HazardField | null>
 }
 
 const _sun = new Vector3()
@@ -91,17 +99,38 @@ export function NyxDerelict({
   alreadySeen = false,
   onFirstSight,
   stationRef,
+  hazardRef,
 }: NyxDerelictProps) {
   const root = useRef<Group>(null!)
+  const hullRef = useRef<HullCollider[]>([])
   const seenRef = useRef(alreadySeen)
   const keyedRef = useRef(dockable)
+  const dockableRef = useRef(dockable)
   seenRef.current = alreadySeen
+  dockableRef.current = dockable
   const { scene } = useGLTF(stationUrl, true, true)
   const model = useMemo(() => {
     const clone = scene.clone(true)
     ghostMaterials(clone, false)
     return clone
   }, [scene])
+
+  useLayoutEffect(() => {
+    // Ghost materials use low opacity — include all meshes; lethality is gated.
+    hullRef.current = buildHullColliders(model, () => true)
+  }, [model])
+
+  useLayoutEffect(() => {
+    if (!hazardRef) return
+    hazardRef.current = createMeshHazardField({
+      getRoot: () => root.current,
+      getHull: () => hullRef.current,
+      active: () => dockableRef.current,
+    })
+    return () => {
+      hazardRef.current = null
+    }
+  }, [hazardRef])
 
   useLayoutEffect(() => {
     if (root.current) root.current.visible = false

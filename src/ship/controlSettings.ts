@@ -3,12 +3,16 @@ const STORAGE_KEY = '3js-controls-v1'
 export type ControlSettings = {
   /** Pitch rate multiplier (arrow ↑/↓) */
   pitch: number
+  /** Yaw rate multiplier (Q / E) */
+  yaw: number
   /** Roll rate multiplier (arrow ←/→) */
   roll: number
   /** HUD cursor speed while pointer-locked */
   cursor: number
   /** Flip ↑/↓ pitch sense */
   invertPitch: boolean
+  /** Flip Q/E yaw sense */
+  invertYaw: boolean
   /** Flip ←/→ roll sense */
   invertRoll: boolean
 }
@@ -17,9 +21,11 @@ type Listener = (settings: ControlSettings) => void
 
 const DEFAULTS: ControlSettings = {
   pitch: 1,
+  yaw: 1,
   roll: 1,
   cursor: 1,
   invertPitch: false,
+  invertYaw: false,
   invertRoll: false,
 }
 
@@ -42,6 +48,8 @@ function load(): ControlSettings {
         typeof parsed.pitch === 'number'
           ? clampSens(parsed.pitch)
           : DEFAULTS.pitch,
+      yaw:
+        typeof parsed.yaw === 'number' ? clampSens(parsed.yaw) : DEFAULTS.yaw,
       roll:
         typeof parsed.roll === 'number' ? clampSens(parsed.roll) : DEFAULTS.roll,
       cursor:
@@ -52,6 +60,10 @@ function load(): ControlSettings {
         typeof parsed.invertPitch === 'boolean'
           ? parsed.invertPitch
           : DEFAULTS.invertPitch,
+      invertYaw:
+        typeof parsed.invertYaw === 'boolean'
+          ? parsed.invertYaw
+          : DEFAULTS.invertYaw,
       invertRoll:
         typeof parsed.invertRoll === 'boolean'
           ? parsed.invertRoll
@@ -88,6 +100,14 @@ export function setPitchSensitivity(value: number) {
   notify()
 }
 
+export function setYawSensitivity(value: number) {
+  const next = clampSens(value)
+  if (next === settings.yaw) return
+  settings = { ...settings, yaw: next }
+  persist()
+  notify()
+}
+
 export function setRollSensitivity(value: number) {
   const next = clampSens(value)
   if (next === settings.roll) return
@@ -107,6 +127,13 @@ export function setCursorSensitivity(value: number) {
 export function setInvertPitch(value: boolean) {
   if (value === settings.invertPitch) return
   settings = { ...settings, invertPitch: value }
+  persist()
+  notify()
+}
+
+export function setInvertYaw(value: boolean) {
+  if (value === settings.invertYaw) return
+  settings = { ...settings, invertYaw: value }
   persist()
   notify()
 }

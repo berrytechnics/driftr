@@ -26,8 +26,8 @@ import { PatrolShip } from '@/ship/PatrolShip'
 import type { LaserTarget } from '@/ship/ShipWeapons'
 import { useGraphicsSettings } from '@/game/useGraphicsSettings'
 import { sensorRangeForOwned } from '@/loot/shop'
-import stationAresUrl from '@/assets/models/space_station.glb?url'
-import stationKronosUrl from '@/assets/models/space__station.glb?url'
+import stationAresUrl from '@/assets/models/stations/station_ares.glb?url'
+import stationKronosUrl from '@/assets/models/stations/station_kronos.glb?url'
 import gaseous from '@/assets/textures/planets/Gaseous2.webp'
 import gaseousOuter from '@/assets/textures/planets/Gaseous4.webp'
 import icy from '@/assets/textures/planets/Icy.webp'
@@ -110,10 +110,6 @@ import {
   STATION_NAMES,
   SUN_SIZE,
 } from '@/game/systemConfig'
-import {
-  NYX_TRANSIT_HIT_RADIUS,
-  STATION_HIT_RADIUS,
-} from '@/world/hitRadii'
 
 const SpaceStation = lazy(() =>
   import('@/world/SpaceStation').then((m) => ({ default: m.SpaceStation })),
@@ -280,6 +276,10 @@ export const Space = memo(function Space({
   const ouranosMoonA = useRef<Group>(null)
   const ouranosMoonB = useRef<Group>(null)
   const asteroidHazards = useRef<HazardField | null>(null)
+  const aresHazards = useRef<HazardField | null>(null)
+  const thalassaHazards = useRef<HazardField | null>(null)
+  const kronosHazards = useRef<HazardField | null>(null)
+  const nyxTransitHazards = useRef<HazardField | null>(null)
   /** True while advanced thruster burn is active — blanks NPC map contacts */
   const mapCloakRef = useRef(false)
   const nyxOrbitGlowRef = useRef(0)
@@ -525,21 +525,19 @@ export const Space = memo(function Space({
         name: MOON_NAMES.ouranosB,
         kind: 'moon',
       },
-      // Live pads — lethal if you clip the hull; dock via the approach shell
-      { object: aresStation, radius: STATION_HIT_RADIUS.ares },
-      { object: thalassaStation, radius: STATION_HIT_RADIUS.thalassa },
-      { object: kronosStation, radius: STATION_HIT_RADIUS.kronos },
     ]
-    // Keyed Nyx Transit only — ghost / offline apo pad stays ethereal
-    if (nyxTransitDockable) {
-      list.push({
-        object: nyxTransitStation,
-        radius: NYX_TRANSIT_HIT_RADIUS,
-      })
-    }
     return list
-  }, [nyxTransitDockable])
-  const hazardFields = useMemo(() => [asteroidHazards], [])
+  }, [])
+  const hazardFields = useMemo(
+    () => [
+      asteroidHazards,
+      aresHazards,
+      thalassaHazards,
+      kronosHazards,
+      nyxTransitHazards,
+    ],
+    [],
+  )
   const mapBodies = useMemo(
     () => [
       {
@@ -870,11 +868,7 @@ export const Space = memo(function Space({
     beltThickness,
     beltInclination,
     beltSizeScale,
-    glowNightShard,
-    meshDetail,
-    largeLumps,
-    mediumLumps,
-    fineLumps,
+    showShardMapMarker,
     rockFreq,
     rockBump,
     rockContrast,
@@ -911,45 +905,12 @@ export const Space = memo(function Space({
           step: 0.01,
           label: 'Inclination',
         },
-        glowNightShard: {
+        showShardMapMarker: {
           value: false,
-          label: 'Glow Nyx dust rock',
+          label: 'Show shard rock on map',
         },
       },
       { collapsed: false },
-    ),
-    shape: folder(
-      {
-        meshDetail: {
-          value: 3,
-          min: 1,
-          max: 7,
-          step: 1,
-          label: 'Mesh detail',
-        },
-        largeLumps: {
-          value: 0.3,
-          min: 0,
-          max: 0.55,
-          step: 0.01,
-          label: 'Large lumps',
-        },
-        mediumLumps: {
-          value: 0.08,
-          min: 0,
-          max: 0.4,
-          step: 0.01,
-          label: 'Medium lumps',
-        },
-        fineLumps: {
-          value: 0.07,
-          min: 0,
-          max: 0.25,
-          step: 0.005,
-          label: 'Fine lumps',
-        },
-      },
-      { collapsed: true },
     ),
     texture: folder(
       {
@@ -993,10 +954,6 @@ export const Space = memo(function Space({
     ),
   },
     { order: 3 },
-  )
-  const asteroidShape = useMemo(
-    () => ({ meshDetail, largeLumps, mediumLumps, fineLumps }),
-    [meshDetail, largeLumps, mediumLumps, fineLumps],
   )
   const asteroidTexture = useMemo(
     () => ({
@@ -1145,6 +1102,7 @@ export const Space = memo(function Space({
             scale={0.26}
             paused={paused}
             stationRef={aresStation}
+            hazardRef={aresHazards}
           />
         )}
         <Planet
@@ -1207,6 +1165,7 @@ export const Space = memo(function Space({
             scale={0.28}
             paused={paused}
             stationRef={thalassaStation}
+            hazardRef={thalassaHazards}
           />
         )}
         <PlanetMoons
@@ -1237,9 +1196,9 @@ export const Space = memo(function Space({
           thickness={beltThickness}
           sizeScale={beltSizeScale}
           inclination={beltInclination}
-          shape={asteroidShape}
           texture={asteroidTexture}
-          glowNightShard={glowNightShard}
+          showShardMapMarker={showShardMapMarker}
+          lorePingsRef={lorePingsRef}
           paused={paused}
           hazardRef={asteroidHazards}
           onRockDestroyed={onRockDestroyed}
@@ -1273,6 +1232,7 @@ export const Space = memo(function Space({
             scale={0.42}
             paused={paused}
             stationRef={kronosStation}
+            hazardRef={kronosHazards}
           />
         )}
         <PlanetMoons
@@ -1389,6 +1349,7 @@ export const Space = memo(function Space({
           alreadySeen={nyxDerelictSeen}
           onFirstSight={onNyxDerelictSeen}
           stationRef={nyxTransitStation}
+          hazardRef={nyxTransitHazards}
         />
         <NyxBeacon
           nyxRef={outerDwarf}
@@ -1576,6 +1537,7 @@ export const Space = memo(function Space({
         nyxOrbitGlowRef={nyxOrbitGlowRef}
         nyxCorridorUnlockedRef={nyxCorridorUnlockedRef}
         lorePingsRef={lorePingsRef}
+        cargoBaitRef={cargoBaitRef}
       />
 
       <Nebula
@@ -1605,11 +1567,14 @@ export const Space = memo(function Space({
       />
 
       {gfx.bloomScale > 0 && (
-        <EffectComposer enableNormalPass={false} multisampling={0}>
+        <EffectComposer
+          enableNormalPass={false}
+          multisampling={gfx.composerMultisampling}
+        >
           <Bloom
             intensity={bloomIntensity * gfx.bloomScale}
             luminanceThreshold={bloomThreshold}
-            luminanceSmoothing={0.85}
+            luminanceSmoothing={0.9}
             mipmapBlur
           />
           {godRays && sunReady ? <StableGodRays sun={sunMesh} /> : <></>}

@@ -8,6 +8,11 @@ export type GraphicsSettings = {
   maxDpr: number
   /** Multiplier on Leva bloom intensity; 0 disables the composer */
   bloomScale: number
+  /**
+   * WebGL2 MSAA samples on the EffectComposer scene buffer.
+   * Softens partial-coverage bright edges before bloom, preventing white sparkles.
+   */
+  composerMultisampling: number
   /** Max anisotropy on planet / moon albedo maps */
   anisotropy: number
 }
@@ -15,9 +20,9 @@ export type GraphicsSettings = {
 type Listener = (settings: GraphicsSettings) => void
 
 const PRESETS: Record<GraphicsQuality, Omit<GraphicsSettings, 'quality'>> = {
-  low: { maxDpr: 1, bloomScale: 0, anisotropy: 1 },
-  medium: { maxDpr: 1.25, bloomScale: 0.7, anisotropy: 4 },
-  high: { maxDpr: 1.5, bloomScale: 1, anisotropy: 8 },
+  low: { maxDpr: 1, bloomScale: 0, composerMultisampling: 0, anisotropy: 1 },
+  medium: { maxDpr: 1.25, bloomScale: 0.7, composerMultisampling: 4, anisotropy: 4 },
+  high: { maxDpr: 1.5, bloomScale: 1, composerMultisampling: 8, anisotropy: 8 },
 }
 
 const DEFAULT_QUALITY: GraphicsQuality = 'medium'

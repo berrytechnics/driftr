@@ -36,6 +36,11 @@ import {
 } from '@/loot/shop'
 import { STATION_NAMES } from '@/game/systemConfig'
 import {
+  VOID_SYSTEM_BADGES,
+  vesperExpeditionProfile,
+  voidRemnantProfile,
+} from '@/lore/voidAncestors'
+import {
   ALT_TUG_BERTH_LABEL,
   ALT_TUG_CREW_LOG,
   ALT_TUG_FOOTNOTE,
@@ -158,23 +163,55 @@ export function StationMenu({
   const [desk, setDesk] = useState<StationDesk>('cargo')
   const [plaqueOpen, setPlaqueOpen] = useState(false)
   const [comGhost, setComGhost] = useState<string | null>(null)
+  const voidProfile = voidRemnantProfile(stationName)
+  const expeditionProfile = vesperExpeditionProfile(stationName)
   const offline =
     stationName === STATION_NAMES.nyx ||
-    stationName === STATION_NAMES.nyxTug
+    stationName === STATION_NAMES.nyxTug ||
+    !!voidProfile ||
+    !!expeditionProfile
   const isTugOffline = stationName === STATION_NAMES.nyxTug
+  const isVoidOffline = !!voidProfile
+  const isExpeditionOffline = !!expeditionProfile
+  /** Ancestor MFD language — remnant pads or the Vesper Gatewright hull. */
+  const isAncestorOffline = isVoidOffline || isExpeditionOffline
   /** Alt-system Nyx Station — berths 01–03 dark, 04 clear. */
   const isNyxAlt = stationName === STATION_NAMES.nyxAlt
-  const offlineBlurb = isTugOffline ? ALT_TUG_OFFLINE_BLURB : NYX_OFFLINE_BLURB
-  const offlineStatus = isTugOffline
-    ? ALT_TUG_OFFLINE_STATUS
-    : NYX_OFFLINE_STATUS
-  const offlineDeskTitle = isTugOffline
-    ? ALT_TUG_OFFLINE_DESK_TITLE
-    : NYX_OFFLINE_DESK_TITLE
-  const offlineDeskNote = isTugOffline
-    ? ALT_TUG_OFFLINE_DESK_NOTE
-    : NYX_OFFLINE_DESK_NOTE
-  const offlinePlatformLabel = isTugOffline ? 'DERELICT HULL' : 'GHOST PLATFORM'
+  const offlineBlurb = isVoidOffline
+    ? voidProfile.blurb
+    : isExpeditionOffline
+      ? expeditionProfile.blurb
+      : isTugOffline
+        ? ALT_TUG_OFFLINE_BLURB
+        : NYX_OFFLINE_BLURB
+  const offlineStatus = isVoidOffline
+    ? voidProfile.status
+    : isExpeditionOffline
+      ? expeditionProfile.status
+      : isTugOffline
+        ? ALT_TUG_OFFLINE_STATUS
+        : NYX_OFFLINE_STATUS
+  const offlineDeskTitle = isVoidOffline
+    ? voidProfile.deskTitle
+    : isExpeditionOffline
+      ? expeditionProfile.deskTitle
+      : isTugOffline
+        ? ALT_TUG_OFFLINE_DESK_TITLE
+        : NYX_OFFLINE_DESK_TITLE
+  const offlineDeskNote = isVoidOffline
+    ? voidProfile.deskNote
+    : isExpeditionOffline
+      ? expeditionProfile.deskNote
+      : isTugOffline
+        ? ALT_TUG_OFFLINE_DESK_NOTE
+        : NYX_OFFLINE_DESK_NOTE
+  const offlinePlatformLabel = isVoidOffline
+    ? voidProfile.platformLabel
+    : isExpeditionOffline
+      ? expeditionProfile.platformLabel
+      : isTugOffline
+        ? 'DERELICT HULL'
+        : 'GHOST PLATFORM'
   const units = cargoUnits(cargo)
   const holdValue = cargoValue(cargo)
   const damage = missingHp(hp, maxHp)
@@ -203,13 +240,14 @@ export function StationMenu({
     : 'rgba(160, 200, 230, 0.4)'
 
   useEffect(() => {
+    if (isAncestorOffline) return
     if (!(ghostBerth || nyxWhisperHeard)) return
     if (!rollNyxComGhost()) return
     setComGhost(NYX_COM_GHOST)
     onNyxTopicClue?.()
     const hide = window.setTimeout(() => setComGhost(null), 6500)
     return () => window.clearTimeout(hide)
-  }, [ghostBerth, nyxWhisperHeard, onNyxTopicClue])
+  }, [ghostBerth, nyxWhisperHeard, onNyxTopicClue, isAncestorOffline])
 
   return (
     <div
@@ -515,7 +553,89 @@ export function StationMenu({
                 onKronosLead={onKronosLead}
               />
 
-              {isTugOffline ? (
+              {isVoidOffline ? (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 8,
+                    marginBottom: 28,
+                    fontSize: 10,
+                    letterSpacing: '0.14em',
+                  }}
+                >
+                  {VOID_SYSTEM_BADGES.map((badge) => {
+                    const here = voidProfile.id === badge.id
+                    return (
+                      <span
+                        key={badge.id}
+                        style={{
+                          border: here
+                            ? '1px solid rgba(140, 120, 90, 0.35)'
+                            : `1px solid ${accentSoft}`,
+                          padding: '5px 10px',
+                          color: here
+                            ? 'rgba(170, 150, 110, 0.65)'
+                            : 'rgba(140, 128, 100, 0.45)',
+                          background: here
+                            ? 'rgba(18, 14, 8, 0.45)'
+                            : 'rgba(0, 0, 0, 0.22)',
+                          textDecoration: here ? 'none' : 'line-through',
+                          textDecorationColor: here
+                            ? undefined
+                            : 'rgba(120, 110, 90, 0.4)',
+                          animation: here
+                            ? 'stationBlink 2.4s step-end infinite'
+                            : undefined,
+                        }}
+                      >
+                        {badge.label} · COLD
+                      </span>
+                    )
+                  })}
+                </div>
+              ) : isExpeditionOffline ? (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 8,
+                    marginBottom: 28,
+                    fontSize: 10,
+                    letterSpacing: '0.14em',
+                  }}
+                >
+                  {expeditionProfile.badges.map((badge) => {
+                    const here = badge.id === 'hull'
+                    return (
+                      <span
+                        key={badge.id}
+                        style={{
+                          border: here
+                            ? '1px solid rgba(140, 120, 90, 0.35)'
+                            : `1px solid ${accentSoft}`,
+                          padding: '5px 10px',
+                          color: here
+                            ? 'rgba(170, 150, 110, 0.65)'
+                            : 'rgba(140, 128, 100, 0.45)',
+                          background: here
+                            ? 'rgba(18, 14, 8, 0.45)'
+                            : 'rgba(0, 0, 0, 0.22)',
+                          textDecoration: here ? 'none' : 'line-through',
+                          textDecorationColor: here
+                            ? undefined
+                            : 'rgba(120, 110, 90, 0.4)',
+                          animation: here
+                            ? 'stationBlink 2.4s step-end infinite'
+                            : undefined,
+                        }}
+                      >
+                        {badge.label} · COLD
+                      </span>
+                    )
+                  })}
+                </div>
+              ) : isTugOffline ? (
                 <div
                   style={{
                     display: 'flex',
@@ -770,7 +890,11 @@ export function StationMenu({
                     }}
                   >
                     <span>{offlineDeskTitle}</span>
-                    <span>{isTugOffline ? 'BUFFER · PARTIAL' : 'BUS · DEAD'}</span>
+                    <span>
+                      {isTugOffline || isAncestorOffline
+                        ? 'BUFFER · PARTIAL'
+                        : 'BUS · DEAD'}
+                    </span>
                   </div>
                   <div className="station-desk-scroll">
                     <p
@@ -784,7 +908,155 @@ export function StationMenu({
                     >
                       {offlineDeskNote}
                     </p>
-                    {isTugOffline ? (
+                    {isVoidOffline ? (
+                      <>
+                        <div
+                          style={{
+                            display: 'grid',
+                            gap: 8,
+                            marginBottom: 18,
+                            paddingBottom: 14,
+                            borderBottom: '1px solid rgba(120, 110, 90, 0.18)',
+                          }}
+                        >
+                          {voidProfile.stats.map((row) => (
+                            <div
+                              key={row.label}
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                gap: 16,
+                                fontSize: 11,
+                                letterSpacing: '0.1em',
+                              }}
+                            >
+                              <span style={{ color: 'rgba(140, 128, 100, 0.65)' }}>
+                                {row.label}
+                              </span>
+                              <span style={{ color: textBright }}>{row.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                        {voidProfile.logs.map((entry) => (
+                          <div
+                            key={entry.stamp}
+                            style={{
+                              padding: '14px 0',
+                              borderBottom:
+                                '1px solid rgba(120, 110, 90, 0.12)',
+                            }}
+                          >
+                            <div
+                              style={{
+                                fontSize: 10,
+                                letterSpacing: '0.16em',
+                                color: 'rgba(170, 150, 110, 0.55)',
+                                marginBottom: 8,
+                              }}
+                            >
+                              {entry.stamp}
+                            </div>
+                            <p
+                              style={{
+                                margin: 0,
+                                fontSize: 13,
+                                lineHeight: 1.55,
+                                color: textBright,
+                                letterSpacing: '0.02em',
+                              }}
+                            >
+                              {entry.body}
+                            </p>
+                          </div>
+                        ))}
+                        <p
+                          style={{
+                            margin: '22px 0 0',
+                            fontSize: 12,
+                            lineHeight: 1.5,
+                            color: 'rgba(140, 128, 100, 0.5)',
+                            fontStyle: 'italic',
+                            letterSpacing: '0.04em',
+                          }}
+                        >
+                          {voidProfile.footnote}
+                        </p>
+                      </>
+                    ) : isExpeditionOffline ? (
+                      <>
+                        <div
+                          style={{
+                            display: 'grid',
+                            gap: 8,
+                            marginBottom: 18,
+                            paddingBottom: 14,
+                            borderBottom: '1px solid rgba(120, 110, 90, 0.18)',
+                          }}
+                        >
+                          {expeditionProfile.stats.map((row) => (
+                            <div
+                              key={row.label}
+                              style={{
+                                display: 'flex',
+                                justifyContent: 'space-between',
+                                gap: 16,
+                                fontSize: 11,
+                                letterSpacing: '0.1em',
+                              }}
+                            >
+                              <span style={{ color: 'rgba(140, 128, 100, 0.65)' }}>
+                                {row.label}
+                              </span>
+                              <span style={{ color: textBright }}>{row.value}</span>
+                            </div>
+                          ))}
+                        </div>
+                        {expeditionProfile.logs.map((entry) => (
+                          <div
+                            key={entry.stamp}
+                            style={{
+                              padding: '14px 0',
+                              borderBottom:
+                                '1px solid rgba(120, 110, 90, 0.12)',
+                            }}
+                          >
+                            <div
+                              style={{
+                                fontSize: 10,
+                                letterSpacing: '0.16em',
+                                color: 'rgba(170, 150, 110, 0.55)',
+                                marginBottom: 8,
+                              }}
+                            >
+                              {entry.stamp}
+                            </div>
+                            <p
+                              style={{
+                                margin: 0,
+                                fontSize: 13,
+                                lineHeight: 1.55,
+                                color: textBright,
+                                letterSpacing: '0.02em',
+                              }}
+                            >
+                              {entry.body}
+                            </p>
+                          </div>
+                        ))}
+                        <p
+                          style={{
+                            margin: '22px 0 0',
+                            fontSize: 12,
+                            lineHeight: 1.5,
+                            color: 'rgba(140, 128, 100, 0.5)',
+                            fontStyle: 'italic',
+                            letterSpacing: '0.04em',
+                          }}
+                        >
+                          {expeditionProfile.footnote}
+                        </p>
+                      </>
+                    ) : isTugOffline ? (
                       <>
                         {ALT_TUG_CREW_LOG.map((entry) => (
                           <div

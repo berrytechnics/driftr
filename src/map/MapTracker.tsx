@@ -1,6 +1,7 @@
 import { useFrame } from '@react-three/fiber'
-import { useRef, type RefObject } from 'react'
+import { useRef, type MutableRefObject, type RefObject } from 'react'
 import { Vector3, type Group, type Object3D } from 'three'
+import type { CargoBait } from '@/loot/cargoBait'
 import type { MapBodyKind, MapLorePing, MapSnapshot } from '@/map/systemMap'
 
 export type TrackedBody = {
@@ -31,6 +32,8 @@ export type TrackedStation = {
   hostRing?: boolean
   /** Default true — gold pip at station (Hyperion apo clue gates Nyx Transit) */
   showPip?: boolean
+  /** Keep the chart label visible without selecting the pip */
+  alwaysShowLabel?: boolean
 }
 
 type MapTrackerProps = {
@@ -57,6 +60,8 @@ type MapTrackerProps = {
   nyxCorridorUnlockedRef?: RefObject<boolean>
   /** Live lore pings (NT-0) written by NyxBeacon. */
   lorePingsRef?: RefObject<MapLorePing[]>
+  /** Contested jettison dump — always visible system-wide while active. */
+  cargoBaitRef?: MutableRefObject<CargoBait>
 }
 
 const _pos = new Vector3()
@@ -85,6 +90,7 @@ export function MapTracker({
   nyxOrbitGlowRef,
   nyxCorridorUnlockedRef,
   lorePingsRef,
+  cargoBaitRef,
 }: MapTrackerProps) {
   const hadShipPos = useRef(false)
 
@@ -111,6 +117,16 @@ export function MapTracker({
       for (const p of srcPings) {
         out.push({ x: p.x, y: p.y ?? 0, z: p.z, label: p.label })
       }
+    }
+
+    const bait = cargoBaitRef?.current
+    if (bait?.active && bait.remaining > 0) {
+      if (!snap.cargoDump) snap.cargoDump = { x: 0, y: 0, z: 0 }
+      snap.cargoDump.x = bait.x - _sun.x
+      snap.cargoDump.y = bait.y - _sun.y
+      snap.cargoDump.z = bait.z - _sun.z
+    } else {
+      snap.cargoDump = null
     }
 
     snap.starName = starName
@@ -254,6 +270,7 @@ export function MapTracker({
           hostSize: entry.hostSize,
           hostRing: entry.hostRing !== false,
           showPip: entry.showPip !== false,
+          alwaysShowLabel: entry.alwaysShowLabel === true,
         })
       }
     }

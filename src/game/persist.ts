@@ -10,6 +10,10 @@ import {
 } from '@/game/systemConfig'
 import { isSiphonPadName } from '@/lore/siphonPads'
 import {
+  isVesperExpeditionStation,
+  isVoidRemnantStation,
+} from '@/lore/voidAncestors'
+import {
   BASE_MAX_HP,
   clampArmorTier,
   clampTorpedoAmmo,
@@ -26,9 +30,19 @@ function sanitizeSystemId(raw: unknown): SystemId {
 
 const KNOWN_STATIONS = new Set<string>(Object.values(STATION_NAMES))
 
+const VOID_STATION_NAMES = new Set<string>([
+  STATION_NAMES.voidFreeport,
+  STATION_NAMES.voidGreenpeace,
+  STATION_NAMES.voidOrbital,
+  STATION_NAMES.voidMining,
+])
+
 function sanitizeDockStationName(raw: unknown, systemId: SystemId): string {
-  // Liminal void has no berths — keep a harmless fallback for the save slot.
-  if (systemId === SYSTEM_IDS.gateVoid) return STATION_NAMES.nyxAlt
+  if (systemId === SYSTEM_IDS.gateVoid) {
+    if (typeof raw === 'string' && VOID_STATION_NAMES.has(raw)) return raw
+    // Undocked void sessions keep a harmless fallback for the save slot.
+    return STATION_NAMES.voidFreeport
+  }
 
   if (typeof raw === 'string' && isSiphonPadName(raw)) {
     // Siphon pads only exist in the alt sky
@@ -37,14 +51,21 @@ function sanitizeDockStationName(raw: unknown, systemId: SystemId): string {
   if (typeof raw === 'string' && KNOWN_STATIONS.has(raw)) {
     // Don't restore a Sol pad while in alt (or vice versa) after a bad save.
     if (systemId === SYSTEM_IDS.nyxAlt) {
-      if (raw === STATION_NAMES.nyxAlt || raw === STATION_NAMES.nyxTug) {
+      if (
+        raw === STATION_NAMES.nyxAlt ||
+        raw === STATION_NAMES.nyxTug ||
+        raw === STATION_NAMES.vesperGatewright
+      ) {
         return raw
       }
       return STATION_NAMES.nyxAlt
     }
     if (
       raw === STATION_NAMES.nyxAlt ||
-      raw === STATION_NAMES.nyxTug
+      raw === STATION_NAMES.nyxTug ||
+      raw === STATION_NAMES.vesperGatewright ||
+      isVoidRemnantStation(raw) ||
+      isVesperExpeditionStation(raw)
     ) {
       return STATION_NAMES.thalassa
     }
@@ -111,8 +132,20 @@ export type GameSave = {
   nyxCassiniSeen: boolean
   /** Lore — approached the Unknown structure (alt gate) in alt Nyx space. */
   nyxGateSeen: boolean
+  /** Lore — approached / docked the Void expedition hull in Vesper. */
+  vesperGatewrightSeen: boolean
+  vesperGatewrightDocked: boolean
   /** Lore — flew the powered gate throat at least once. */
   gatePortalUsed: boolean
+  /** Lore — sighted / hard-docked Cinder remnant ancestor pads. */
+  voidFreeportSeen: boolean
+  voidFreeportDocked: boolean
+  voidCradleSeen: boolean
+  voidCradleDocked: boolean
+  voidArchSeen: boolean
+  voidArchDocked: boolean
+  voidSiphonSeen: boolean
+  voidSiphonDocked: boolean
   /**
    * Indices of collector-ring siphons revived with Nyx dust
    * (subset of SIPHON_INITIAL_DEAD).
@@ -204,7 +237,17 @@ export function defaultGameSave(): GameSave {
     nyxTugSeen: false,
     nyxCassiniSeen: false,
     nyxGateSeen: false,
+    vesperGatewrightSeen: false,
+    vesperGatewrightDocked: false,
     gatePortalUsed: false,
+    voidFreeportSeen: false,
+    voidFreeportDocked: false,
+    voidCradleSeen: false,
+    voidCradleDocked: false,
+    voidArchSeen: false,
+    voidArchDocked: false,
+    voidSiphonSeen: false,
+    voidSiphonDocked: false,
     vesperSiphonRepaired: [],
     nyxDualAshDone: false,
     nyxHyperionRumorHeard: false,
@@ -297,8 +340,18 @@ export function loadGameSave(): GameSave {
     nyxTugSeen: !!raw.nyxTugSeen,
     nyxCassiniSeen: !!raw.nyxCassiniSeen,
     nyxGateSeen: !!raw.nyxGateSeen,
+    vesperGatewrightSeen: !!raw.vesperGatewrightSeen,
+    vesperGatewrightDocked: !!raw.vesperGatewrightDocked,
     // Prior void sessions imply the throat was flown (or admin-hopped).
     gatePortalUsed: !!raw.gatePortalUsed || systemId === SYSTEM_IDS.gateVoid,
+    voidFreeportSeen: !!raw.voidFreeportSeen,
+    voidFreeportDocked: !!raw.voidFreeportDocked,
+    voidCradleSeen: !!raw.voidCradleSeen,
+    voidCradleDocked: !!raw.voidCradleDocked,
+    voidArchSeen: !!raw.voidArchSeen,
+    voidArchDocked: !!raw.voidArchDocked,
+    voidSiphonSeen: !!raw.voidSiphonSeen,
+    voidSiphonDocked: !!raw.voidSiphonDocked,
     vesperSiphonRepaired: sanitizeSiphonRepaired(raw.vesperSiphonRepaired),
     nyxDualAshDone: !!raw.nyxDualAshDone,
     nyxHyperionRumorHeard: !!raw.nyxHyperionRumorHeard,
@@ -324,8 +377,12 @@ export function loadGameSave(): GameSave {
     dockStationName: sanitizeDockStationName(raw.dockStationName, systemId),
   }
 
-  // Void has no pads — never restore a hard-dock there.
-  if (out.systemId === SYSTEM_IDS.gateVoid) {
+  // Void docks only persist when hard-docked at a remnant pad.
+  if (
+    out.systemId === SYSTEM_IDS.gateVoid &&
+    out.docked &&
+    !isVoidRemnantStation(out.dockStationName)
+  ) {
     out.docked = false
   }
   return out
@@ -364,7 +421,17 @@ export function saveGameSave(save: GameSave) {
     nyxTugSeen: !!save.nyxTugSeen,
     nyxCassiniSeen: !!save.nyxCassiniSeen,
     nyxGateSeen: !!save.nyxGateSeen,
+    vesperGatewrightSeen: !!save.vesperGatewrightSeen,
+    vesperGatewrightDocked: !!save.vesperGatewrightDocked,
     gatePortalUsed: !!save.gatePortalUsed,
+    voidFreeportSeen: !!save.voidFreeportSeen,
+    voidFreeportDocked: !!save.voidFreeportDocked,
+    voidCradleSeen: !!save.voidCradleSeen,
+    voidCradleDocked: !!save.voidCradleDocked,
+    voidArchSeen: !!save.voidArchSeen,
+    voidArchDocked: !!save.voidArchDocked,
+    voidSiphonSeen: !!save.voidSiphonSeen,
+    voidSiphonDocked: !!save.voidSiphonDocked,
     vesperSiphonRepaired: sanitizeSiphonRepaired(save.vesperSiphonRepaired),
     nyxDualAshDone: !!save.nyxDualAshDone,
     nyxHyperionRumorHeard: !!save.nyxHyperionRumorHeard,

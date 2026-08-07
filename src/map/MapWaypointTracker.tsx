@@ -58,14 +58,20 @@ export function MapWaypointTracker({
           _pos.set(sx + apoPing.x, sy + apoPing.y, sz + apoPing.z)
           wp.kind = 'station'
         } else {
-          const body = snap.bodies.find((b) => b.name === wp.name)
-          if (!body) {
-            wp.show = false
-            wp.onScreen = false
-            return
+          const lore = snap.lorePings.find((p) => p.label === wp.name)
+          if (lore) {
+            _pos.set(sx + lore.x, sy + (lore.y ?? 0), sz + lore.z)
+            wp.kind = 'marker'
+          } else {
+            const body = snap.bodies.find((b) => b.name === wp.name)
+            if (!body) {
+              wp.show = false
+              wp.onScreen = false
+              return
+            }
+            _pos.set(sx + body.x, sy + body.y, sz + body.z)
+            wp.kind = body.kind === 'moon' ? 'moon' : 'planet'
           }
-          _pos.set(sx + body.x, sy + body.y, sz + body.z)
-          wp.kind = body.kind === 'moon' ? 'moon' : 'planet'
         }
       }
     }

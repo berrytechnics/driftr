@@ -33,6 +33,14 @@ import {
   type SystemId,
 } from '@/game/systemConfig'
 import {
+  isVesperExpeditionStation,
+  isVoidRemnantStation,
+  voidDockFlag,
+  voidRemnantProfile,
+  voidSightFlag,
+  type VoidRemnantId,
+} from '@/lore/voidAncestors'
+import {
   cargoUnits,
   emptyCargo,
   MATERIAL_PRICE,
@@ -199,8 +207,36 @@ export default function App() {
     () => saved.nyxCassiniSeen,
   )
   const [nyxGateSeen, setNyxGateSeen] = useState(() => saved.nyxGateSeen)
+  const [vesperGatewrightSeen, setVesperGatewrightSeen] = useState(
+    () => saved.vesperGatewrightSeen,
+  )
+  const [vesperGatewrightDocked, setVesperGatewrightDocked] = useState(
+    () => saved.vesperGatewrightDocked,
+  )
   const [gatePortalUsed, setGatePortalUsed] = useState(
     () => saved.gatePortalUsed,
+  )
+  const [voidFreeportSeen, setVoidFreeportSeen] = useState(
+    () => saved.voidFreeportSeen,
+  )
+  const [voidFreeportDocked, setVoidFreeportDocked] = useState(
+    () => saved.voidFreeportDocked,
+  )
+  const [voidCradleSeen, setVoidCradleSeen] = useState(
+    () => saved.voidCradleSeen,
+  )
+  const [voidCradleDocked, setVoidCradleDocked] = useState(
+    () => saved.voidCradleDocked,
+  )
+  const [voidArchSeen, setVoidArchSeen] = useState(() => saved.voidArchSeen)
+  const [voidArchDocked, setVoidArchDocked] = useState(
+    () => saved.voidArchDocked,
+  )
+  const [voidSiphonSeen, setVoidSiphonSeen] = useState(
+    () => saved.voidSiphonSeen,
+  )
+  const [voidSiphonDocked, setVoidSiphonDocked] = useState(
+    () => saved.voidSiphonDocked,
   )
   const [vesperSiphonRepaired, setVesperSiphonRepaired] = useState<number[]>(
     () => saved.vesperSiphonRepaired,
@@ -264,7 +300,17 @@ export default function App() {
   const nyxTugSeenRef = useRef(nyxTugSeen)
   const nyxCassiniSeenRef = useRef(nyxCassiniSeen)
   const nyxGateSeenRef = useRef(nyxGateSeen)
+  const vesperGatewrightSeenRef = useRef(vesperGatewrightSeen)
+  const vesperGatewrightDockedRef = useRef(vesperGatewrightDocked)
   const gatePortalUsedRef = useRef(gatePortalUsed)
+  const voidFreeportSeenRef = useRef(voidFreeportSeen)
+  const voidFreeportDockedRef = useRef(voidFreeportDocked)
+  const voidCradleSeenRef = useRef(voidCradleSeen)
+  const voidCradleDockedRef = useRef(voidCradleDocked)
+  const voidArchSeenRef = useRef(voidArchSeen)
+  const voidArchDockedRef = useRef(voidArchDocked)
+  const voidSiphonSeenRef = useRef(voidSiphonSeen)
+  const voidSiphonDockedRef = useRef(voidSiphonDocked)
   const vesperSiphonRepairedRef = useRef(vesperSiphonRepaired)
   const nyxDualAshDoneRef = useRef(nyxDualAshDone)
   const nyxHyperionRumorHeardRef = useRef(nyxHyperionRumorHeard)
@@ -306,7 +352,17 @@ export default function App() {
   nyxTugSeenRef.current = nyxTugSeen
   nyxCassiniSeenRef.current = nyxCassiniSeen
   nyxGateSeenRef.current = nyxGateSeen
+  vesperGatewrightSeenRef.current = vesperGatewrightSeen
+  vesperGatewrightDockedRef.current = vesperGatewrightDocked
   gatePortalUsedRef.current = gatePortalUsed
+  voidFreeportSeenRef.current = voidFreeportSeen
+  voidFreeportDockedRef.current = voidFreeportDocked
+  voidCradleSeenRef.current = voidCradleSeen
+  voidCradleDockedRef.current = voidCradleDocked
+  voidArchSeenRef.current = voidArchSeen
+  voidArchDockedRef.current = voidArchDocked
+  voidSiphonSeenRef.current = voidSiphonSeen
+  voidSiphonDockedRef.current = voidSiphonDocked
   vesperSiphonRepairedRef.current = vesperSiphonRepaired
   nyxDualAshDoneRef.current = nyxDualAshDone
   nyxHyperionRumorHeardRef.current = nyxHyperionRumorHeard
@@ -343,7 +399,17 @@ export default function App() {
       nyxTugSeen: nyxTugSeenRef.current,
       nyxCassiniSeen: nyxCassiniSeenRef.current,
       nyxGateSeen: nyxGateSeenRef.current,
+      vesperGatewrightSeen: vesperGatewrightSeenRef.current,
+      vesperGatewrightDocked: vesperGatewrightDockedRef.current,
       gatePortalUsed: gatePortalUsedRef.current,
+      voidFreeportSeen: voidFreeportSeenRef.current,
+      voidFreeportDocked: voidFreeportDockedRef.current,
+      voidCradleSeen: voidCradleSeenRef.current,
+      voidCradleDocked: voidCradleDockedRef.current,
+      voidArchSeen: voidArchSeenRef.current,
+      voidArchDocked: voidArchDockedRef.current,
+      voidSiphonSeen: voidSiphonSeenRef.current,
+      voidSiphonDocked: voidSiphonDockedRef.current,
       vesperSiphonRepaired: [...vesperSiphonRepairedRef.current],
       nyxDualAshDone: nyxDualAshDoneRef.current,
       nyxHyperionRumorHeard: nyxHyperionRumorHeardRef.current,
@@ -379,7 +445,17 @@ export default function App() {
     nyxTugSeen,
     nyxCassiniSeen,
     nyxGateSeen,
+    vesperGatewrightSeen,
+    vesperGatewrightDocked,
     gatePortalUsed,
+    voidFreeportSeen,
+    voidFreeportDocked,
+    voidCradleSeen,
+    voidCradleDocked,
+    voidArchSeen,
+    voidArchDocked,
+    voidSiphonSeen,
+    voidSiphonDocked,
     vesperSiphonRepaired,
     nyxDualAshDone,
     nyxHyperionRumorHeard,
@@ -723,6 +799,81 @@ export default function App() {
     setHealRequest({ seq: healSeq.current, hp: newHp, maxHp: newMax })
   }, [])
 
+  const markVoidRemnantSeen = useCallback((id: VoidRemnantId) => {
+    const flag = voidSightFlag(id)
+    if (flag === 'voidFreeportSeen') {
+      if (voidFreeportSeenRef.current) return false
+      voidFreeportSeenRef.current = true
+      setVoidFreeportSeen(true)
+    } else if (flag === 'voidCradleSeen') {
+      if (voidCradleSeenRef.current) return false
+      voidCradleSeenRef.current = true
+      setVoidCradleSeen(true)
+    } else if (flag === 'voidArchSeen') {
+      if (voidArchSeenRef.current) return false
+      voidArchSeenRef.current = true
+      setVoidArchSeen(true)
+    } else if (flag === 'voidSiphonSeen') {
+      if (voidSiphonSeenRef.current) return false
+      voidSiphonSeenRef.current = true
+      setVoidSiphonSeen(true)
+    }
+    return true
+  }, [])
+
+  const markVoidRemnantDocked = useCallback((id: VoidRemnantId) => {
+    markVoidRemnantSeen(id)
+    const flag = voidDockFlag(id)
+    if (flag === 'voidFreeportDocked') {
+      if (voidFreeportDockedRef.current) return
+      voidFreeportDockedRef.current = true
+      setVoidFreeportDocked(true)
+    } else if (flag === 'voidCradleDocked') {
+      if (voidCradleDockedRef.current) return
+      voidCradleDockedRef.current = true
+      setVoidCradleDocked(true)
+    } else if (flag === 'voidArchDocked') {
+      if (voidArchDockedRef.current) return
+      voidArchDockedRef.current = true
+      setVoidArchDocked(true)
+    } else if (flag === 'voidSiphonDocked') {
+      if (voidSiphonDockedRef.current) return
+      voidSiphonDockedRef.current = true
+      setVoidSiphonDocked(true)
+    }
+  }, [markVoidRemnantSeen])
+
+  const onVoidRemnantSeen = useCallback(
+    (id: VoidRemnantId, toast: string) => {
+      if (!markVoidRemnantSeen(id)) return
+      setLoreToast(toast)
+      setLoreToastKey((k) => k + 1)
+    },
+    [markVoidRemnantSeen],
+  )
+
+  const voidRemnantSeen = useMemo(
+    () =>
+      ({
+        freeport: voidFreeportSeen,
+        greenpeace: voidCradleSeen,
+        orbitalComplex: voidArchSeen,
+        miningOutpost: voidSiphonSeen,
+      }) as const,
+    [voidFreeportSeen, voidCradleSeen, voidArchSeen, voidSiphonSeen],
+  )
+
+  const voidRemnantDockedMap = useMemo(
+    () =>
+      ({
+        freeport: voidFreeportDocked,
+        greenpeace: voidCradleDocked,
+        orbitalComplex: voidArchDocked,
+        miningOutpost: voidSiphonDocked,
+      }) as const,
+    [voidFreeportDocked, voidCradleDocked, voidArchDocked, voidSiphonDocked],
+  )
+
   const dockAtStation = useCallback(() => {
     if (telemetryRef.current && telemetryRef.current.hp <= 0) return
     if (!dockAvailable && !dockedRef.current) return
@@ -777,6 +928,24 @@ export default function App() {
         nyxTugSeenRef.current = true
         setNyxTugSeen(true)
       }
+    } else if (isVesperExpeditionStation(arrivedName)) {
+      setGhostBerth(false)
+      setLoreToast(null)
+      if (!vesperGatewrightSeenRef.current) {
+        vesperGatewrightSeenRef.current = true
+        setVesperGatewrightSeen(true)
+      }
+      if (!vesperGatewrightDockedRef.current) {
+        vesperGatewrightDockedRef.current = true
+        setVesperGatewrightDocked(true)
+      }
+    } else if (isVoidRemnantStation(arrivedName)) {
+      setGhostBerth(false)
+      setLoreToast(null)
+      const profile = voidRemnantProfile(arrivedName)
+      if (profile) {
+        markVoidRemnantDocked(profile.id)
+      }
     } else if (isSiphonPadName(arrivedName)) {
       setGhostBerth(false)
       setLoreToast(null)
@@ -796,7 +965,7 @@ export default function App() {
     if (document.pointerLockElement) {
       document.exitPointerLock()
     }
-  }, [dockAvailable, dockStationName, unlockNyxTopic])
+  }, [dockAvailable, dockStationName, unlockNyxTopic, markVoidRemnantDocked])
 
   const onNyxDerelictSeen = useCallback((toast: string) => {
     if (nyxDerelictSeenRef.current) return
@@ -823,6 +992,13 @@ export default function App() {
   const onNyxGateSeen = useCallback((toast: string) => {
     if (nyxGateSeenRef.current) return
     setNyxGateSeen(true)
+    setLoreToast(toast)
+    setLoreToastKey((k) => k + 1)
+  }, [])
+
+  const onVesperGatewrightSeen = useCallback((toast: string) => {
+    if (vesperGatewrightSeenRef.current) return
+    setVesperGatewrightSeen(true)
     setLoreToast(toast)
     setLoreToastKey((k) => k + 1)
   }, [])
@@ -1065,8 +1241,28 @@ export default function App() {
     nyxCassiniSeenRef.current = true
     setNyxGateSeen(true)
     nyxGateSeenRef.current = true
+    setVesperGatewrightSeen(true)
+    vesperGatewrightSeenRef.current = true
+    setVesperGatewrightDocked(true)
+    vesperGatewrightDockedRef.current = true
     setGatePortalUsed(true)
     gatePortalUsedRef.current = true
+    setVoidFreeportSeen(true)
+    voidFreeportSeenRef.current = true
+    setVoidFreeportDocked(true)
+    voidFreeportDockedRef.current = true
+    setVoidCradleSeen(true)
+    voidCradleSeenRef.current = true
+    setVoidCradleDocked(true)
+    voidCradleDockedRef.current = true
+    setVoidArchSeen(true)
+    voidArchSeenRef.current = true
+    setVoidArchDocked(true)
+    voidArchDockedRef.current = true
+    setVoidSiphonSeen(true)
+    voidSiphonSeenRef.current = true
+    setVoidSiphonDocked(true)
+    voidSiphonDockedRef.current = true
     setNyxDualAshDone(true)
     nyxDualAshDoneRef.current = true
     const allSiphons = [...SIPHON_INITIAL_DEAD].sort((a, b) => a - b)
@@ -1111,8 +1307,28 @@ export default function App() {
     nyxCassiniSeenRef.current = false
     setNyxGateSeen(false)
     nyxGateSeenRef.current = false
+    setVesperGatewrightSeen(false)
+    vesperGatewrightSeenRef.current = false
+    setVesperGatewrightDocked(false)
+    vesperGatewrightDockedRef.current = false
     setGatePortalUsed(false)
     gatePortalUsedRef.current = false
+    setVoidFreeportSeen(false)
+    voidFreeportSeenRef.current = false
+    setVoidFreeportDocked(false)
+    voidFreeportDockedRef.current = false
+    setVoidCradleSeen(false)
+    voidCradleSeenRef.current = false
+    setVoidCradleDocked(false)
+    voidCradleDockedRef.current = false
+    setVoidArchSeen(false)
+    voidArchSeenRef.current = false
+    setVoidArchDocked(false)
+    voidArchDockedRef.current = false
+    setVoidSiphonSeen(false)
+    voidSiphonSeenRef.current = false
+    setVoidSiphonDocked(false)
+    voidSiphonDockedRef.current = false
     setVesperSiphonRepaired([])
     vesperSiphonRepairedRef.current = []
     setNyxDualAshDone(false)
@@ -1172,7 +1388,17 @@ export default function App() {
     nyxTugSeenRef.current = next.nyxTugSeen
     nyxCassiniSeenRef.current = next.nyxCassiniSeen
     nyxGateSeenRef.current = next.nyxGateSeen
+    vesperGatewrightSeenRef.current = next.vesperGatewrightSeen
+    vesperGatewrightDockedRef.current = next.vesperGatewrightDocked
     gatePortalUsedRef.current = next.gatePortalUsed
+    voidFreeportSeenRef.current = next.voidFreeportSeen
+    voidFreeportDockedRef.current = next.voidFreeportDocked
+    voidCradleSeenRef.current = next.voidCradleSeen
+    voidCradleDockedRef.current = next.voidCradleDocked
+    voidArchSeenRef.current = next.voidArchSeen
+    voidArchDockedRef.current = next.voidArchDocked
+    voidSiphonSeenRef.current = next.voidSiphonSeen
+    voidSiphonDockedRef.current = next.voidSiphonDocked
     vesperSiphonRepairedRef.current = next.vesperSiphonRepaired
     nyxDualAshDoneRef.current = next.nyxDualAshDone
     nyxHyperionRumorHeardRef.current = next.nyxHyperionRumorHeard
@@ -1221,7 +1447,17 @@ export default function App() {
     setNyxTugSeen(next.nyxTugSeen)
     setNyxCassiniSeen(next.nyxCassiniSeen)
     setNyxGateSeen(next.nyxGateSeen)
+    setVesperGatewrightSeen(next.vesperGatewrightSeen)
+    setVesperGatewrightDocked(next.vesperGatewrightDocked)
     setGatePortalUsed(next.gatePortalUsed)
+    setVoidFreeportSeen(next.voidFreeportSeen)
+    setVoidFreeportDocked(next.voidFreeportDocked)
+    setVoidCradleSeen(next.voidCradleSeen)
+    setVoidCradleDocked(next.voidCradleDocked)
+    setVoidArchSeen(next.voidArchSeen)
+    setVoidArchDocked(next.voidArchDocked)
+    setVoidSiphonSeen(next.voidSiphonSeen)
+    setVoidSiphonDocked(next.voidSiphonDocked)
     setVesperSiphonRepaired(next.vesperSiphonRepaired)
     setNyxDualAshDone(next.nyxDualAshDone)
     setNyxHyperionRumorHeard(next.nyxHyperionRumorHeard)
@@ -1310,9 +1546,9 @@ export default function App() {
   const menuMode = started || paused ? 'paused' : 'start'
   const worldPaused = !started || paused
   const inFlight = !booting && started && !paused && !docked
-  const cursorActive = !booting && started && !docked && locked
-  /** Soft-pause menu + Leva cheats while the pointer stays locked */
-  const cursorInteractive = cursorActive && (paused || cheatsEnabled)
+  // Locked HUD cursor only while soft-paused (menus). Dock / map unlock and use the OS pointer.
+  const cursorActive = !booting && started && locked && paused
+  const cursorInteractive = cursorActive
 
   const onBootFinished = useCallback(() => {
     setBooting(false)
@@ -1415,7 +1651,13 @@ export default function App() {
         onNyxCassiniSeen={onNyxCassiniSeen}
         nyxGateSeen={nyxGateSeen}
         onNyxGateSeen={onNyxGateSeen}
+        vesperGatewrightSeen={vesperGatewrightSeen}
+        onVesperGatewrightSeen={onVesperGatewrightSeen}
+        vesperGatewrightDocked={vesperGatewrightDocked}
         gatePortalUsed={gatePortalUsed}
+        voidRemnantSeen={voidRemnantSeen}
+        voidRemnantDocked={voidRemnantDockedMap}
+        onVoidRemnantSeen={onVoidRemnantSeen}
         vesperSiphonRepaired={vesperSiphonRepaired}
         gatePowered={gatePowered}
         nyxCorridorUnlockedRef={nyxCorridorUnlockedRef}
@@ -1570,7 +1812,17 @@ export default function App() {
               nyxTugSeen,
               nyxCassiniSeen,
               nyxGateSeen,
+              vesperGatewrightSeen,
+              vesperGatewrightDocked,
               nyxDualAshDone,
+              voidFreeportSeen,
+              voidFreeportDocked,
+              voidCradleSeen,
+              voidCradleDocked,
+              voidArchSeen,
+              voidArchDocked,
+              voidSiphonSeen,
+              voidSiphonDocked,
             }}
           />
         </Suspense>

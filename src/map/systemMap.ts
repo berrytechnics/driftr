@@ -56,6 +56,8 @@ export type MapSnapshot = {
     hostRing?: boolean
     /** Gold pip at true station position */
     showPip?: boolean
+    /** Chart label stays up without selecting the pip */
+    alwaysShowLabel?: boolean
   }[]
   /** Seconds remaining — bright silver Nyx ellipse (cruise into night) */
   nyxOrbitGlow: number
@@ -63,6 +65,8 @@ export type MapSnapshot = {
   nyxCorridorUnlocked: boolean
   /** Ephemeral lore map pings (NT-0, APO · TRANSIT, etc.) */
   lorePings: MapLorePing[]
+  /** Active jettisoned haul (sun-relative) until scooped, claimed, or timed out. */
+  cargoDump: { x: number; y: number; z: number } | null
 }
 
 export type MapLorePing = {
@@ -87,6 +91,7 @@ export function createEmptyMapSnapshot(): MapSnapshot {
     nyxOrbitGlow: 0,
     nyxCorridorUnlocked: false,
     lorePings: [],
+    cargoDump: null,
   }
 }
 

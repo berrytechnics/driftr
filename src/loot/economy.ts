@@ -36,7 +36,7 @@ export const ASTEROID_COLOR: Record<MaterialKind, string> = {
 export const MATERIAL_LIFETIME = 28
 
 /** Jettisoned haul drifts longer so bandits can cross the system. */
-export const JETTISON_LIFETIME = 180
+export const JETTISON_LIFETIME = 300
 
 export const MATERIAL_KINDS: MaterialKind[] = ['ore', 'ice', 'alloy']
 

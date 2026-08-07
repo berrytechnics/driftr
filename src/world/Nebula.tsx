@@ -159,7 +159,10 @@ void main() {
 
   float alpha = mask * uIntensity;
   if (alpha < 0.004) discard;
-  gl_FragColor = vec4(col * alpha, alpha);
+  // Cap HDR peaks — additive shells + bloom turn partial-coverage edges
+  // into intermittent white sparkles while the camera moves.
+  vec3 lit = min(col * alpha, vec3(1.15));
+  gl_FragColor = vec4(lit, alpha);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }
@@ -186,8 +189,18 @@ void main() {
   worldPos.y += cos(drift * 0.7 + aSeed * 3.1) * (2.5 + aScale * 0.02);
   worldPos.z += sin(drift * 0.55 + aSeed * 4.7) * (4.0 + aScale * 0.04);
 
-  vec3 camRight = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
-  vec3 camUp = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
+  // Face the camera but lock "up" to world +Y so banking / turning doesn't
+  // spin the soft cloud shapes (full view-matrix billboards do).
+  vec3 toCam = cameraPosition - worldPos;
+  vec3 worldUp = vec3(0.0, 1.0, 0.0);
+  vec3 camRight = cross(worldUp, toCam);
+  float rightLen = length(camRight);
+  if (rightLen < 1e-4) {
+    camRight = vec3(1.0, 0.0, 0.0);
+  } else {
+    camRight *= 1.0 / rightLen;
+  }
+  vec3 camUp = normalize(cross(toCam, camRight));
   vec3 pos = worldPos + (camRight * position.x + camUp * position.y) * aScale;
 
   vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
@@ -214,9 +227,11 @@ void main() {
   float wispy = soft * smoothstep(-0.25, 0.55, n);
   float pulse = 0.82 + 0.18 * sin(uTime * 0.35 + vSeed * 12.0);
   float alpha = wispy * uOpacity * pulse;
-  if (alpha < 0.008) discard;
-
-  gl_FragColor = vec4(vColor * alpha, alpha);
+  // Soft kill — hard discard at the noise fringe strobes under bloom.
+  if (alpha < 0.004) discard;
+  alpha = smoothstep(0.004, 0.03, alpha) * alpha;
+  vec3 lit = min(vColor * alpha, vec3(1.1));
+  gl_FragColor = vec4(lit, alpha);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }
@@ -304,6 +319,17 @@ export type NebulaProps = {
   fadeEnd?: number
   seed?: number
   paused?: boolean
+  /**
+   * Draw order for the camera-anchored shell. Distinct values matter when
+   * stacking multiple Nebulas — identical orders can reorder frame-to-frame.
+   */
+  shellRenderOrder?: number
+  /**
+   * Draw order for world wisps. Instanced positions live in shader attrs
+   * (mesh sits at origin), so Three's transparent sort can't stabilize
+   * stacked layers — pin order explicitly instead.
+   */
+  wispRenderOrder?: number
 }
 
 /**
@@ -327,6 +353,8 @@ export function Nebula({
   fadeEnd,
   seed = 17,
   paused = false,
+  shellRenderOrder = -1100,
+  wispRenderOrder = -50,
 }: NebulaProps) {
   const shellGroup = useRef<Group>(null!)
   const wispMesh = useRef<InstancedMesh>(null!)
@@ -542,12 +570,12 @@ export function Nebula({
 
   return (
     <>
-      <group ref={shellGroup} renderOrder={-1100}>
+      <group ref={shellGroup} renderOrder={shellRenderOrder}>
         <mesh
           geometry={shellGeo}
           material={shellMat}
           frustumCulled={false}
-          renderOrder={-1100}
+          renderOrder={shellRenderOrder}
         />
       </group>
       {hasWisps && wispGeo && wispMat ? (
@@ -555,7 +583,7 @@ export function Nebula({
           ref={wispMesh}
           args={[wispGeo, wispMat, wispCount]}
           frustumCulled={false}
-          renderOrder={-50}
+          renderOrder={wispRenderOrder}
         />
       ) : null}
     </>

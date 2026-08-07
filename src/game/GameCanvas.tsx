@@ -15,6 +15,7 @@ import { SYSTEM_IDS, type SystemId } from '@/game/systemConfig'
 import type { PlayerCargoStatus } from '@/loot/cargoBait'
 import type { CargoHold } from '@/loot/economy'
 import type { MaterialPickup } from '@/loot/MaterialDrops'
+import type { VoidRemnantId } from '@/lore/voidAncestors'
 import type { MapSnapshot } from '@/map/systemMap'
 import type { MapWaypointState } from '@/map/mapWaypoint'
 import type { AttitudeHudState } from '@/ship/attitudeHud'
@@ -62,7 +63,13 @@ export const GameCanvas = memo(function GameCanvas({
   onNyxCassiniSeen,
   nyxGateSeen = false,
   onNyxGateSeen,
+  vesperGatewrightSeen = false,
+  onVesperGatewrightSeen,
+  vesperGatewrightDocked = false,
   gatePortalUsed = false,
+  voidRemnantSeen,
+  voidRemnantDocked,
+  onVoidRemnantSeen,
   vesperSiphonRepaired = [],
   gatePowered = false,
   onGatePortalEnter,
@@ -119,8 +126,14 @@ export const GameCanvas = memo(function GameCanvas({
   onNyxCassiniSeen?: (toast: string) => void
   nyxGateSeen?: boolean
   onNyxGateSeen?: (toast: string) => void
+  vesperGatewrightSeen?: boolean
+  onVesperGatewrightSeen?: (toast: string) => void
+  vesperGatewrightDocked?: boolean
   /** Chart renames the ring to Space Gate after the first throat hop. */
   gatePortalUsed?: boolean
+  voidRemnantSeen: Readonly<Record<VoidRemnantId, boolean>>
+  voidRemnantDocked: Readonly<Record<VoidRemnantId, boolean>>
+  onVoidRemnantSeen: (id: VoidRemnantId, toast: string) => void
   vesperSiphonRepaired?: readonly number[]
   gatePowered?: boolean
   onGatePortalEnter?: () => void
@@ -156,6 +169,7 @@ export const GameCanvas = memo(function GameCanvas({
           started={started}
           paused={paused}
           docked={docked}
+          dockStationName={dockStationName}
           onLockChange={onLockChange}
           onTelemetry={onTelemetry}
           onDockAvailable={onDockAvailable}
@@ -179,6 +193,9 @@ export const GameCanvas = memo(function GameCanvas({
           gateArrival={gateArrival}
           adminWarpTarget={adminWarpTarget}
           gatePortalUsed={gatePortalUsed}
+          voidRemnantSeen={voidRemnantSeen}
+          voidRemnantDocked={voidRemnantDocked}
+          onVoidRemnantSeen={onVoidRemnantSeen}
         />
       ) : sky === 'vesper' ? (
         <NyxAltSpace
@@ -212,6 +229,9 @@ export const GameCanvas = memo(function GameCanvas({
           onNyxCassiniSeen={onNyxCassiniSeen}
           nyxGateSeen={nyxGateSeen}
           onNyxGateSeen={onNyxGateSeen}
+          vesperGatewrightSeen={vesperGatewrightSeen}
+          onVesperGatewrightSeen={onVesperGatewrightSeen}
+          vesperGatewrightDocked={vesperGatewrightDocked}
           gatePortalUsed={gatePortalUsed}
           vesperSiphonRepaired={vesperSiphonRepaired}
           gatePowered={gatePowered}

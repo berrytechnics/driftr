@@ -1,56 +1,40 @@
 import { useFrame } from '@react-three/fiber'
-import { useLayoutEffect, useMemo, useRef, type RefObject } from 'react'
 import {
-  AdditiveBlending,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  type MutableRefObject,
+  type RefObject,
+} from 'react'
+import {
   Color,
   DynamicDrawUsage,
   Euler,
-  Group,
-  IcosahedronGeometry,
   InstancedMesh,
-  Mesh,
-  MeshBasicMaterial,
-  MeshStandardMaterial,
   Object3D,
   Quaternion,
   Sphere,
-  SphereGeometry,
   Vector3,
-  type BufferGeometry,
 } from 'three'
 import { beltLocalToWorld } from '@/loot/buffs'
 import {
   rollAsteroidType,
   type MaterialKind,
 } from '@/loot/economy'
-import { NIGHT_ROCK_HEX, NIGHT_SHARD_COLOR } from '@/lore/easterEggs'
+import { NIGHT_SHARD_MAP_LABEL } from '@/lore/easterEggs'
 import {
-  applyAsteroidTextureParams,
-  createAsteroidMaterial,
+  applyBeltRockTextureParams,
+  createBeltRockMaterial,
+  useAsteroidShapeSet,
+  type RockHalfExtents,
+} from '@/world/asteroidModels'
+import {
   DEFAULT_ASTEROID_TEXTURE,
-  setAsteroidNightSurfaceGlow,
   type AsteroidTextureParams,
 } from '@/world/asteroidMaterial'
 import { circularOrbitSpeed } from '@/world/gravity'
 import type { HazardField } from '@/ship/PlayerShip'
-
-export type AsteroidShapeParams = {
-  /** Icosahedron subdivision (cols = detail + 1) */
-  meshDetail: number
-  /** Broad lobe strength */
-  largeLumps: number
-  /** Mid-frequency lump strength */
-  mediumLumps: number
-  /** Fine surface lump strength */
-  fineLumps: number
-}
-
-export const DEFAULT_ASTEROID_SHAPE: AsteroidShapeParams = {
-  meshDetail: 3,
-  largeLumps: 0.3,
-  mediumLumps: 0.08,
-  fineLumps: 0.07,
-}
+import type { MapLorePing } from '@/map/systemMap'
 
 type AsteroidBeltProps = {
   sunPosition: [number, number, number]
@@ -71,15 +55,18 @@ type AsteroidBeltProps = {
   sizeScale?: number
   /** Orbital plane tilt (radians) */
   inclination?: number
-  shape?: AsteroidShapeParams
   texture?: AsteroidTextureParams
-  /** Dev — make the omen night-shard rock glow so it is easy to find */
-  glowNightShard?: boolean
   /**
    * Soft lavender auras on every alive night rock (and its debris).
    * For fields with many omens — Sol’s single-rock hunt stays subtle without this.
    */
   glowAllNightRocks?: boolean
+  /**
+   * Dev — publish the Sol omen rock as a clickable system-map ping.
+   */
+  showShardMapMarker?: boolean
+  /** Shared map lore-ping list (sun-relative). Required for `showShardMapMarker`. */
+  lorePingsRef?: MutableRefObject<MapLorePing[]>
   /**
    * Fraction of orbiting rocks tinted as night-omen (night shards on breakup).
    * Omit for Sol’s single fixed omen. Pass `0` for none.
@@ -125,7 +112,14 @@ type Rock = {
   sx: number
   sy: number
   sz: number
-  /** Approx collision radius (unit icosahedron × max scale) */
+  /**
+   * Oriented-ellipsoid half-axes (instance scale × unit-mesh AABB).
+   * Broadphase uses hitRadius = max(cx, cy, cz).
+   */
+  cx: number
+  cy: number
+  cz: number
+  /** Max collision half-axis — search / pair broadphase */
   hitRadius: number
   spin: number
   angle: number
@@ -141,9 +135,21 @@ type Rock = {
   color: Color
   /** Lore omen rock / its debris — night shards on breakup & terminal kills */
   isNight: boolean
+  /**
+   * Which InstancedMesh geometry this rock uses.
+   * Normal pack: `[0, normalShapeCount)`, shard pack: after that.
+   */
+  shapeIndex: number
+  /**
+   * Dense slot inside that shape's InstancedMesh (`mesh.count` = live count).
+   * `-1` when dead / not bound — critical so we never draw capacity×shapes.
+   */
+  instIndex: number
   /** Index into orbitingList / debrisList for O(1) swap-remove; -1 if dead */
   listPos: number
 }
+
+type MeshBelt = Array<InstancedMesh | null>
 
 /** Swap-remove `rockIndex` from a compact live list using each rock's listPos. */
 function removeFromLiveList(
@@ -201,7 +207,15 @@ const DESTROY_CLOSING = 1.55
 const COLLISION_RESTITUTION = 0.4
 /** Cap cascade work so a debris swarm can’t stall the frame. */
 const MAX_HARD_COLLISIONS_PER_FRAME = 16
-const MAX_SOFT_COLLISIONS_PER_FRAME = 480
+const MAX_SOFT_COLLISIONS_PER_FRAME = 96
+/**
+ * Soft contacts only resolve near the last hazard-query focus (player).
+ * Hard shatter stays global (still budget-capped).
+ */
+const SOFT_PHYSICS_RADIUS = 180
+const SOFT_PHYSICS_RADIUS_SQ = SOFT_PHYSICS_RADIUS * SOFT_PHYSICS_RADIUS
+/** Skip soft entirely if no ship/laser query refreshed focus recently. */
+const FOCUS_STALE_SEC = 0.5
 /** 2D hash for pair broadphase (angle × radial). */
 const COLL_ANG_BUCKETS = 64
 const COLL_RAD_BUCKETS = 14
@@ -225,18 +239,56 @@ const _velA = { vx: 0, vy: 0, vz: 0 }
 const _velB = { vx: 0, vy: 0, vz: 0 }
 
 /**
- * Collision / LOS surface vs unit mesh scale.
- * Lumps push verts ~0.78–1.22; stay under typical peaks so skimming is possible.
+ * Collision surface scale on fitted half-axes (mesh AABB × instance scale).
+ * Slightly under 1 so skimming past silhouette edges still works.
  */
-const HIT_SURFACE = 0.86
-/** Slightly generous vs laser hit so visual overlaps actually resolve. */
-const COLLIDE_RADIUS_SCALE = HIT_SURFACE * 1.05
+const HIT_SURFACE = 0.92
+/** Slightly generous vs ship/laser so visual overlaps actually resolve. */
+const COLLIDE_RADIUS_SCALE = HIT_SURFACE * 1.06
 /** Covers largest rock search keys when querying nearby buckets. */
 const ROCK_SEARCH_PAD = 36
 
 /** Angular sectors for belt hazard queries (thin torus → 1D hash). */
 const BUCKET_COUNT = 64
 const BUCKET_SPAN = (Math.PI * 2) / BUCKET_COUNT
+
+const _unitHalf: RockHalfExtents = { x: 1, y: 1, z: 1 }
+
+/** Bake oriented collision axes from render scale + unit-mesh AABB. */
+function syncCollisionAxes(rock: Rock, half: RockHalfExtents) {
+  rock.cx = rock.sx * half.x
+  rock.cy = rock.sy * half.y
+  rock.cz = rock.sz * half.z
+  rock.hitRadius = Math.max(rock.cx, rock.cy, rock.cz)
+}
+
+function setRockOrientation(rock: Rock) {
+  _hitEuler.set(rock.angle * 0.7, rock.angle, rock.angle * 0.35)
+  _hitQuat.setFromEuler(_hitEuler)
+}
+
+/**
+ * Support radius of the rock’s spun collision ellipsoid along a unit world
+ * direction (belt-local). Matches the visual non-uniform scale + mesh AABB.
+ */
+function ellipsoidSupportAlong(
+  rock: Rock,
+  nx: number,
+  ny: number,
+  nz: number,
+  surface: number,
+): number {
+  _hitLocal.set(nx, ny, nz)
+  setRockOrientation(rock)
+  _hitLocal.applyQuaternion(_hitQuat.invert())
+  const rx = rock.cx * surface
+  const ry = rock.cy * surface
+  const rz = rock.cz * surface
+  const ax = rx * _hitLocal.x
+  const ay = ry * _hitLocal.y
+  const az = rz * _hitLocal.z
+  return Math.sqrt(ax * ax + ay * ay + az * az)
+}
 
 /** Ellipsoid hit against a rock’s scaled / spun mesh (belt-local coords). */
 function pointHitsRock(
@@ -247,12 +299,11 @@ function pointHitsRock(
   pad: number,
 ): boolean {
   _hitLocal.set(lx - rock.x, ly - rock.y, lz - rock.z)
-  _hitEuler.set(rock.angle * 0.7, rock.angle, rock.angle * 0.35)
-  _hitQuat.setFromEuler(_hitEuler)
+  setRockOrientation(rock)
   _hitLocal.applyQuaternion(_hitQuat.invert())
-  const rx = rock.sx * HIT_SURFACE + pad
-  const ry = rock.sy * HIT_SURFACE + pad
-  const rz = rock.sz * HIT_SURFACE + pad
+  const rx = rock.cx * HIT_SURFACE + pad
+  const ry = rock.cy * HIT_SURFACE + pad
+  const rz = rock.cz * HIT_SURFACE + pad
   if (rx < 1e-6 || ry < 1e-6 || rz < 1e-6) return false
   const nx = _hitLocal.x / rx
   const ny = _hitLocal.y / ry
@@ -307,47 +358,21 @@ function mulberry32(seed: number) {
   }
 }
 
-/** Cheap 3D hash in [0, 1) for rocky vertex displacement. */
-function hashNoise(x: number, y: number, z: number) {
-  const n = Math.sin(x * 127.1 + y * 311.7 + z * 74.7) * 43758.5453
-  return n - Math.floor(n)
+function pickNormalShape(rand: () => number, normalShapeCount: number) {
+  return Math.floor(rand() * Math.max(1, normalShapeCount))
 }
 
-/**
- * Macro silhouette + radial smooth normals. IcosahedronGeometry is
- * non-indexed, so computeVertexNormals() would bake FLAT face normals.
- * Fine grit lives in the fragment shader.
- */
-function createAsteroidGeometry(shape: AsteroidShapeParams): BufferGeometry {
-  const detail = Math.max(1, Math.min(8, Math.round(shape.meshDetail)))
-  const geo = new IcosahedronGeometry(1, detail)
-  const pos = geo.attributes.position
-  const nrm = geo.attributes.normal
-  const v = new Vector3()
-  const a1 = shape.largeLumps
-  const a2 = shape.mediumLumps
-  const a3 = shape.fineLumps
-  for (let i = 0; i < pos.count; i++) {
-    v.fromBufferAttribute(pos, i)
-    const n1 = hashNoise(v.x * 1.7, v.y * 1.7, v.z * 1.7)
-    const n2 = hashNoise(v.x * 4.1 + 3.1, v.y * 4.1, v.z * 4.1 + 1.7)
-    const n3 = hashNoise(v.x * 9.3, v.y * 9.3 + 2.4, v.z * 9.3)
-    const bump = (n1 - 0.5) * a1 + (n2 - 0.5) * a2 + (n3 - 0.5) * a3
-    v.multiplyScalar(1 + bump)
-    pos.setXYZ(i, v.x, v.y, v.z)
-    // Radial normals stay smooth across seams on non-indexed meshes
-    v.normalize()
-    nrm.setXYZ(i, v.x, v.y, v.z)
-  }
-  pos.needsUpdate = true
-  nrm.needsUpdate = true
-  geo.computeBoundingSphere()
-  return geo
+function pickShardShape(
+  rand: () => number,
+  normalShapeCount: number,
+  shardShapeCount: number,
+) {
+  return normalShapeCount + Math.floor(rand() * Math.max(1, shardShapeCount))
 }
 
 /**
  * Per-instance color within a type family.
- * Ore spans charcoal → taupe → pale clay so the belt doesn’t look painted.
+ * Multiplies the pack albedo map — ice stays pale/cool, ore dusty, alloy muted.
  */
 function rockColor(kind: MaterialKind, rand: () => number, base?: Color) {
   if (base) {
@@ -368,11 +393,11 @@ function rockColor(kind: MaterialKind, rand: () => number, base?: Color) {
       0.18 + rand() * 0.38,
     )
   } else if (kind === 'ice') {
-    // Pale ash / off-white — stay light, nearly neutral
+    // Cool frost tint over the metallic pack albedo
     color.setHSL(
       0.55 + rand() * 0.06,
-      0.015 + rand() * 0.04,
-      0.58 + rand() * 0.22,
+      0.08 + rand() * 0.12,
+      0.62 + rand() * 0.22,
     )
   } else {
     // Alloy — mid gray with a faint warm cast, between ore and ice
@@ -408,6 +433,9 @@ type PoolLayout = {
   looseRatio: number
   /** `undefined` → exactly one omen (Sol). Otherwise mark that fraction. */
   nightFraction?: number
+  normalShapeCount: number
+  shardShapeCount: number
+  halfExtents: RockHalfExtents[]
 }
 
 function makePool(
@@ -417,11 +445,7 @@ function makePool(
   outerRadius: number,
   thickness: number,
   sizeScale: number,
-  layout: PoolLayout = {
-    clumpCount: 0,
-    clumpSpread: 24,
-    looseRatio: 0.35,
-  },
+  layout: PoolLayout,
 ): Rock[] {
   const rand = mulberry32(0xa57e01d)
   const rocks: Rock[] = []
@@ -430,6 +454,11 @@ function makePool(
   const clumpN = Math.max(0, Math.floor(layout.clumpCount))
   const spread = Math.max(4, layout.clumpSpread)
   const loose = Math.min(1, Math.max(0, layout.looseRatio))
+  const halfExtents = layout.halfExtents
+  const meshHalf = (shapeIndex: number) =>
+    halfExtents[shapeIndex] ?? _unitHalf
+  const normalShapeCount = Math.max(1, layout.normalShapeCount)
+  const shardShapeCount = Math.max(1, layout.shardShapeCount)
 
   type Clump = { orbitRadius: number; theta: number; y: number }
   const clumps: Clump[] = []
@@ -471,6 +500,7 @@ function makePool(
       const sy = size * (0.28 + Math.pow(rand(), 0.65) * 1.65)
       const sz = size * (0.28 + Math.pow(rand(), 0.65) * 1.65)
       const kind = rollAsteroidType(rand)
+      const shapeIndex = pickNormalShape(rand, normalShapeCount)
 
       const rock: Rock = {
         alive: true,
@@ -486,16 +516,22 @@ function makePool(
         sx,
         sy,
         sz,
-        hitRadius: Math.max(sx, sy, sz),
-        spin: (rand() - 0.5) * 0.8,
+        cx: 0,
+        cy: 0,
+        cz: 0,
+        hitRadius: 0,
+        spin: (rand() - 0.5) * 0.2,
         angle: rand() * Math.PI * 2,
         life: 0,
         collideGrace: 0,
         kind,
         color: rockColor(kind, rand),
         isNight: false,
+        shapeIndex,
+        instIndex: -1,
         listPos: i,
       }
+      syncCollisionAxes(rock, meshHalf(shapeIndex))
       syncOrbitPosition(rock)
       rocks.push(rock)
     } else {
@@ -513,6 +549,9 @@ function makePool(
         sx: 0,
         sy: 0,
         sz: 0,
+        cx: 0,
+        cy: 0,
+        cz: 0,
         hitRadius: 0,
         spin: 0,
         angle: 0,
@@ -521,6 +560,8 @@ function makePool(
         kind: 'ore',
         color: new Color('#000000'),
         isNight: false,
+        shapeIndex: 0,
+        instIndex: -1,
         listPos: -1,
       })
     }
@@ -529,15 +570,20 @@ function makePool(
   // Night-omen tints — breakup + each vaporized fragment yield night shards
   if (count > 0) {
     const omenRand = mulberry32(0x6e7978) // "nyx"
-    // Multi-omen fields use a dusky violet so they read under dim stars
-    // without chalking out once surface glow is on
-    const nightHex =
-      layout.nightFraction === undefined ? NIGHT_ROCK_HEX : '#5c4e78'
+    // Keep stock pack albedo — night identity is the space_rocks mesh, not a tint.
+    const markNight = (omen: Rock) => {
+      omen.isNight = true
+      omen.color = new Color('#ffffff')
+      omen.shapeIndex = pickShardShape(
+        omenRand,
+        normalShapeCount,
+        shardShapeCount,
+      )
+      syncCollisionAxes(omen, meshHalf(omen.shapeIndex))
+    }
     if (layout.nightFraction === undefined) {
       const omenIdx = Math.floor(omenRand() * count)
-      const omen = rocks[omenIdx]
-      omen.isNight = true
-      omen.color = new Color(nightHex)
+      markNight(rocks[omenIdx])
     } else if (layout.nightFraction > 0) {
       const nNight = Math.max(
         1,
@@ -551,9 +597,7 @@ function makePool(
         order[j] = tmp
       }
       for (let i = 0; i < nNight; i++) {
-        const omen = rocks[order[i]]
-        omen.isNight = true
-        omen.color = new Color(nightHex)
+        markNight(rocks[order[i]])
       }
     }
   }
@@ -561,7 +605,10 @@ function makePool(
   return rocks
 }
 
-function writeMatrix(inst: InstancedMesh, index: number, rock: Rock) {
+function writeMatrix(meshes: MeshBelt, rock: Rock) {
+  if (rock.instIndex < 0) return
+  const inst = meshes[rock.shapeIndex]
+  if (!inst) return
   if (!rock.alive) {
     _dummy.position.set(0, 0, 0)
     _dummy.scale.set(0, 0, 0)
@@ -571,12 +618,82 @@ function writeMatrix(inst: InstancedMesh, index: number, rock: Rock) {
     _dummy.scale.set(rock.sx, rock.sy, rock.sz)
   }
   _dummy.updateMatrix()
-  inst.setMatrixAt(index, _dummy.matrix)
+  inst.setMatrixAt(rock.instIndex, _dummy.matrix)
 }
 
-function writeInstance(inst: InstancedMesh, index: number, rock: Rock) {
-  writeMatrix(inst, index, rock)
-  inst.setColorAt(index, rock.color)
+function writeInstance(meshes: MeshBelt, rock: Rock) {
+  writeMatrix(meshes, rock)
+  if (rock.instIndex < 0) return
+  const inst = meshes[rock.shapeIndex]
+  if (inst) inst.setColorAt(rock.instIndex, rock.color)
+}
+
+function markMeshesDirty(meshes: MeshBelt, colors = false) {
+  for (let i = 0; i < meshes.length; i++) {
+    const inst = meshes[i]
+    if (!inst) continue
+    inst.instanceMatrix.needsUpdate = true
+    if (colors && inst.instanceColor) inst.instanceColor.needsUpdate = true
+  }
+}
+
+/** Per-shape dense rock-index lists — InstancedMesh.count follows these lengths. */
+function makeShapeLive(shapeCount: number) {
+  return Array.from({ length: shapeCount }, () => [] as number[])
+}
+
+function bindRockInstance(
+  meshes: MeshBelt,
+  shapeLive: number[][],
+  rocks: Rock[],
+  rockIndex: number,
+) {
+  const rock = rocks[rockIndex]
+  if (!rock.alive || rock.instIndex >= 0) return
+  const list = shapeLive[rock.shapeIndex]
+  if (!list) return
+  rock.instIndex = list.length
+  list.push(rockIndex)
+  const inst = meshes[rock.shapeIndex]
+  if (inst) inst.count = list.length
+  writeInstance(meshes, rock)
+}
+
+function unbindRockInstance(
+  meshes: MeshBelt,
+  shapeLive: number[][],
+  rocks: Rock[],
+  rockIndex: number,
+) {
+  const rock = rocks[rockIndex]
+  const slot = rock.instIndex
+  if (slot < 0) return
+  const list = shapeLive[rock.shapeIndex]
+  if (!list) {
+    rock.instIndex = -1
+    return
+  }
+  const lastPos = list.length - 1
+  const lastRockIndex = list[lastPos]
+  list.pop()
+  if (lastRockIndex !== rockIndex && lastPos !== slot) {
+    list[slot] = lastRockIndex
+    const moved = rocks[lastRockIndex]
+    moved.instIndex = slot
+    writeInstance(meshes, moved)
+  }
+  rock.instIndex = -1
+  const inst = meshes[rock.shapeIndex]
+  if (inst) {
+    inst.count = list.length
+    // Clear the vacated trailing slot so stale transforms never flash back
+    if (list.length < inst.instanceMatrix.count) {
+      _dummy.position.set(0, 0, 0)
+      _dummy.scale.set(0, 0, 0)
+      _dummy.updateMatrix()
+      inst.setMatrixAt(list.length, _dummy.matrix)
+    }
+  }
 }
 
 function worldToLocal(
@@ -696,10 +813,10 @@ export function AsteroidBelt({
   thickness = 16,
   sizeScale = 1,
   inclination = 0.06,
-  shape = DEFAULT_ASTEROID_SHAPE,
   texture = DEFAULT_ASTEROID_TEXTURE,
-  glowNightShard = false,
-  glowAllNightRocks = false,
+  glowAllNightRocks: _glowAllNightRocks = false,
+  showShardMapMarker = false,
+  lorePingsRef,
   nightFraction,
   clumpCount = 0,
   clumpSpread = 24,
@@ -711,101 +828,63 @@ export function AsteroidBelt({
 }: AsteroidBeltProps) {
   // Debris slots only — orbiting rocks stay in the base count
   const capacity = useMemo(() => count + Math.max(768, count), [count])
-  const mesh = useRef<InstancedMesh>(null!)
-  const geometry = useMemo(
+  const shapeSet = useAsteroidShapeSet()
+  const meshesRef = useRef<MeshBelt>([])
+  const shapeLiveRef = useRef<number[][]>(
+    makeShapeLive(shapeSet.geometries.length),
+  )
+  const shapeCountsRef = useRef({
+    normal: shapeSet.normalShapeCount,
+    shard: shapeSet.shardShapeCount,
+  })
+  shapeCountsRef.current = {
+    normal: shapeSet.normalShapeCount,
+    shard: shapeSet.shardShapeCount,
+  }
+  const halfExtentsRef = useRef(shapeSet.halfExtents)
+  halfExtentsRef.current = shapeSet.halfExtents
+  const normalMaterial = useMemo(
+    () => createBeltRockMaterial(shapeSet.normalMaps, DEFAULT_ASTEROID_TEXTURE),
+    [shapeSet.normalMaps],
+  )
+  const shardMaterial = useMemo(
     () =>
-      createAsteroidGeometry({
-        meshDetail: shape.meshDetail,
-        largeLumps: shape.largeLumps,
-        mediumLumps: shape.mediumLumps,
-        fineLumps: shape.fineLumps,
+      createBeltRockMaterial(shapeSet.shardMaps, DEFAULT_ASTEROID_TEXTURE, {
+        shardShade: true,
       }),
-    [shape.meshDetail, shape.largeLumps, shape.mediumLumps, shape.fineLumps],
+    [shapeSet.shardMaps],
   )
-  const material = useMemo(
-    () => createAsteroidMaterial(DEFAULT_ASTEROID_TEXTURE),
-    [],
-  )
-  const glowGeos = useMemo(
-    () => ({
-      aura: new SphereGeometry(1, 24, 18),
-      halo: new SphereGeometry(1, 16, 12),
-    }),
-    [],
-  )
-  const glowMats = useMemo(
-    () => ({
-      shell: new MeshStandardMaterial({
-        color: NIGHT_ROCK_HEX,
-        emissive: NIGHT_SHARD_COLOR,
-        emissiveIntensity: 1.85,
-        roughness: 0.55,
-        metalness: 0.12,
-        toneMapped: false,
-      }),
-      aura: new MeshBasicMaterial({
-        color: NIGHT_SHARD_COLOR,
-        transparent: true,
-        opacity: 0.22,
-        depthWrite: false,
-        blending: AdditiveBlending,
-        toneMapped: false,
-      }),
-      halo: new MeshBasicMaterial({
-        color: '#b8a8e8',
-        transparent: true,
-        opacity: 0.48,
-        depthWrite: false,
-        blending: AdditiveBlending,
-        toneMapped: false,
-      }),
-    }),
-    [],
-  )
-  const glowRoot = useRef<Group>(null!)
-  const glowShell = useRef<Mesh>(null!)
-  const glowAura = useRef<Mesh>(null!)
-  const glowHalo = useRef<Mesh>(null!)
   const nightIndexRef = useRef(-1)
-  const glowNightShardRef = useRef(glowNightShard)
-  glowNightShardRef.current = glowNightShard
+  const showShardMapMarkerRef = useRef(showShardMapMarker)
+  showShardMapMarkerRef.current = showShardMapMarker
+
   useLayoutEffect(
     () => () => {
-      geometry.dispose()
+      for (const geo of shapeSet.geometries) geo.dispose()
     },
-    [geometry],
+    [shapeSet.geometries],
   )
-  useLayoutEffect(() => () => material.dispose(), [material])
   useLayoutEffect(
     () => () => {
-      glowGeos.aura.dispose()
-      glowGeos.halo.dispose()
-      glowMats.shell.dispose()
-      glowMats.aura.dispose()
-      glowMats.halo.dispose()
+      normalMaterial.dispose()
+      shardMaterial.dispose()
     },
-    [glowGeos, glowMats],
+    [normalMaterial, shardMaterial],
   )
   useLayoutEffect(() => {
-    if (mesh.current) mesh.current.geometry = geometry
-  }, [geometry])
-  useLayoutEffect(() => {
-    applyAsteroidTextureParams(material, {
-      rockFreq: texture.rockFreq,
-      rockBump: texture.rockBump,
-      rockContrast: texture.rockContrast,
-      roughness: texture.roughness,
-      metalness: texture.metalness,
+    applyBeltRockTextureParams(normalMaterial, texture)
+    applyBeltRockTextureParams(shardMaterial, texture, {
+      shardShade: true,
+      maps: shapeSet.shardMaps,
     })
-    setAsteroidNightSurfaceGlow(material, glowAllNightRocks ? 1.05 : 0)
+    // Stock pack look — no emissive wash over the albedo
+    shardMaterial.emissive.set('#000000')
+    shardMaterial.emissiveIntensity = 0
   }, [
-    material,
-    texture.rockFreq,
-    texture.rockBump,
-    texture.rockContrast,
-    texture.roughness,
-    texture.metalness,
-    glowAllNightRocks,
+    normalMaterial,
+    shardMaterial,
+    shapeSet.shardMaps,
+    texture,
   ])
   const rocks = useMemo(
     () =>
@@ -814,6 +893,9 @@ export function AsteroidBelt({
         clumpSpread,
         looseRatio,
         nightFraction,
+        normalShapeCount: shapeSet.normalShapeCount,
+        shardShapeCount: shapeSet.shardShapeCount,
+        halfExtents: shapeSet.halfExtents,
       }),
     [
       count,
@@ -826,12 +908,24 @@ export function AsteroidBelt({
       clumpSpread,
       looseRatio,
       nightFraction,
+      shapeSet.normalShapeCount,
+      shapeSet.shardShapeCount,
+      shapeSet.halfExtents,
       resetSeed,
     ],
   )
   useLayoutEffect(() => {
     nightIndexRef.current = rocks.findIndex((rock) => rock.isNight)
   }, [rocks])
+  useLayoutEffect(
+    () => () => {
+      const pings = lorePingsRef?.current
+      if (!pings) return
+      const idx = pings.findIndex((p) => p.label === NIGHT_SHARD_MAP_LABEL)
+      if (idx >= 0) pings.splice(idx, 1)
+    },
+    [lorePingsRef],
+  )
   const rocksRef = useRef(rocks)
   rocksRef.current = rocks
   const sizeScaleRef = useRef(sizeScale)
@@ -841,11 +935,24 @@ export function AsteroidBelt({
   /** Compact live indices — useFrame / collision never scan the full pool */
   const orbitingList = useRef<number[]>([])
   const debrisList = useRef<number[]>([])
+  /**
+   * Last belt-local focus from ship/laser hazard queries.
+   * Soft rock–rock contacts only run near this point.
+   */
+  const focusLocalRef = useRef({ x: 0, y: 0, z: 0, age: FOCUS_STALE_SEC + 1 })
   const spatialRef = useRef({
     dirty: true,
     buckets: Array.from({ length: BUCKET_COUNT }, () => [] as number[]),
   })
   const orbitHashTimer = useRef(0)
+
+  const markSoftFocus = (lx: number, ly: number, lz: number) => {
+    const focus = focusLocalRef.current
+    focus.x = lx
+    focus.y = ly
+    focus.z = lz
+    focus.age = 0
+  }
   useLayoutEffect(() => {
     const free: number[] = []
     const orbiting: number[] = []
@@ -953,9 +1060,21 @@ export function AsteroidBelt({
     pushLive(debrisList.current)
 
     let hardLeft = MAX_HARD_COLLISIONS_PER_FRAME
-    let softLeft = MAX_SOFT_COLLISIONS_PER_FRAME
-    const inst = mesh.current
+    const focus = focusLocalRef.current
+    const softFocusLive = focus.age <= FOCUS_STALE_SEC
+    let softLeft = softFocusLive ? MAX_SOFT_COLLISIONS_PER_FRAME : 0
+    const fx = focus.x
+    const fy = focus.y
+    const fz = focus.z
+    const meshes = meshesRef.current
     let touched = false
+
+    const nearSoftFocus = (rock: Rock) => {
+      const dx = rock.x - fx
+      const dy = rock.y - fy
+      const dz = rock.z - fz
+      return dx * dx + dy * dy + dz * dz <= SOFT_PHYSICS_RADIUS_SQ
+    }
 
     for (let c = 0; c < cells.length; c++) {
       const home = cells[c]
@@ -968,7 +1087,7 @@ export function AsteroidBelt({
         const i = home[a]
         const A = list[i]
         if (!A.alive) continue
-        const rA = A.hitRadius * COLLIDE_RADIUS_SCALE
+        const rAmax = A.hitRadius * COLLIDE_RADIUS_SCALE
 
         for (let da = -1; da <= 1; da++) {
           let ang = homeAng + da
@@ -986,19 +1105,33 @@ export function AsteroidBelt({
               const B = list[j]
               if (!B.alive) continue
 
-              const rB = B.hitRadius * COLLIDE_RADIUS_SCALE
               const dx = B.x - A.x
               const dy = B.y - A.y
               const dz = B.z - A.z
               const distSq = dx * dx + dy * dy + dz * dz
-              const minDist = rA + rB
-              if (distSq >= minDist * minDist || distSq < 1e-10) continue
+              // Conservative sphere early-out (max half-axis)
+              const rBmax = B.hitRadius * COLLIDE_RADIUS_SCALE
+              const maxDist = rAmax + rBmax
+              if (distSq >= maxDist * maxDist || distSq < 1e-10) continue
 
               const dist = Math.sqrt(distSq)
               const inv = 1 / dist
               const nx = dx * inv
               const ny = dy * inv
               const nz = dz * inv
+
+              // Fitted ellipsoids along the contact line — slabs/needles no longer
+              // collide as giant spheres built from max(sx,sy,sz).
+              const rA = ellipsoidSupportAlong(A, nx, ny, nz, COLLIDE_RADIUS_SCALE)
+              const rB = ellipsoidSupportAlong(
+                B,
+                -nx,
+                -ny,
+                -nz,
+                COLLIDE_RADIUS_SCALE,
+              )
+              const minDist = rA + rB
+              if (dist >= minDist) continue
 
               sampleVelocity(A, _velA)
               sampleVelocity(B, _velB)
@@ -1027,8 +1160,9 @@ export function AsteroidBelt({
               // Fragment clouds: no soft bounce — ejection carries them apart
               if (!A.orbiting && !B.orbiting) continue
 
-              // Separating contacts still need overlap push, but skip bounce impulse
+              // Soft resolve only near the player focus (far belt can lightly overlap)
               if (softLeft <= 0) continue
+              if (!nearSoftFocus(A) && !nearSoftFocus(B)) continue
               softLeft -= 1
               touched = true
 
@@ -1056,9 +1190,9 @@ export function AsteroidBelt({
 
               // Below bounce threshold (or separating): separate only
               if (closing < BOUNCE_MIN_CLOSING) {
-                if (inst) {
-                  writeMatrix(inst, i, A)
-                  writeMatrix(inst, j, B)
+                if (meshes.length > 0) {
+                  writeMatrix(meshes, A)
+                  writeMatrix(meshes, B)
                 }
                 continue
               }
@@ -1082,9 +1216,9 @@ export function AsteroidBelt({
               A.spin += (ny - nz) * 0.04
               B.spin -= (ny - nz) * 0.04
 
-              if (inst) {
-                writeMatrix(inst, i, A)
-                writeMatrix(inst, j, B)
+              if (meshes.length > 0) {
+                writeMatrix(meshes, A)
+                writeMatrix(meshes, B)
               }
             }
           }
@@ -1092,7 +1226,7 @@ export function AsteroidBelt({
       }
     }
 
-    if (touched && inst) inst.instanceMatrix.needsUpdate = true
+    if (touched) markMeshesDirty(meshes)
     markSpatialDirty()
   }
 
@@ -1164,7 +1298,7 @@ export function AsteroidBelt({
     return slot === undefined ? -1 : slot
   }
 
-  const killRock = (index: number, updateMesh = true) => {
+  const killRock = (index: number) => {
     const list = rocksRef.current
     const rock = list[index]
     if (!rock.alive) return
@@ -1178,10 +1312,13 @@ export function AsteroidBelt({
     rock.orbiting = false
     rock.hitRadius = 0
     freeSlots.current.push(index)
-    if (!updateMesh) return
-    const inst = mesh.current
-    if (!inst) return
-    writeInstance(inst, index, rock)
+    // Always drop the dense instance — stale draws cost more than a slot recycle.
+    unbindRockInstance(
+      meshesRef.current,
+      shapeLiveRef.current,
+      list,
+      index,
+    )
   }
 
   const notifyDestroyed = (
@@ -1233,11 +1370,7 @@ export function AsteroidBelt({
     // Small rocks vaporize — terminal kill; night pieces each yield a shard
     if (size < minHit) {
       killRock(index)
-      const inst = mesh.current
-      if (inst) {
-        inst.instanceMatrix.needsUpdate = true
-        if (inst.instanceColor) inst.instanceColor.needsUpdate = true
-      }
+      markMeshesDirty(meshesRef.current, true)
       notifyDestroyed(px, py, pz, parentKind, parentNight)
       return
     }
@@ -1269,7 +1402,7 @@ export function AsteroidBelt({
       MIN_FRAGMENTS +
       Math.floor(rand() * (fragCountMax - MIN_FRAGMENTS + 1))
     const fragScaleBoost = Math.min(1.75, 0.9 + sizeRatio * 0.4)
-    const inst = mesh.current
+    const meshes = meshesRef.current
 
     for (let f = 0; f < fragments; f++) {
       const fragScale =
@@ -1278,17 +1411,18 @@ export function AsteroidBelt({
       let sx = psx * fragScale * (0.75 + rand() * 0.5)
       let sy = psy * fragScale * (0.75 + rand() * 0.5)
       let sz = psz * fragScale * (0.75 + rand() * 0.5)
-      let hitRadius = Math.max(sx, sy, sz)
-      if (hitRadius > maxFrag) {
-        const shrink = maxFrag / hitRadius
+      // Pre-shape size gate (render scale); refined after mesh AABB bake
+      let approxR = Math.max(sx, sy, sz)
+      if (approxR > maxFrag) {
+        const shrink = maxFrag / approxR
         sx *= shrink
         sy *= shrink
         sz *= shrink
-        hitRadius = maxFrag
+        approxR = maxFrag
       }
 
       // Too small to bother simulating — already "destroyed"
-      if (hitRadius < minHit * 0.85) continue
+      if (approxR < minHit * 0.85) continue
 
       const slot = findFreeSlot()
       if (slot < 0) break
@@ -1310,19 +1444,9 @@ export function AsteroidBelt({
       child.orbiting = false
       child.orbitRadius = 0
       child.theta = 0
-      child.x = px + ux * hitRadius * 1.4
-      child.y = py + uy * hitRadius * 1.4
-      child.z = pz + uz * hitRadius * 1.4
-      child.vx =
-        ovx + ux * (kick + eject) + impactLocal.x * impactBoost
-      child.vy =
-        ovy + uy * (kick + eject) + impactLocal.y * impactBoost
-      child.vz =
-        ovz + uz * (kick + eject) + impactLocal.z * impactBoost
       child.sx = sx
       child.sy = sy
       child.sz = sz
-      child.hitRadius = hitRadius
       child.spin = (rand() - 0.5) * 3.2 * kickScale
       child.angle = rand() * Math.PI * 2
       child.life = DEBRIS_LIFE * (0.7 + rand() * 0.6)
@@ -1330,6 +1454,30 @@ export function AsteroidBelt({
       child.kind = parentKind
       // Omen lineage — each piece yields a night shard when finally vaporized
       child.isNight = parentNight
+      // Fresh silhouette per fragment — avoids a spray of identical clones
+      {
+        const { normal, shard } = shapeCountsRef.current
+        child.shapeIndex = parentNight
+          ? pickShardShape(rand, normal, shard)
+          : pickNormalShape(rand, normal)
+      }
+      const half =
+        halfExtentsRef.current[child.shapeIndex] ?? _unitHalf
+      syncCollisionAxes(child, half)
+      if (child.hitRadius < minHit * 0.85) {
+        child.alive = false
+        continue
+      }
+      child.x = px + ux * child.hitRadius * 1.4
+      child.y = py + uy * child.hitRadius * 1.4
+      child.z = pz + uz * child.hitRadius * 1.4
+      child.vx =
+        ovx + ux * (kick + eject) + impactLocal.x * impactBoost
+      child.vy =
+        ovy + uy * (kick + eject) + impactLocal.y * impactBoost
+      child.vz =
+        ovz + uz * (kick + eject) + impactLocal.z * impactBoost
+      child.instIndex = -1
       child.color.copy(_fragColor)
       if (!parentNight) {
         child.color.offsetHSL(
@@ -1340,13 +1488,10 @@ export function AsteroidBelt({
       }
       addToLiveList(debrisList.current, slot, child)
 
-      if (inst) writeInstance(inst, slot, child)
+      bindRockInstance(meshes, shapeLiveRef.current, list, slot)
     }
 
-    if (inst) {
-      inst.instanceMatrix.needsUpdate = true
-      if (inst.instanceColor) inst.instanceColor.needsUpdate = true
-    }
+    markMeshesDirty(meshes, true)
 
     // Normal rocks roll cargo/buffs on every split.
     // Night omen: one shard when the belt parent breaks; further mid-splits wait
@@ -1373,6 +1518,7 @@ export function AsteroidBelt({
         } = orbitRef.current
 
         worldToLocal(point, sun, tilt, _local)
+        markSoftFocus(_local.x, _local.y, _local.z)
 
         const radial = Math.hypot(_local.x, _local.z)
         // Debris can drift — keep the cull loose
@@ -1408,6 +1554,7 @@ export function AsteroidBelt({
         } = orbitRef.current
 
         worldToLocal(point, sun, tilt, _local)
+        markSoftFocus(_local.x, _local.y, _local.z)
         worldDirToLocal(direction, tilt, _impactDir)
         if (_impactDir.lengthSq() > 1e-8) _impactDir.normalize()
         else _impactDir.set(1, 0, 0)
@@ -1456,6 +1603,7 @@ export function AsteroidBelt({
         } = orbitRef.current
 
         worldToLocal(from, sun, tilt, _local)
+        markSoftFocus(_local.x, _local.y, _local.z)
         worldToLocal(to, sun, tilt, _localTo)
 
         const ax = _local.x
@@ -1483,8 +1631,8 @@ export function AsteroidBelt({
           return false
         }
 
-        const step = Math.min(16, Math.max(5, dist / 48))
-        const n = Math.min(96, Math.max(2, Math.ceil(dist / step)))
+        const step = Math.min(24, Math.max(8, dist / 36))
+        const n = Math.min(64, Math.max(2, Math.ceil(dist / step)))
         let blocked = false
         for (let i = 0; i <= n && !blocked; i++) {
           const t = i / n
@@ -1507,62 +1655,71 @@ export function AsteroidBelt({
   }, [hazardRef])
 
   useLayoutEffect(() => {
-    const inst = mesh.current
-    inst.instanceMatrix.setUsage(DynamicDrawUsage)
-
-    for (let i = 0; i < rocks.length; i++) {
-      writeInstance(inst, i, rocks[i])
-    }
-
-    if (inst.instanceColor) inst.instanceColor.needsUpdate = true
-    inst.instanceMatrix.needsUpdate = true
-
-    _boundCenter.set(0, 0, 0)
-    inst.geometry.boundingSphere = new Sphere(
-      _boundCenter,
+    const meshes = meshesRef.current
+    const shapeCount = shapeSet.geometries.length
+    const shapeLive = makeShapeLive(shapeCount)
+    shapeLiveRef.current = shapeLive
+    const bound = new Sphere(
+      _boundCenter.set(0, 0, 0),
       outerRadius * 1.6 + thickness + 40,
     )
-  }, [rocks, outerRadius, thickness])
 
-  useFrame((state, delta) => {
+    for (let s = 0; s < shapeCount; s++) {
+      const inst = meshes[s]
+      if (!inst) continue
+      inst.instanceMatrix.setUsage(DynamicDrawUsage)
+      inst.count = 0
+      inst.geometry.boundingSphere = bound.clone()
+    }
+
+    for (let i = 0; i < rocks.length; i++) {
+      rocks[i].instIndex = -1
+      if (rocks[i].alive) {
+        bindRockInstance(meshes, shapeLive, rocks, i)
+      }
+    }
+    markMeshesDirty(meshes, true)
+  }, [rocks, outerRadius, thickness, shapeSet.geometries.length])
+
+  useFrame((_state, delta) => {
     const list = rocks
-    const glow = glowRoot.current
-    if (glow) {
-      const ni = nightIndexRef.current
-      const rock = ni >= 0 ? list[ni] : null
-      const show = glowNightShardRef.current && !!rock?.alive
-      glow.visible = show
-      if (show && rock) {
-        const t = state.clock.elapsedTime
-        const pulse = 0.82 + 0.18 * Math.sin(t * 3.4)
-        glow.position.set(rock.x, rock.y, rock.z)
-        glow.rotation.set(rock.angle * 0.7, rock.angle, rock.angle * 0.35)
-        if (glowShell.current) {
-          // Slight inflation avoids z-fight with the instanced rock underneath
-          glowShell.current.scale.set(
-            rock.sx * 1.06,
-            rock.sy * 1.06,
-            rock.sz * 1.06,
-          )
-          glowMats.shell.emissiveIntensity = 1.35 + pulse * 0.9
+
+    // Dev map marker — sun-relative lore ping for Sol's omen rock
+    {
+      const pings = lorePingsRef?.current
+      if (pings) {
+        let ni = nightIndexRef.current
+        let rock = ni >= 0 ? list[ni] : null
+        if (!rock?.alive || !rock.isNight) {
+          ni = list.findIndex((r) => r.alive && r.isNight)
+          nightIndexRef.current = ni
+          rock = ni >= 0 ? list[ni] : null
         }
-        const r = Math.max(rock.hitRadius, 0.6)
-        if (glowAura.current) {
-          const s = r * (2.35 + pulse * 0.35)
-          glowAura.current.scale.setScalar(s)
-          glowMats.aura.opacity = 0.14 + pulse * 0.12
-        }
-        if (glowHalo.current) {
-          const s = r * (1.25 + pulse * 0.12)
-          glowHalo.current.scale.setScalar(s)
-          glowMats.halo.opacity = 0.32 + pulse * 0.22
+        const show = showShardMapMarkerRef.current && !!rock?.alive
+        const idx = pings.findIndex((p) => p.label === NIGHT_SHARD_MAP_LABEL)
+        if (!show) {
+          if (idx >= 0) pings.splice(idx, 1)
+        } else if (rock) {
+          const { sunPosition: sun, inclination: tilt } = orbitRef.current
+          beltLocalToWorld(rock.x, rock.y, rock.z, sun, tilt, _dropWorld)
+          const sx = _dropWorld.x - sun[0]
+          const sy = _dropWorld.y - sun[1]
+          const sz = _dropWorld.z - sun[2]
+          if (idx >= 0) {
+            pings[idx].x = sx
+            pings[idx].y = sy
+            pings[idx].z = sz
+          } else {
+            pings.push({ x: sx, y: sy, z: sz, label: NIGHT_SHARD_MAP_LABEL })
+          }
         }
       }
     }
 
     if (paused) return
     const dt = Math.min(delta, 0.05)
-    const inst = mesh.current
+    focusLocalRef.current.age += dt
+    const meshes = meshesRef.current
     const {
       outerRadius: outer,
       innerRadius: inner,
@@ -1581,7 +1738,7 @@ export function AsteroidBelt({
       rock.theta -= omega * dt
       syncOrbitPosition(rock)
       rock.angle += rock.spin * dt
-      writeMatrix(inst, i, rock)
+      writeMatrix(meshes, rock)
       matricesDirty = true
     }
 
@@ -1611,7 +1768,7 @@ export function AsteroidBelt({
       }
 
       rock.angle += rock.spin * dt
-      writeMatrix(inst, i, rock)
+      writeMatrix(meshes, rock)
       matricesDirty = true
     }
 
@@ -1624,39 +1781,29 @@ export function AsteroidBelt({
       orbitHashTimer.current = ORBIT_HASH_INTERVAL
     }
 
-    if (matricesDirty) inst.instanceMatrix.needsUpdate = true
+    if (matricesDirty) markMeshesDirty(meshes)
   })
 
   return (
     <group position={sunPosition} rotation={[inclination, 0, 0]}>
-      <instancedMesh
-        ref={mesh}
-        args={[geometry, material, capacity]}
-        material={material}
-        castShadow={false}
-        receiveShadow={false}
-        frustumCulled={false}
-      />
-      <group ref={glowRoot} visible={false}>
-        <mesh
-          ref={glowAura}
-          geometry={glowGeos.aura}
-          material={glowMats.aura}
+      {shapeSet.geometries.map((geometry, shapeIndex) => (
+        <instancedMesh
+          key={shapeIndex}
+          ref={(el) => {
+            meshesRef.current[shapeIndex] = el
+          }}
+          args={[
+            geometry,
+            shapeIndex < shapeSet.normalShapeCount
+              ? normalMaterial
+              : shardMaterial,
+            capacity,
+          ]}
+          castShadow={false}
+          receiveShadow={false}
           frustumCulled={false}
         />
-        <mesh
-          ref={glowHalo}
-          geometry={glowGeos.halo}
-          material={glowMats.halo}
-          frustumCulled={false}
-        />
-        <mesh
-          ref={glowShell}
-          geometry={geometry}
-          material={glowMats.shell}
-          frustumCulled={false}
-        />
-      </group>
+      ))}
     </group>
   )
 }

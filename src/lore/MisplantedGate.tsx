@@ -32,6 +32,11 @@ import {
 } from 'three'
 import type { HazardField } from '@/ship/PlayerShip'
 import { VOID_GATE_ORBIT } from '@/game/systemConfig'
+import {
+  buildHullColliders,
+  createMeshHazardField,
+  type HullCollider,
+} from '@/world/meshHazard'
 
 /** Centerline of the truss ring (world units). */
 export const GATE_RING_RADIUS = 42
@@ -83,6 +88,8 @@ const _sun = new Vector3()
 const _orbit = new Vector3()
 const _orbitTilt = new Vector3(1, 0, 0)
 const _player = new Vector3()
+const _local = new Vector3()
+const _inv = new Matrix4()
 
 const COL_ACCENT = '#6b5cff'
 const COL_GLOW = '#9a90ff'
@@ -110,256 +117,6 @@ type MisplantedGateProps = {
    */
   orbitAngularSpeed?: number
   orbitInclination?: number
-}
-
-type LocalSphere = { x: number; y: number; z: number; r: number }
-
-const _local = new Vector3()
-const _inv = new Matrix4()
-const _from = new Vector3()
-const _to = new Vector3()
-const _ab = new Vector3()
-const _ac = new Vector3()
-
-/** Colliders hug every opaque member — throat + translucent veil stay open. */
-function buildGateColliders(): LocalSphere[] {
-  const spheres: LocalSphere[] = []
-  const span = (Math.PI * 2) / MODULE_COUNT
-
-  const push = (x: number, y: number, z: number, r: number) => {
-    spheres.push({ x, y, z, r })
-  }
-
-  /** Beads along a segment (inclusive ends). */
-  const chain = (
-    ax: number,
-    ay: number,
-    az: number,
-    bx: number,
-    by: number,
-    bz: number,
-    r: number,
-    steps: number,
-  ) => {
-    for (let s = 0; s <= steps; s++) {
-      const t = s / steps
-      push(
-        ax + (bx - ax) * t,
-        ay + (by - ay) * t,
-        az + (bz - az) * t,
-        r,
-      )
-    }
-  }
-
-  for (let i = 0; i < MODULE_COUNT; i++) {
-    if (MISSING_MODULES.has(i)) continue
-    const mid = i * span + span * 0.5
-    const c = Math.cos(mid)
-    const s = Math.sin(mid)
-    const tx = -s
-    const ty = c
-    const outerLen = OUTER_R * span * 0.92
-    const innerLen = INNER_R * span * 0.92
-    const seed = MathUtils.seededRandom(i * 17.13 + 3.7)
-
-    const ox = c * OUTER_R
-    const oy = s * OUTER_R
-    const ix = c * INNER_R
-    const iy = s * INNER_R
-    const mx = c * GATE_RING_RADIUS
-    const my = s * GATE_RING_RADIUS
-
-    // Outer armor shell + inset plates
-    for (const zt of [-0.38, -0.12, 0.12, 0.38] as const) {
-      for (const tt of [-0.35, 0, 0.35] as const) {
-        push(
-          ox + tx * outerLen * tt,
-          oy + ty * outerLen * tt,
-          RING_DEPTH * zt,
-          1.42,
-        )
-      }
-    }
-    // Outer lip + pipe runs
-    push(c * OUTER_R * 1.025, s * OUTER_R * 1.025, 0, 1.15)
-    chain(
-      ox + tx * outerLen * -0.4,
-      oy + ty * outerLen * -0.4,
-      RING_DEPTH * 0.28,
-      ox + tx * outerLen * 0.4,
-      oy + ty * outerLen * 0.4,
-      RING_DEPTH * 0.28,
-      0.55,
-      2,
-    )
-    chain(
-      ox + tx * outerLen * -0.4,
-      oy + ty * outerLen * -0.4,
-      -RING_DEPTH * 0.28,
-      ox + tx * outerLen * 0.4,
-      oy + ty * outerLen * 0.4,
-      -RING_DEPTH * 0.28,
-      0.5,
-      2,
-    )
-
-    // Inner chord framing — denser so you can't slip through the rail
-    for (const zt of [-0.34, -0.1, 0.1, 0.34] as const) {
-      for (const tt of [-0.35, 0, 0.35] as const) {
-        push(
-          ix + tx * innerLen * tt,
-          iy + ty * innerLen * tt,
-          RING_DEPTH * zt,
-          1.32,
-        )
-      }
-    }
-
-    // Radial spars (front / back) — beads along the strut
-    chain(
-      ix,
-      iy,
-      RING_DEPTH * 0.32,
-      ox,
-      oy,
-      RING_DEPTH * 0.32,
-      0.85,
-      4,
-    )
-    chain(
-      ix,
-      iy,
-      -RING_DEPTH * 0.32,
-      ox,
-      oy,
-      -RING_DEPTH * 0.32,
-      0.85,
-      4,
-    )
-    // Mid flange on front spar
-    push(mx, my, RING_DEPTH * 0.32, 1.15)
-
-    // Diagonal cross-brace
-    chain(
-      ix * 0.95,
-      iy * 0.95,
-      -RING_DEPTH * 0.2,
-      ox * 0.98,
-      oy * 0.98,
-      RING_DEPTH * 0.25,
-      0.7,
-      4,
-    )
-
-    // Side webbings (front / back faces of the bay)
-    chain(
-      ix,
-      iy,
-      RING_DEPTH * 0.5,
-      ox,
-      oy,
-      RING_DEPTH * 0.5,
-      0.7,
-      3,
-    )
-    chain(
-      ix,
-      iy,
-      -RING_DEPTH * 0.5,
-      ox,
-      oy,
-      -RING_DEPTH * 0.5,
-      0.65,
-      3,
-    )
-
-    if (seed > 0.62) {
-      push(c * OUTER_R * 1.09, s * OUTER_R * 1.09, RING_DEPTH * 0.12, 2.7)
-      push(c * OUTER_R * 1.09, s * OUTER_R * 1.09, RING_DEPTH * 0.12 + 2.4, 1.5)
-    }
-
-    if (seed > 0.78 || i % 7 === 0) {
-      // Antenna mast
-      chain(
-        c * OUTER_R * 1.05,
-        s * OUTER_R * 1.05,
-        -RING_DEPTH * 0.55,
-        c * OUTER_R * 1.05,
-        s * OUTER_R * 1.05,
-        -RING_DEPTH * 0.55 - 7,
-        0.55,
-        3,
-      )
-    }
-
-    if (i % 5 === 0) {
-      push(c * INNER_R * 0.92, s * INNER_R * 0.92, 3.8, 1.6)
-      push(c * INNER_R * 0.92, s * INNER_R * 0.92, 5.4, 1.35)
-    }
-  }
-
-  // Incomplete hub spokes — beads along each spoke
-  for (let i = 0; i < 8; i++) {
-    if (i === 2 || i === 5) continue
-    const angle = (i / 8) * Math.PI * 2 + 0.12
-    const c = Math.cos(angle)
-    const s = Math.sin(angle)
-    const len = INNER_R * 0.55
-    const outerSpoke = INNER_R - 0.8
-    const innerSpoke = INNER_R - len
-    chain(
-      c * outerSpoke,
-      s * outerSpoke,
-      0,
-      c * innerSpoke,
-      s * innerSpoke,
-      0,
-      0.8,
-      3,
-    )
-  }
-
-  // Stub hub collar (partial torus) — opaque framing near throat, not the veil
-  {
-    const hr = INNER_R * 0.42
-    const arc = Math.PI * 1.35
-    const steps = 14
-    for (let i = 0; i <= steps; i++) {
-      const a = (i / steps) * arc
-      push(Math.cos(a) * hr, Math.sin(a) * hr, 0, 0.85)
-    }
-  }
-
-  // Scaffold arm
-  chain(6, -OUTER_R * 0.9, RING_DEPTH + 1, 24, -OUTER_R * 0.95, RING_DEPTH + 3, 1.5, 5)
-  chain(24, -OUTER_R * 0.95, RING_DEPTH + 3, 28, -OUTER_R * 1.1, RING_DEPTH + 5, 1.3, 3)
-  push(28, -OUTER_R * 1.12, RING_DEPTH + 6, 2.3)
-
-  // Debris chord
-  push(OUTER_R * 0.55, -OUTER_R * 0.55, RING_DEPTH * 1.6, 4.0)
-  push(OUTER_R * 0.62, -OUTER_R * 0.48, RING_DEPTH * 1.75, 2.4)
-  push(OUTER_R * 0.48, -OUTER_R * 0.6, RING_DEPTH * 1.5, 2.1)
-
-  return spheres
-}
-
-function hitLocalSpheres(
-  spheres: LocalSphere[],
-  lx: number,
-  ly: number,
-  lz: number,
-  pad: number,
-) {
-  for (let i = 0; i < spheres.length; i++) {
-    const s = spheres[i]!
-    const dx = lx - s.x
-    const dy = ly - s.y
-    const dz = lz - s.z
-    const r = s.r + pad
-    if (dx * dx + dy * dy + dz * dz <= r * r) return true
-  }
-  return false
 }
 
 type ModuleSpec = {
@@ -1627,10 +1384,15 @@ function GateEventHorizon({ paused }: { paused: boolean }) {
 
   return (
     <group ref={root}>
-      <mesh scale={1.22} material={mats.haze}>
+      {/* Visual-only throat — must not block the portal fly-through. */}
+      <mesh
+        scale={1.22}
+        material={mats.haze}
+        userData={{ noCollision: true }}
+      >
         <sphereGeometry args={[PORTAL_RADIUS, 48, 32]} />
       </mesh>
-      <mesh material={mats.horizon}>
+      <mesh material={mats.horizon} userData={{ noCollision: true }}>
         <sphereGeometry args={[PORTAL_RADIUS, 64, 48]} />
       </mesh>
       <pointLight
@@ -1680,88 +1442,9 @@ export function MisplantedGate({
   /** Counts down before throat entry can fire (arrival grace + post-fire). */
   const portalArm = useRef(PORTAL_ARM_DELAY)
   const portalFired = useRef(false)
+  const hullRef = useRef<HullCollider[]>([])
 
   const mats = useMemo(() => createGateMaterials(), [])
-  const colliders = useMemo(() => buildGateColliders(), [])
-
-  useLayoutEffect(
-    () => () => {
-      mats.hull.dispose()
-      mats.panel.dispose()
-      mats.trim.dispose()
-      mats.steel.dispose()
-      for (const t of mats.textures) t.dispose()
-    },
-    [mats],
-  )
-
-  useLayoutEffect(() => {
-    if (!hazardRef) return
-    hazardRef.current = {
-      test(point, pad) {
-        const group = root.current
-        if (!group) return false
-        group.updateWorldMatrix(true, false)
-        _inv.copy(group.matrixWorld).invert()
-        _local.copy(point).applyMatrix4(_inv)
-        return hitLocalSpheres(
-          colliders,
-          _local.x,
-          _local.y,
-          _local.z,
-          pad,
-        )
-      },
-      impact(point, pad) {
-        const group = root.current
-        if (!group) return false
-        group.updateWorldMatrix(true, false)
-        _inv.copy(group.matrixWorld).invert()
-        _local.copy(point).applyMatrix4(_inv)
-        return hitLocalSpheres(
-          colliders,
-          _local.x,
-          _local.y,
-          _local.z,
-          pad,
-        )
-      },
-      occludes(from, to) {
-        const group = root.current
-        if (!group) return false
-        group.updateWorldMatrix(true, false)
-        _inv.copy(group.matrixWorld).invert()
-        _from.copy(from).applyMatrix4(_inv)
-        _to.copy(to).applyMatrix4(_inv)
-        _ab.subVectors(_to, _from)
-        const abLen2 = _ab.lengthSq()
-        if (abLen2 < 1e-8) return false
-        for (let i = 0; i < colliders.length; i++) {
-          const s = colliders[i]!
-          _ac.set(s.x - _from.x, s.y - _from.y, s.z - _from.z)
-          let t = _ac.dot(_ab) / abLen2
-          if (t < 0 || t > 1) continue
-          const px = _from.x + _ab.x * t - s.x
-          const py = _from.y + _ab.y * t - s.y
-          const pz = _from.z + _ab.z * t - s.z
-          if (px * px + py * py + pz * pz <= s.r * s.r) return true
-        }
-        return false
-      },
-    }
-    return () => {
-      hazardRef.current = null
-    }
-  }, [hazardRef, colliders])
-
-  // Warm / cool the lattice when the siphon ring comes online.
-  // Keep emissive modest so directional light still sculpts plating.
-  useLayoutEffect(() => {
-    mats.hull.emissiveIntensity = powered ? 0.14 : 0.04
-    mats.panel.emissiveIntensity = powered ? 0.18 : 0.05
-    mats.trim.emissiveIntensity = powered ? 0.16 : 0.05
-    mats.steel.emissiveIntensity = powered ? 0.1 : 0.06
-  }, [powered, mats])
 
   const modules = useMemo(() => {
     const list: ModuleSpec[] = []
@@ -1797,6 +1480,44 @@ export function MisplantedGate({
     }
     return angles
   }, [])
+
+  useLayoutEffect(
+    () => () => {
+      mats.hull.dispose()
+      mats.panel.dispose()
+      mats.trim.dispose()
+      mats.steel.dispose()
+      for (const t of mats.textures) t.dispose()
+    },
+    [mats],
+  )
+
+  useLayoutEffect(() => {
+    const group = root.current
+    if (!group) return
+    // Opaque truss only — portal veil / glows filtered out by isSolidHullMesh.
+    hullRef.current = buildHullColliders(group)
+  }, [mats, modules, spokes])
+
+  useLayoutEffect(() => {
+    if (!hazardRef) return
+    hazardRef.current = createMeshHazardField({
+      getRoot: () => root.current,
+      getHull: () => hullRef.current,
+    })
+    return () => {
+      hazardRef.current = null
+    }
+  }, [hazardRef])
+
+  // Warm / cool the lattice when the siphon ring comes online.
+  // Keep emissive modest so directional light still sculpts plating.
+  useLayoutEffect(() => {
+    mats.hull.emissiveIntensity = powered ? 0.14 : 0.04
+    mats.panel.emissiveIntensity = powered ? 0.18 : 0.05
+    mats.trim.emissiveIntensity = powered ? 0.16 : 0.05
+    mats.steel.emissiveIntensity = powered ? 0.1 : 0.06
+  }, [powered, mats])
 
   useLayoutEffect(() => {
     const g = root.current

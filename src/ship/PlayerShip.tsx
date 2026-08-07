@@ -64,6 +64,7 @@ const ATTITUDE_TRAVEL_SPEED = 0.5
 const _wish = new Vector3()
 const _camPos = new Vector3()
 const _lookAt = new Vector3()
+const _qYaw = new Quaternion()
 const _qPitch = new Quaternion()
 const _qRoll = new Quaternion()
 const _body = new Vector3()
@@ -1227,7 +1228,8 @@ export function PlayerShip({
       }
     }
 
-    // Keyboard flight — pitch + roll only (no yaw; bank to turn)
+    // Keyboard flight — arrows pitch/roll, Q/E yaw
+    let yaw = 0
     let pitch = 0
     let roll = 0
     const sens = controlSens.current
@@ -1236,6 +1238,10 @@ export function PlayerShip({
     if (!ballistic) {
       if (input.ArrowUp) pitch -= keyLook * pitchSign
       if (input.ArrowDown) pitch += keyLook * pitchSign
+      const keyYaw = turnSpeed * 2.8 * dt * sens.yaw
+      const yawSign = sens.invertYaw ? -1 : 1
+      if (input.KeyQ) yaw += keyYaw * yawSign
+      if (input.KeyE) yaw -= keyYaw * yawSign
       const keyRoll = rollSpeed * dt * sens.roll
       const rollSign = sens.invertRoll ? -1 : 1
       if (input.ArrowLeft) roll += keyRoll * rollSign
@@ -1251,6 +1257,10 @@ export function PlayerShip({
     if (ballistic) {
       wish.copy(group.quaternion)
     } else {
+      if (yaw !== 0) {
+        _qYaw.setFromAxisAngle(_up.set(0, 1, 0), yaw)
+        wish.multiply(_qYaw)
+      }
       if (pitch !== 0) {
         _qPitch.setFromAxisAngle(_right.set(1, 0, 0), pitch)
         wish.multiply(_qPitch)
@@ -1465,16 +1475,20 @@ export function PlayerShip({
           .copy(group.position)
           .addScaledVector(_forward, -camDistance)
           .addScaledVector(_up, camHeight)
+        const shipMoved = _prevPos.distanceToSquared(group.position) > 1e-10
         for (const fieldRef of hazardFields) {
           const field = fieldRef.current
           if (!field) continue
           // Hull + chase cam: die before the eye clips into plating / bays
-          if (
-            field.test(group.position, rockPad) ||
-            field.test(_camPos, rockPad) ||
-            field.occludes?.(_prevPos, group.position) ||
-            field.occludes?.(group.position, _camPos)
-          ) {
+          if (field.test(group.position, rockPad) || field.test(_camPos, rockPad)) {
+            hit = true
+            break
+          }
+          if (shipMoved && field.occludes?.(_prevPos, group.position)) {
+            hit = true
+            break
+          }
+          if (field.occludes?.(group.position, _camPos)) {
             hit = true
             break
           }

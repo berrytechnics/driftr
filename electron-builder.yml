@@ -1,0 +1,45 @@
+appId: com.driftr.game
+productName: Driftr
+copyright: Copyright © Driftr
+
+directories:
+  output: release
+  buildResources: build
+
+afterPack: electron/afterPack.cjs
+
+files:
+  - dist/**/*
+  - electron/**/*
+  - package.json
+
+# Optional: drop a local steam_appid.txt next to the binary when testing Steamworks.
+# That file is gitignored — do not add it via extraFiles here.
+
+asar: true
+asarUnpack:
+  - node_modules/steamworks.js/**/*
+
+npmRebuild: false
+
+# Icon: place build/icon.png (512+) for all platforms; falls back gracefully if missing.
+linux:
+  target:
+    - AppImage
+    - dir
+  category: Game
+  icon: public/driftr.png
+
+win:
+  target:
+    - nsis
+    - portable
+  icon: public/driftr.png
+
+mac:
+  target:
+    - dmg
+    - dir
+  category: public.app-category.games
+  icon: public/driftr.png
+  identity: null

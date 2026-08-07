@@ -1,13 +1,22 @@
 {
-  "name": "3js",
+  "name": "driftr",
   "private": true,
   "version": "0.0.0",
+  "description": "Fly the Sol system — dock, fight asteroids, and chase buffs.",
+  "author": "Driftr",
   "type": "module",
+  "main": "electron/main.mjs",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:electron": "tsc -b && vite build --mode electron",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "electron:dev": "npm run build:electron && ELECTRON_DISABLE_SANDBOX=1 electron . --no-sandbox",
+    "electron:pack": "npm run build:electron && electron-builder --publish never",
+    "electron:pack:win": "npm run build:electron && electron-builder --win --publish never",
+    "electron:pack:linux": "npm run build:electron && electron-builder --linux --publish never",
+    "electron:pack:mac": "npm run build:electron && electron-builder --mac --publish never"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
@@ -17,7 +26,9 @@
     "postprocessing": "^6.39.4",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "three": "^0.185.1"
+    "steamworks.js": "^0.3.2",
+    "three": "^0.185.1",
+    "three-mesh-bvh": "^0.8.3"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
@@ -25,6 +36,8 @@
     "@types/react-dom": "^19.2.3",
     "@types/three": "^0.185.3",
     "@vitejs/plugin-react": "^6.0.4",
+    "electron": "^37.2.0",
+    "electron-builder": "^26.0.12",
     "oxlint": "^1.75.0",
     "typescript": "~6.0.2",
     "vite": "^8.2.0",

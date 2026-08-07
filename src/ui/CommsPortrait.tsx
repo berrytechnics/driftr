@@ -6,8 +6,10 @@ import {
   Vector3,
   type Group,
   type Mesh,
+  type MeshStandardMaterial,
 } from 'three'
-import alienUrl from '@/assets/models/alien.glb?url'
+import alienUrl from '@/assets/models/characters/character_alien.glb?url'
+import freeport2Url from '@/assets/models/stations/station_freeport_2.glb?url'
 import ashen from '@/assets/textures/planets/Ashen.webp'
 import gaseous from '@/assets/textures/planets/Gaseous2.webp'
 import martian from '@/assets/textures/planets/Martian.webp'
@@ -33,6 +35,10 @@ import {
   STATION_NAMES,
 } from '@/game/systemConfig'
 import { NYX_ASK_LABEL, replyForNyxAsk } from '@/lore/easterEggs'
+import {
+  isVesperExpeditionStation,
+  isVoidRemnantStation,
+} from '@/lore/voidAncestors'
 import {
   NYX_ORBIT_INCLINATION,
   NYX_ORBIT_PHASE,
@@ -568,6 +574,214 @@ function VesperFromTugWindow() {
   )
 }
 
+/** Per-pad Drift hulk orbit niche around Cinder (staged for the MFD). */
+const VOID_FEED_HULK: Record<
+  string,
+  {
+    position: [number, number, number]
+    rotation: [number, number, number]
+    lookAt: [number, number, number]
+  }
+> = {
+  [STATION_NAMES.voidFreeport]: {
+    position: [1.85, -0.15, -0.35],
+    rotation: [0.15, -0.55, 0.08],
+    lookAt: [0.45, 0.0, -0.1],
+  },
+  [STATION_NAMES.voidGreenpeace]: {
+    position: [-0.15, 1.35, -1.55],
+    rotation: [0.55, 0.35, -0.2],
+    lookAt: [-0.35, 0.55, -0.7],
+  },
+  [STATION_NAMES.voidOrbital]: {
+    position: [0.55, -1.25, -1.1],
+    rotation: [-0.4, -1.15, 0.25],
+    lookAt: [-0.15, -0.45, -0.55],
+  },
+  [STATION_NAMES.voidMining]: {
+    position: [2.35, 0.65, 0.45],
+    rotation: [0.05, -1.85, 0.12],
+    lookAt: [0.85, 0.25, -0.05],
+  },
+}
+
+/**
+ * Staged exterior cam for remnant pads — real Drift hulk mesh and a dim ash
+ * Cinder. Empty cabin; no crew. Husk orbit niche differs per docked pad.
+ */
+function CinderFromVoidWindow({ stationName }: { stationName: string }) {
+  const { camera } = useThree()
+  const hulkSpin = useRef<Group>(null)
+  const { scene } = useGLTF(freeport2Url, true, true)
+  const stage =
+    VOID_FEED_HULK[stationName] ?? VOID_FEED_HULK[STATION_NAMES.voidFreeport]!
+
+  const hulk = useMemo(() => {
+    const clone = scene.clone(true)
+    clone.traverse((child) => {
+      const mesh = child as Mesh
+      if (!mesh.isMesh) return
+      mesh.castShadow = false
+      mesh.receiveShadow = false
+      if (Array.isArray(mesh.material)) {
+        mesh.material = mesh.material.map((m) => m.clone())
+      } else if (mesh.material) {
+        mesh.material = mesh.material.clone()
+      }
+      const mats = Array.isArray(mesh.material)
+        ? mesh.material
+        : [mesh.material]
+      for (const material of mats) {
+        const mat = material as MeshStandardMaterial
+        if ('envMapIntensity' in mat) mat.envMapIntensity = 0.35
+        if ('metalness' in mat && mat.metalness > 0.85) mat.metalness = 0.65
+        if ('roughness' in mat && mat.roughness < 0.2) mat.roughness = 0.38
+        if ('emissiveIntensity' in mat && (mat.emissiveIntensity ?? 0) > 0.15) {
+          mat.emissiveIntensity = Math.min(
+            Math.max(mat.emissiveIntensity ?? 0, 0.45),
+            0.85,
+          )
+        }
+        mat.needsUpdate = true
+      }
+    })
+    return clone
+  }, [scene])
+
+  const stars = useMemo(() => {
+    const n = 480
+    const arr = new Float32Array(n * 3)
+    for (let i = 0; i < n; i++) {
+      const theta = Math.random() * Math.PI * 2
+      const phi = Math.acos(2 * Math.random() - 1)
+      const r = 9 + Math.random() * 10
+      arr[i * 3] = r * Math.sin(phi) * Math.cos(theta)
+      arr[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta)
+      arr[i * 3 + 2] = r * Math.cos(phi)
+    }
+    return arr
+  }, [])
+
+  useFrame(({ clock }) => {
+    const t = clock.elapsedTime
+    const bob = Math.sin(t * 0.08) * 0.03
+    camera.position.set(0.15 + bob * 0.2, 0.55 + bob, 7.2)
+    camera.lookAt(...stage.lookAt)
+    if (hulkSpin.current) {
+      hulkSpin.current.rotation.y = stage.rotation[1] + t * 0.07
+    }
+  })
+
+  return (
+    <group>
+      <points frustumCulled={false}>
+        <bufferGeometry>
+          <bufferAttribute attach="attributes-position" args={[stars, 3]} />
+        </bufferGeometry>
+        <pointsMaterial
+          size={0.03}
+          color="#a89888"
+          sizeAttenuation
+          transparent
+          opacity={0.58}
+          depthWrite={false}
+        />
+      </points>
+
+      {/* Soft remnant nebula wash — matches cavity sky without swallowing Cinder */}
+      <mesh position={[-1.2, 0.6, -4]} scale={[8, 5, 1]}>
+        <planeGeometry args={[1, 1]} />
+        <meshBasicMaterial
+          color="#4a2060"
+          transparent
+          opacity={0.14}
+          depthWrite={false}
+        />
+      </mesh>
+      <mesh position={[2.2, -0.4, -3.5]} scale={[6, 4, 1]}>
+        <planeGeometry args={[1, 1]} />
+        <meshBasicMaterial
+          color="#204858"
+          transparent
+          opacity={0.1}
+          depthWrite={false}
+        />
+      </mesh>
+
+      <ambientLight intensity={0.28} color="#8a8480" />
+      {/* Weak ember from Cinder — star stays dim, only sketches the hull */}
+      <pointLight
+        position={[-1.6, 0.2, -0.4]}
+        intensity={0.45}
+        distance={14}
+        decay={2}
+        color="#8a7060"
+      />
+      {/* Key + fill on the husk / gate */}
+      <directionalLight
+        position={[4.2, 2.8, 5]}
+        intensity={1.35}
+        color="#d8dce8"
+      />
+      <directionalLight
+        position={[-0.5, 1.8, 5.5]}
+        intensity={0.75}
+        color="#a8b8d8"
+      />
+      <pointLight
+        position={[1.6, 0.8, 2.2]}
+        intensity={1.8}
+        distance={8}
+        decay={2}
+        color="#c8d0e0"
+      />
+
+      {/* Cinder — dim ash ember dwarf */}
+      <group position={[-1.75, 0.15, -1.1]}>
+        <mesh>
+          <sphereGeometry args={[0.52, 32, 32]} />
+          <meshStandardMaterial
+            color="#2a2624"
+            roughness={0.94}
+            metalness={0.06}
+            emissive="#3a322c"
+            emissiveIntensity={0.22}
+          />
+        </mesh>
+        <mesh scale={1.28}>
+          <sphereGeometry args={[0.52, 24, 24]} />
+          <meshBasicMaterial
+            color="#4a3c34"
+            transparent
+            opacity={0.1}
+            depthWrite={false}
+          />
+        </mesh>
+        <mesh scale={1.7}>
+          <sphereGeometry args={[0.52, 20, 20]} />
+          <meshBasicMaterial
+            color="#2a2018"
+            transparent
+            opacity={0.06}
+            depthWrite={false}
+          />
+        </mesh>
+      </group>
+
+      {/* Drift hulk — orbit niche unique to this pad */}
+      <group
+        ref={hulkSpin}
+        position={stage.position}
+        rotation={[stage.rotation[0], stage.rotation[1], stage.rotation[2]]}
+      >
+        <Center>
+          <primitive object={hulk} scale={0.018} />
+        </Center>
+      </group>
+    </group>
+  )
+}
+
 function AlienFeed() {
   const idle = useRef<Group>(null)
   const { scene } = useGLTF(alienUrl, true, true)
@@ -657,14 +871,17 @@ export function CommsPortrait({
 }: CommsPortraitProps) {
   const [reply, setReply] = useState<string | null>(null)
   const isTug = stationName === STATION_NAMES.nyxTug
-  /** Nyx Transit — live external window cam, cabin empty, uncatalogued body. */
-  const emptyCabin = stationName === STATION_NAMES.nyx || isTug
+  const isVoidPad = isVoidRemnantStation(stationName)
+  const isExpedition = isVesperExpeditionStation(stationName)
+  /** Nyx Transit / tug / remnant / Gatewright — live external window cam, cabin empty. */
+  const emptyCabin =
+    stationName === STATION_NAMES.nyx || isTug || isVoidPad || isExpedition
   /**
-   * System overview feed, empty seat — Nyx Station (Sol chart) or cold tug
-   * (current Vesper chart).
+   * Wide exterior feed — Nyx Station (Sol chart), cold tug / Gatewright (Vesper),
+   * or remnant pads looking sunward at Cinder.
    */
   const systemFeed =
-    stationName === STATION_NAMES.nyxAlt || isTug
+    stationName === STATION_NAMES.nyxAlt || isTug || isVoidPad || isExpedition
   const showNyxAsk =
     nyxTopicUnlocked && !emptyCabin && !systemFeed
 
@@ -782,15 +999,23 @@ export function CommsPortrait({
             <color
               attach="background"
               args={[
-                isTug
-                  ? '#03020a'
-                  : emptyCabin
-                    ? '#030302'
-                    : '#02060c',
+                isVoidPad
+                  ? '#020101'
+                  : isTug || isExpedition
+                    ? '#03020a'
+                    : emptyCabin
+                      ? '#030302'
+                      : '#02060c',
               ]}
             />
             {systemFeed ? (
-              isTug ? <VesperFromTugWindow /> : <SolFromTransitWindow />
+              isVoidPad ? (
+                <CinderFromVoidWindow stationName={stationName} />
+              ) : isTug || isExpedition ? (
+                <VesperFromTugWindow />
+              ) : (
+                <SolFromTransitWindow />
+              )
             ) : (
               <>
                 <CameraLookAt y={emptyCabin ? -0.1 : -0.04} />

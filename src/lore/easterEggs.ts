@@ -100,8 +100,6 @@ export const ALT_GATE_KNOWN_MAP_LABEL = 'Space Gate'
 export function altGateMapLabel(traveled: boolean) {
   return traveled ? ALT_GATE_KNOWN_MAP_LABEL : ALT_GATE_MAP_LABEL
 }
-/** Chart pip for the void mothership parked beyond Cinder. */
-export const VOID_MOTHERSHIP_MAP_LABEL = 'Mothership'
 export const ALT_GATE_JOURNAL_TITLE = 'Unknown structure'
 export const ALT_GATE_JOURNAL_BODY =
   'Tilted survey ring past the ashen dwarf. Hollow throat, unfinished struts, tick marks in a dead hand. Nothing answers. Looks like the Transit pad that was raised to meet Nyx — dropped here when the ellipse lied.'
@@ -360,6 +358,9 @@ export const NYX_PERIAPSIS =
 export const NIGHT_ROCK_HEX = '#3a3548'
 
 export const NIGHT_SHARD_COLOR = '#6a5a88'
+
+/** Sol cheat / map — night omen rock ping label (click → flight nav marker). */
+export const NIGHT_SHARD_MAP_LABEL = 'SHARD · NYX DUST'
 
 /** Chance a dock cycle reveals the decommissioned Nyx pad. */
 export const GHOST_BERTH_CHANCE = 0.22

@@ -3,6 +3,8 @@ import { useEffect, useRef } from 'react'
 const WATCHED = [
   'KeyW',
   'KeyS',
+  'KeyQ',
+  'KeyE',
   'KeyF',
   'KeyT',
   'KeyC',

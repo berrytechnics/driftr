@@ -30,9 +30,22 @@ npm run dev
 Open the URL Vite prints (usually `http://localhost:5173`). After the boot splash, a lore briefing appears on first visit (dismiss with **Continue**; pre-checked **Don't show next time** persists). Then click **Engage / Launch** to capture the pointer and fly.
 
 ```bash
-npm run build    # production build → dist/ (base path /driftr/)
+npm run build    # production build → dist/
 npm run preview  # serve the build locally (use this to test the PWA)
 ```
+
+### Desktop (Electron)
+
+Optional native shell for offline packaging (AppImage / NSIS / DMG). Web / PWA builds are unchanged.
+
+```bash
+npm run electron:dev          # build in electron mode, then launch
+npm run electron:pack:linux   # AppImage + unpacked dir → release/
+npm run electron:pack:win     # NSIS + portable
+npm run electron:pack:mac     # DMG
+```
+
+Packaging writes to `release/` (gitignored). Place a `build/icon.png` (512+) for installers; platforms fall back to `public/driftr.png` when needed.
 
 ## Controls
 
@@ -51,7 +64,7 @@ npm run preview  # serve the build locally (use this to test the PWA)
 | `Esc` | Unlock pointer / pause |
 | Mouse | HUD cursor |
 
-Music and SFX volume live under the control map in the start / pause menu and persist across sessions, with pitch / roll / cursor sensitivity, separate pitch / roll invert toggles, and a Low / Med / High **graphics** preset (resolution, bloom, texture filtering) beneath. The pause MFD also keeps a **Signal Journal · Nyx** that fills as you recover outer-system leads. **Enable cheat menu** (same menus) opens the admin panel for sky hops (Sol ↔ Vesper, plus a direct hop into the gate void), warps, grant cheats, and Vesper siphon / gate tools for the rest of the tab session — the locked HUD cursor can operate Leva while soft-paused or with cheats open. **Exit game** closes the tab. **Reset progress** (same menus, confirm to wipe) clears credits, cargo, upgrades, lore, and hull back to a fresh run — needed because clearing `localStorage` while the tab is open gets overwritten by autosave / unload.
+Music and SFX volume live under the control map in the start / pause menu and persist across sessions, with pitch / roll / cursor sensitivity, separate pitch / roll invert toggles, and a Low / Med / High **graphics** preset (resolution, bloom, texture filtering) beneath. The pause MFD also keeps a **Signal Journal · Nyx** that fills as you recover outer-system leads. **Enable cheat menu** (same menus) opens the admin panel for sky hops (Sol ↔ Vesper, plus a direct hop into the gate void), warps, grant cheats, and Vesper siphon / gate tools for the rest of the tab session — the locked HUD cursor can operate Leva while soft-paused or with cheats open. **Exit game** closes the tab (or the desktop window in the Electron shell). **Reset progress** (same menus, confirm to wipe) clears credits, cargo, upgrades, lore, and hull back to a fresh run — needed because clearing `localStorage` while the tab is open gets overwritten by autosave / unload.
 
 Flight HUD includes a bottom-right **navball** (ecliptic horizon, pitch ladder, heading, and sun / prograde markers) plus an optional **map waypoint** diamond / edge chevron when you mark a body on the chart.
 
@@ -133,7 +146,7 @@ Cargo desk sells ore, ice, and alloy for credits. **Nyx Station** in Vesper only
 - Navball attitude HUD and click-to-mark map waypoints with on-screen / edge tracking
 - Loot magnet that pulls nearby shards and buffs into scoop range
 - Color-coded asteroid types (ore / ice / alloy) so you can hunt a specific haul
-- Procedural asteroid belt (shader rock detail, mining, and loot)
+- Procedural asteroid belt (instanced GLB rocks, fitted ellipsoid collision, mining, and loot)
 - Soft nebula volumes in Sol and denser wisps under Vesper
 - Multi-station world (Thalassa, Ares, Kronos) with shared shops and ATC portraits
 - Interactive 3D system map (hold `M` in flight, toggle while paused) with inclined orbits, station rings, and remembered camera
@@ -156,3 +169,4 @@ Cargo desk sells ore, ice, and alloy for credits. **Nyx Station** in Vesper only
 - [Three.js](https://threejs.org) via [React Three Fiber](https://docs.pmnd.rs/react-three-fiber) / [Drei](https://github.com/pmnd.rs/drei)
 - [Leva](https://github.com/pmnd.rs/leva) for debug controls
 - [vite-plugin-pwa](https://vite-pwa-org.netlify.app/) for install / offline support
+- [Electron](https://www.electronjs.org/) + [electron-builder](https://www.electron.build/) for optional desktop packages

@@ -11,10 +11,8 @@ import {
   CanvasTexture,
   Color,
   DoubleSide,
-  Euler,
   Group,
   MathUtils,
-  Matrix4,
   MeshStandardMaterial,
   Sprite,
   SpriteMaterial,
@@ -31,6 +29,11 @@ import {
   isSiphonLive,
   listSiphonIndices,
 } from '@/lore/siphonPads'
+import {
+  buildHullColliders,
+  createMeshHazardField,
+  type HullCollider,
+} from '@/world/meshHazard'
 
 /** Map pip sizing for the ring chart entry. */
 export const DYSON_MAP_SIZE = 10
@@ -84,17 +87,6 @@ function getSoftGlowMap() {
 }
 
 const _sun = new Vector3()
-const _local = new Vector3()
-const _inv = new Matrix4()
-const _from = new Vector3()
-const _to = new Vector3()
-const _ab = new Vector3()
-const _ac = new Vector3()
-const _euler = new Euler()
-const _satRot = new Matrix4()
-const _satPt = new Vector3()
-
-type LocalSphere = { x: number; y: number; z: number; r: number }
 
 type SatSpec = {
   i: number
@@ -378,50 +370,6 @@ function AlienAbsorber({
 }
 
 /**
- * Surface-hugging spheres in AlienAbsorber local space (matches mesh extents).
- * Plates sit under an extra −0.2 X parent group in the mesh tree.
- */
-function absorberLocalColliders(seed: number): LocalSphere[] {
-  const spheres: LocalSphere[] = []
-  const push = (x: number, y: number, z: number, r: number) => {
-    spheres.push({ x, y, z, r })
-  }
-
-  // Twisted cage — chain covers spine + ring major radii without a fat shell
-  for (let s = 0; s <= 5; s++) {
-    const t = s / 5
-    push(-0.3 + t * 4.3, 0, 0, 1.12 - t * 0.22)
-  }
-
-  // Hub nodules
-  push(0.2, 0, 0, 0.95)
-  push(-0.55, 0, 0, 0.72)
-
-  // Absorb plates (parent group at x = −0.2)
-  const plateCount = 8
-  for (let i = 0; i < plateCount; i++) {
-    const a = (i / plateCount) * Math.PI * 2 + seed * 0.4
-    const rad = 3.4 + (MathUtils.seededRandom(seed * 40 + i) - 0.5) * 0.35
-    const faceR = 1.18 + seed * 0.12
-    push(
-      -1.3,
-      Math.sin(a) * rad * 0.55,
-      Math.cos(a) * rad * 0.55,
-      faceR,
-    )
-  }
-
-  // Antenna barbs + tip nodule
-  push(3.6, 1.1, -0.4, 0.55)
-  push(3.95, 1.85, -0.55, 0.32)
-  push(3.4, -0.9, 0.7, 0.48)
-  push(3.65, -1.45, 0.95, 0.28)
-  push(4.2, 0.2, 0, 0.38)
-
-  return spheres
-}
-
-/**
  * Resting hull yaw keeps +X (antenna) on the velocity vector.
  * When the ring powers, add SUNWARD_AIM so that same end faces the star.
  */
@@ -429,53 +377,6 @@ const SUNWARD_AIM = Math.PI / 2
 
 function satHullYaw(sat: SatSpec, aimYaw: number) {
   return -sat.angle + Math.PI / 2 + sat.yawJitter + aimYaw
-}
-
-/** Spin-local colliders — each sat's absorber spheres, rotated to match the model. */
-function buildColliders(
-  sats: SatSpec[],
-  aimYaw: number,
-  displayScale: number,
-): LocalSphere[] {
-  const out: LocalSphere[] = []
-  for (let i = 0; i < sats.length; i++) {
-    const sat = sats[i]!
-    _euler.set(sat.pitchJitter, satHullYaw(sat, aimYaw), sat.rollJitter, 'XYZ')
-    _satRot.makeRotationFromEuler(_euler)
-    const local = absorberLocalColliders(sat.seed)
-    for (let j = 0; j < local.length; j++) {
-      const s = local[j]!
-      _satPt
-        .set(s.x, s.y, s.z)
-        .multiplyScalar(displayScale)
-        .applyMatrix4(_satRot)
-      out.push({
-        x: _satPt.x + sat.x,
-        y: _satPt.y,
-        z: _satPt.z + sat.z,
-        r: s.r * displayScale,
-      })
-    }
-  }
-  return out
-}
-
-function hitLocalSpheres(
-  spheres: LocalSphere[],
-  lx: number,
-  ly: number,
-  lz: number,
-  pad: number,
-) {
-  for (let i = 0; i < spheres.length; i++) {
-    const s = spheres[i]!
-    const dx = lx - s.x
-    const dy = ly - s.y
-    const dz = lz - s.z
-    const r = s.r + pad
-    if (dx * dx + dy * dy + dz * dz <= r * r) return true
-  }
-  return false
 }
 
 function RingSatellite({
@@ -594,28 +495,16 @@ export function VesperSatelliteRing({
   const spin = useRef<Group>(null!)
   const yaw = useRef(0.35)
   const aimYaw = useRef(powered ? SUNWARD_AIM : 0)
-  const collidersRef = useRef<LocalSphere[]>([])
-  const satsRef = useRef<SatSpec[]>([])
-  const displayScaleRef = useRef(displayScale)
-  displayScaleRef.current = displayScale
+  const hullRef = useRef<HullCollider[]>([])
 
   const mats = useMemo(() => createMats(), [])
   const repairedSet = useMemo(() => new Set(repairedIds), [repairedIds])
   const sats = useMemo(() => buildSats(repairedSet), [repairedSet])
-  satsRef.current = sats
   const indexToDockSlot = useMemo(() => {
     const map = new Map<number, number>()
     listSiphonIndices().forEach((id, slot) => map.set(id, slot))
     return map
   }, [])
-
-  useLayoutEffect(() => {
-    collidersRef.current = buildColliders(
-      sats,
-      aimYaw.current,
-      displayScale,
-    )
-  }, [sats, displayScale])
 
   useLayoutEffect(
     () => () => {
@@ -636,60 +525,18 @@ export function VesperSatelliteRing({
   }, [inclination, tiltYaw, tiltRoll])
 
   useLayoutEffect(() => {
+    const rotor = spin.current
+    if (!rotor) return
+    // Geometry-local BVHs; mesh transforms track aim yaw without rebuild.
+    hullRef.current = buildHullColliders(rotor)
+  }, [sats, displayScale])
+
+  useLayoutEffect(() => {
     if (!hazardRef) return
-    hazardRef.current = {
-      test(point, pad) {
-        const group = spin.current
-        if (!group) return false
-        group.updateWorldMatrix(true, false)
-        _inv.copy(group.matrixWorld).invert()
-        _local.copy(point).applyMatrix4(_inv)
-        return hitLocalSpheres(
-          collidersRef.current,
-          _local.x,
-          _local.y,
-          _local.z,
-          pad,
-        )
-      },
-      impact(point, pad, _direction) {
-        const group = spin.current
-        if (!group) return false
-        group.updateWorldMatrix(true, false)
-        _inv.copy(group.matrixWorld).invert()
-        _local.copy(point).applyMatrix4(_inv)
-        return hitLocalSpheres(
-          collidersRef.current,
-          _local.x,
-          _local.y,
-          _local.z,
-          pad,
-        )
-      },
-      occludes(from, to) {
-        const group = spin.current
-        if (!group) return false
-        group.updateWorldMatrix(true, false)
-        _inv.copy(group.matrixWorld).invert()
-        _from.copy(from).applyMatrix4(_inv)
-        _to.copy(to).applyMatrix4(_inv)
-        _ab.subVectors(_to, _from)
-        const abLen2 = _ab.lengthSq()
-        if (abLen2 < 1e-8) return false
-        const colliders = collidersRef.current
-        for (let i = 0; i < colliders.length; i++) {
-          const s = colliders[i]!
-          _ac.set(s.x - _from.x, s.y - _from.y, s.z - _from.z)
-          let t = _ac.dot(_ab) / abLen2
-          if (t < 0 || t > 1) continue
-          const px = _from.x + _ab.x * t - s.x
-          const py = _from.y + _ab.y * t - s.y
-          const pz = _from.z + _ab.z * t - s.z
-          if (px * px + py * py + pz * pz <= s.r * s.r) return true
-        }
-        return false
-      },
-    }
+    hazardRef.current = createMeshHazardField({
+      getRoot: () => spin.current,
+      getHull: () => hullRef.current,
+    })
     return () => {
       hazardRef.current = null
     }
@@ -706,15 +553,7 @@ export function VesperSatelliteRing({
       rotor.rotation.y = yaw.current
 
       const target = powered ? SUNWARD_AIM : 0
-      const prev = aimYaw.current
-      aimYaw.current = MathUtils.damp(prev, target, 1.35, dt)
-      if (Math.abs(aimYaw.current - prev) > 1e-5) {
-        collidersRef.current = buildColliders(
-          satsRef.current,
-          aimYaw.current,
-          displayScaleRef.current,
-        )
-      }
+      aimYaw.current = MathUtils.damp(aimYaw.current, target, 1.35, dt)
     }
   })
 

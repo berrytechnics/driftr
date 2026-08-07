@@ -1,6 +1,6 @@
 import { Center, useGLTF } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
-import { useMemo, useRef, type RefObject } from 'react'
+import { useLayoutEffect, useMemo, useRef, type RefObject } from 'react'
 import {
   Color,
   Group,
@@ -10,6 +10,12 @@ import {
   type MeshStandardMaterial,
   type Object3D,
 } from 'three'
+import type { HazardField } from '@/ship/PlayerShip'
+import {
+  buildHullColliders,
+  createMeshHazardField,
+  type HullCollider,
+} from '@/world/meshHazard'
 
 type FloatingWreckProps = {
   modelUrl: string
@@ -31,6 +37,8 @@ type FloatingWreckProps = {
   docked?: boolean
   /** Exposed root for DockBerth / map tracking. */
   stationRef?: RefObject<Group | null>
+  /** Mesh-surface lethal plating (BVH). */
+  hazardRef?: RefObject<HazardField | null>
   /** Ghost / cold-metal retune (default true). */
   ghost?: boolean
 }
@@ -82,9 +90,11 @@ export function FloatingWreck({
   paused = false,
   docked = false,
   stationRef,
+  hazardRef,
   ghost = true,
 }: FloatingWreckProps) {
   const root = useRef<Group>(null!)
+  const hullRef = useRef<HullCollider[]>([])
   const seenRef = useRef(alreadySeen)
   seenRef.current = alreadySeen
   const spin = useRef(MathUtils.seededRandom(offset[0] + offset[2]) * Math.PI * 2)
@@ -94,6 +104,21 @@ export function FloatingWreck({
     if (ghost) ghostMaterials(clone)
     return clone
   }, [scene, ghost])
+
+  useLayoutEffect(() => {
+    hullRef.current = buildHullColliders(model)
+  }, [model])
+
+  useLayoutEffect(() => {
+    if (!hazardRef) return
+    hazardRef.current = createMeshHazardField({
+      getRoot: () => root.current,
+      getHull: () => hullRef.current,
+    })
+    return () => {
+      hazardRef.current = null
+    }
+  }, [hazardRef])
 
   useFrame((_, dt) => {
     const group = root.current

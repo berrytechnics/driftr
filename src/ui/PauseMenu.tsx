@@ -9,14 +9,20 @@ import { cargoUnits, formatCredits, type CargoHold } from "@/loot/economy";
 import { ARMOR_MAX_TIER, armorTierLabel, maxAmmoForTorpedoMagTier } from "@/loot/shop";
 import { buildNyxJournal, NIGHT_SHARD_STATUS_LABEL } from "@/lore/easterEggs";
 import {
+  appendGatewrightJournal,
+  buildVoidJournal,
+} from "@/lore/voidAncestors";
+import {
   CONTROL_SENS_MAX,
   CONTROL_SENS_MIN,
   getControlSettings,
   setCursorSensitivity,
   setInvertPitch,
   setInvertRoll,
+  setInvertYaw,
   setPitchSensitivity,
   setRollSensitivity,
+  setYawSensitivity,
   subscribeControlSettings,
 } from "@/ship/controlSettings";
 import {
@@ -53,7 +59,17 @@ export type PauseShipStatus = {
   nyxTugSeen?: boolean;
   nyxCassiniSeen?: boolean;
   nyxGateSeen?: boolean;
+  vesperGatewrightSeen?: boolean;
+  vesperGatewrightDocked?: boolean;
   nyxDualAshDone?: boolean;
+  voidFreeportSeen?: boolean;
+  voidFreeportDocked?: boolean;
+  voidCradleSeen?: boolean;
+  voidCradleDocked?: boolean;
+  voidArchSeen?: boolean;
+  voidArchDocked?: boolean;
+  voidSiphonSeen?: boolean;
+  voidSiphonDocked?: boolean;
 };
 
 type PauseMenuProps = {
@@ -72,6 +88,7 @@ type PauseMenuProps = {
 const controls = [
   ["← / →", "Roll"],
   ["↑ / ↓", "Pitch"],
+  ["Q / E", "Yaw"],
   ["W / S", "Thrust / brake"],
   ["Shift", "Boost"],
   ["F", "Fire · dock"],
@@ -283,21 +300,40 @@ export function PauseMenu({
   useEffect(() => subscribeGraphicsSettings(setGraphics), []);
 
   const journal = ship
-    ? buildNyxJournal({
-        nightShards: ship.nightShards ?? 0,
-        nyxTopicUnlocked: !!ship.nyxTopicUnlocked,
-        nyxHyperionLead: !!ship.nyxHyperionLead,
-        nyxHyperionRumorHeard: !!ship.nyxHyperionRumorHeard,
-        nyxFoundEmpty: !!ship.nyxFoundEmpty,
-        nyxWhisperHeard: !!ship.nyxWhisperHeard,
-        nyxComlogUnlocked: !!ship.nyxComlogUnlocked,
-        nyxCorridorUnlocked: !!ship.nyxCorridorUnlocked,
-        nyxDerelictSeen: !!ship.nyxDerelictSeen,
-        nyxTugSeen: !!ship.nyxTugSeen,
-        nyxCassiniSeen: !!ship.nyxCassiniSeen,
-        nyxGateSeen: !!ship.nyxGateSeen,
-        nyxDualAshDone: !!ship.nyxDualAshDone,
-      })
+    ? [
+        ...buildNyxJournal({
+          nightShards: ship.nightShards ?? 0,
+          nyxTopicUnlocked: !!ship.nyxTopicUnlocked,
+          nyxHyperionLead: !!ship.nyxHyperionLead,
+          nyxHyperionRumorHeard: !!ship.nyxHyperionRumorHeard,
+          nyxFoundEmpty: !!ship.nyxFoundEmpty,
+          nyxWhisperHeard: !!ship.nyxWhisperHeard,
+          nyxComlogUnlocked: !!ship.nyxComlogUnlocked,
+          nyxCorridorUnlocked: !!ship.nyxCorridorUnlocked,
+          nyxDerelictSeen: !!ship.nyxDerelictSeen,
+          nyxTugSeen: !!ship.nyxTugSeen,
+          nyxCassiniSeen: !!ship.nyxCassiniSeen,
+          nyxGateSeen: !!ship.nyxGateSeen,
+          nyxDualAshDone: !!ship.nyxDualAshDone,
+        }),
+        ...appendGatewrightJournal(
+          {
+            vesperGatewrightSeen: !!ship.vesperGatewrightSeen,
+            vesperGatewrightDocked: !!ship.vesperGatewrightDocked,
+          },
+          [],
+        ),
+        ...buildVoidJournal({
+          voidFreeportSeen: !!ship.voidFreeportSeen,
+          voidFreeportDocked: !!ship.voidFreeportDocked,
+          voidCradleSeen: !!ship.voidCradleSeen,
+          voidCradleDocked: !!ship.voidCradleDocked,
+          voidArchSeen: !!ship.voidArchSeen,
+          voidArchDocked: !!ship.voidArchDocked,
+          voidSiphonSeen: !!ship.voidSiphonSeen,
+          voidSiphonDocked: !!ship.voidSiphonDocked,
+        }),
+      ]
     : [];
 
   const hullPct =
@@ -321,7 +357,7 @@ export function PauseMenu({
         zIndex: 20,
         display: "grid",
         placeItems: "center",
-        padding: 12,
+        padding: "clamp(6px, 1.2vh, 12px)",
         fontFamily: font,
         color: "#d7e6df",
         userSelect: "none",
@@ -400,8 +436,8 @@ export function PauseMenu({
         .pause-mfd-grid {
           display: grid;
           grid-template-columns: minmax(0, 1.55fr) minmax(0, 0.75fr);
-          gap: clamp(14px, 2vw, 28px);
-          align-items: start;
+          gap: clamp(10px, 1.6vw, 28px);
+          align-items: stretch;
           flex: 1;
           min-height: 0;
           overflow: hidden;
@@ -411,10 +447,79 @@ export function PauseMenu({
           min-height: 0;
           display: flex;
           flex-direction: column;
+          overflow: hidden;
         }
-        @media (max-width: 820px) {
+        .pause-mfd-rail {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          min-width: 0;
+          min-height: 0;
+          overflow: auto;
+          overscroll-behavior: contain;
+          padding-right: 2px;
+        }
+        .pause-mfd-shell {
+          position: relative;
+          width: min(1400px, calc(100vw - 24px));
+          height: min(920px, calc(100dvh - 24px));
+          max-height: calc(100dvh - 24px);
+          overflow: hidden;
+          pointer-events: auto;
+          border-radius: 6px;
+          border: 3px solid #1a2422;
+          box-shadow:
+            0 0 0 1px rgba(255, 196, 92, 0.25),
+            0 0 0 8px #0a0e0d,
+            0 0 0 9px rgba(255, 196, 92, 0.12),
+            0 30px 80px rgba(0, 0, 0, 0.75),
+            inset 0 0 60px rgba(0, 40, 35, 0.35);
+          background:
+            linear-gradient(180deg, rgba(18, 36, 34, 0.94) 0%, rgba(6, 12, 14, 0.97) 100%);
+        }
+        .pause-mfd-body {
+          position: relative;
+          z-index: 1;
+          padding: clamp(10px, 1.6vh, 24px) clamp(12px, 2vw, 40px);
+          height: 100%;
+          box-sizing: border-box;
+          display: flex;
+          flex-direction: column;
+          min-height: 0;
+          overflow: hidden;
+        }
+        .pause-mfd-footer {
+          flex: none;
+          margin-top: 8px;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          padding-top: 4px;
+          background: linear-gradient(180deg, transparent, rgba(6, 12, 14, 0.92) 28%);
+        }
+        @media (max-width: 900px) {
           .pause-mfd-grid {
             grid-template-columns: 1fr;
+            align-items: start;
+            overflow: auto;
+          }
+          .pause-mfd-rail {
+            max-height: min(48dvh, 440px);
+          }
+        }
+        @media (max-height: 760px) {
+          .pause-mfd-shell {
+            height: calc(100dvh - 16px);
+            max-height: calc(100dvh - 16px);
+            width: min(1400px, calc(100vw - 16px));
+          }
+          .pause-mfd-body {
+            padding: 10px 12px 12px;
+          }
+        }
+        @media (max-width: 640px), (max-height: 640px) {
+          .pause-ctrl-map {
+            max-height: 160px;
             overflow: auto;
           }
         }
@@ -459,28 +564,7 @@ export function PauseMenu({
       />
 
       {/* MFD / cockpit screen — nearly full viewport */}
-      <div
-        style={{
-          position: "relative",
-          width: "calc(100vw - 40px)",
-          height: "calc(100vh - 40px)",
-          maxWidth: 1400,
-          overflow: "hidden",
-          pointerEvents: "auto",
-          borderRadius: 6,
-          border: "3px solid #1a2422",
-          boxShadow: `
-            0 0 0 1px rgba(255, 196, 92, 0.25),
-            0 0 0 8px #0a0e0d,
-            0 0 0 9px rgba(255, 196, 92, 0.12),
-            0 30px 80px rgba(0, 0, 0, 0.75),
-            inset 0 0 60px rgba(0, 40, 35, 0.35)
-          `,
-          background: `
-            linear-gradient(180deg, rgba(18, 36, 34, 0.94) 0%, rgba(6, 12, 14, 0.97) 100%)
-          `,
-        }}
-      >
+      <div className="pause-mfd-shell">
         {/* Scanlines */}
         <div
           aria-hidden
@@ -523,18 +607,7 @@ export function PauseMenu({
         <Corner bottom left />
         <Corner bottom right />
 
-        <div
-          style={{
-            position: "relative",
-            zIndex: 1,
-            padding: "clamp(14px, 2vh, 24px) clamp(18px, 2.5vw, 40px)",
-            height: "100%",
-            boxSizing: "border-box",
-            display: "flex",
-            flexDirection: "column",
-            overflow: "hidden",
-          }}
-        >
+        <div className="pause-mfd-body">
           {/* Top status strip */}
           <div
             style={{
@@ -808,9 +881,6 @@ export function PauseMenu({
                       {journalOpen && (
                         <div
                           style={{
-                            maxHeight: "min(240px, 32vh)",
-                            overflowY: "auto",
-                            overscrollBehavior: "contain",
                             padding: "0 10px 10px",
                             display: "flex",
                             flexDirection: "column",
@@ -858,15 +928,9 @@ export function PauseMenu({
             </div>
 
             {/* Controls + audio — right rail */}
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                gap: 10,
-                minWidth: 0,
-              }}
-            >
+            <div className="pause-mfd-rail">
               <div
+                className="pause-ctrl-map"
                 style={{
                   border: "1px solid rgba(120, 200, 180, 0.2)",
                   background: "rgba(0, 8, 10, 0.45)",
@@ -988,6 +1052,11 @@ export function PauseMenu({
                     onChange={setPitchSensitivity}
                   />
                   <SensSlider
+                    label="YAW"
+                    value={controlsSens.yaw}
+                    onChange={setYawSensitivity}
+                  />
+                  <SensSlider
                     label="ROLL"
                     value={controlsSens.roll}
                     onChange={setRollSensitivity}
@@ -1011,6 +1080,11 @@ export function PauseMenu({
                       onToggle={() =>
                         setInvertPitch(!controlsSens.invertPitch)
                       }
+                    />
+                    <InvertToggle
+                      label="Invert yaw"
+                      active={controlsSens.invertYaw}
+                      onToggle={() => setInvertYaw(!controlsSens.invertYaw)}
                     />
                     <InvertToggle
                       label="Invert roll"
@@ -1109,15 +1183,7 @@ export function PauseMenu({
             </div>
           </div>
 
-          <div
-            style={{
-              flex: "none",
-              marginTop: 10,
-              display: "flex",
-              flexDirection: "column",
-              gap: 8,
-            }}
-          >
+          <div className="pause-mfd-footer">
             <button
               type="button"
               className="cockpit-btn"

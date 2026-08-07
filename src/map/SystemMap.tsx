@@ -16,7 +16,7 @@ import {
   type Mesh,
   type MeshStandardMaterial,
 } from 'three'
-import { isNyxMapBody, NYX_APO_MAP_LABEL, NYX_TRANSIT_MAP_LABEL } from '@/lore/easterEggs'
+import { isNyxMapBody, NYX_APO_MAP_LABEL, NIGHT_SHARD_MAP_LABEL, NYX_TRANSIT_MAP_LABEL } from '@/lore/easterEggs'
 import { STATION_NAMES } from '@/game/systemConfig'
 import type { MapWaypointState } from '@/map/mapWaypoint'
 import {
@@ -517,6 +517,56 @@ function LiveShip({
   )
 }
 
+function LiveCargoDump({
+  snapshotRef,
+  scaleRef,
+}: {
+  snapshotRef: RefObject<MapSnapshot>
+  scaleRef: RefObject<number>
+}) {
+  const group = useRef<Group>(null)
+  const labelRef = useRef<HTMLSpanElement>(null)
+
+  useFrame(() => {
+    const dump = snapshotRef.current.cargoDump
+    const g = group.current
+    if (!g) return
+    if (!dump) {
+      g.visible = false
+      if (labelRef.current) labelRef.current.style.display = 'none'
+      return
+    }
+    const s = scaleRef.current
+    g.visible = true
+    g.position.set(dump.x * s, dump.y * s, dump.z * s)
+    if (labelRef.current) labelRef.current.style.display = ''
+  })
+
+  return (
+    <group ref={group} visible={false}>
+      <mesh>
+        <sphereGeometry args={[0.048, 10, 8]} />
+        <meshBasicMaterial color="#e8b84a" />
+      </mesh>
+      <mesh rotation-x={-Math.PI / 2}>
+        <ringGeometry args={[0.062, 0.078, 20]} />
+        <meshBasicMaterial
+          color="#c4922e"
+          transparent
+          opacity={0.9}
+          side={DoubleSide}
+          depthWrite={false}
+        />
+      </mesh>
+      <MapLabel color="#f0d78a">
+        <span ref={labelRef} style={{ display: 'none' }}>
+          Cargo
+        </span>
+      </MapLabel>
+    </group>
+  )
+}
+
 function LiveNpcs({
   snapshotRef,
   scaleRef,
@@ -653,6 +703,7 @@ function LiveStations({
       hostSize: number
       hostRing: boolean
       showPip: boolean
+      alwaysShowLabel: boolean
     }[]
   >([])
   const frame = useRef(0)
@@ -674,6 +725,7 @@ function LiveStations({
         hostSize: st.hostSize,
         hostRing: st.hostRing !== false,
         showPip: st.showPip !== false,
+        alwaysShowLabel: st.alwaysShowLabel === true,
       })),
     )
   })
@@ -757,8 +809,10 @@ function LiveStations({
                   <sphereGeometry args={[0.06, 10, 8]} />
                   <meshBasicMaterial />
                 </mesh>
-                {selected && (
-                  <MapLabel color="#ffe6a8">{st.name}</MapLabel>
+                {(selected || st.alwaysShowLabel) && (
+                  <MapLabel color={selected ? '#fff0c8' : '#c8b890'}>
+                    {st.name}
+                  </MapLabel>
                 )}
               </group>
             )}
@@ -774,11 +828,13 @@ function LiveLorePings({
   scaleRef,
   selectedName,
   onSelectTransit,
+  onSelectPing,
 }: {
   snapshotRef: RefObject<MapSnapshot>
   scaleRef: RefObject<number>
   selectedName: string | null
   onSelectTransit: () => void
+  onSelectPing: (label: string) => void
 }) {
   const [pings, setPings] = useState<
     { key: string; label: string; x: number; y: number; z: number }[]
@@ -805,27 +861,57 @@ function LiveLorePings({
     <group>
       {pings.map((p) => {
         const isApoTransit = p.label === NYX_APO_MAP_LABEL
-        const selected = isApoTransit && selectedName === STATION_NAMES.nyx
+        const isShard = p.label === NIGHT_SHARD_MAP_LABEL
+        const clickable = isApoTransit || isShard
+        const selected = isApoTransit
+          ? selectedName === STATION_NAMES.nyx
+          : isShard
+            ? selectedName === NIGHT_SHARD_MAP_LABEL
+            : false
+        const onSelect = isApoTransit
+          ? onSelectTransit
+          : isShard
+            ? () => onSelectPing(NIGHT_SHARD_MAP_LABEL)
+            : undefined
+        const pipColor = isShard
+          ? selected
+            ? '#e8d0ff'
+            : '#b898e0'
+          : selected
+            ? '#e0d4ff'
+            : '#beb0f0'
+        const ringColor = isShard
+          ? selected
+            ? '#d8c0f8'
+            : '#9878c8'
+          : selected
+            ? '#d0c0f8'
+            : '#a08cd2'
+        const labelColor = selected
+          ? '#f0e8ff'
+          : isShard
+            ? 'rgba(210, 185, 245, 0.95)'
+            : 'rgba(200, 185, 240, 0.95)'
         return (
           <group key={p.key} position={[p.x, p.y, p.z]}>
             <mesh
               onClick={
-                isApoTransit
+                clickable
                   ? (e) => {
                       e.stopPropagation()
-                      onSelectTransit()
+                      onSelect?.()
                     }
                   : undefined
               }
               onPointerOver={
-                isApoTransit
+                clickable
                   ? () => {
                       document.body.style.cursor = 'pointer'
                     }
                   : undefined
               }
               onPointerOut={
-                isApoTransit
+                clickable
                   ? () => {
                       document.body.style.cursor = 'auto'
                     }
@@ -833,39 +919,31 @@ function LiveLorePings({
               }
             >
               <sphereGeometry args={[selected ? 0.05 : 0.04, 12, 10]} />
-              <meshBasicMaterial color={selected ? '#e0d4ff' : '#beb0f0'} />
+              <meshBasicMaterial color={pipColor} />
             </mesh>
             <mesh rotation-x={-Math.PI / 2}>
               <ringGeometry args={[0.055, 0.072, 24]} />
               <meshBasicMaterial
-                color={selected ? '#d0c0f8' : '#a08cd2'}
+                color={ringColor}
                 transparent
                 opacity={0.85}
                 side={DoubleSide}
                 depthWrite={false}
               />
             </mesh>
-            {isApoTransit && (
+            {clickable && (
               <mesh
                 visible={false}
                 onClick={(e) => {
                   e.stopPropagation()
-                  onSelectTransit()
+                  onSelect?.()
                 }}
               >
                 <sphereGeometry args={[0.09, 10, 8]} />
                 <meshBasicMaterial />
               </mesh>
             )}
-            <MapLabel
-              color={
-                selected
-                  ? '#f0e8ff'
-                  : 'rgba(200, 185, 240, 0.95)'
-              }
-            >
-              {p.label}
-            </MapLabel>
+            <MapLabel color={labelColor}>{p.label}</MapLabel>
           </group>
         )
       })}
@@ -938,7 +1016,7 @@ function MapScene({
   selectedName: string | null
   onSelectBody: (
     name: string,
-    kind: 'star' | 'planet' | 'moon' | 'station',
+    kind: 'star' | 'planet' | 'moon' | 'station' | 'marker',
   ) => void
 }) {
   const scaleRef = useRef(framingScale(snapshotRef.current))
@@ -1073,11 +1151,13 @@ function MapScene({
         scaleRef={scaleRef}
         showPatrols={layout.starName === 'Sol'}
       />
+      <LiveCargoDump snapshotRef={snapshotRef} scaleRef={scaleRef} />
       <LiveLorePings
         snapshotRef={snapshotRef}
         scaleRef={scaleRef}
         selectedName={selectedName}
         onSelectTransit={selectTransit}
+        onSelectPing={(label) => onSelectBody(label, 'marker')}
       />
 
       <MapOrbitControls />
@@ -1132,7 +1212,7 @@ export function SystemMap({
   }, [onOpenChange, waypointRef])
 
   const onSelectBody = useCallback(
-    (name: string, kind: 'star' | 'planet' | 'moon' | 'station') => {
+    (name: string, kind: 'star' | 'planet' | 'moon' | 'station' | 'marker') => {
       const wp = waypointRef?.current
       if (!wp) return
       if (wp.name === name) {

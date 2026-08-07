@@ -38,9 +38,16 @@ const _sun = new Vector3()
 const _apo = new Vector3()
 const _vel = new Vector3()
 
+function removePingLabel(list: MapLorePing[], label: string) {
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (list[i].label === label) list.splice(i, 1)
+  }
+}
+
 /**
  * Map lore pings: ephemeral NT-0 near Nyx, plus sticky apo Transit mark
  * once Hyperion points you at the far turn.
+ * Only mutates this component's labels — other writers (e.g. Sol shard cheat) share the list.
  */
 export function NyxBeacon({
   nyxRef,
@@ -80,7 +87,9 @@ export function NyxBeacon({
       }
     }
 
-    list.length = 0
+    // Don't `list.length = 0` — Sol shard map cheat (and future writers) share this array.
+    removePingLabel(list, NYX_APO_MAP_LABEL)
+    removePingLabel(list, NYX_BEACON_LABEL)
 
     if (apoMarkActive) {
       placeEllipticalOrbit(

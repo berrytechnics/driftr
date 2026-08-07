@@ -8,11 +8,11 @@ import type { AdminWarpRequest, GateArrivalRequest } from '@/dev/adminTypes'
 import type { HullSnapshot } from '@/game/persist'
 import { useGraphicsSettings } from '@/game/useGraphicsSettings'
 import {
+  STATION_NAMES,
   VOID_BELT_INNER,
   VOID_BELT_OUTER,
   VOID_GATE_ORBIT_INCLINATION,
   VOID_GATE_ORBIT_SPEED,
-  VOID_MOTHERSHIP_MAP_SIZE,
   VOID_MU,
   VOID_NEBULA_FADE_END,
   VOID_NEBULA_FADE_START,
@@ -23,8 +23,7 @@ import {
   VOID_SUN_INTENSITY,
   VOID_SUN_SIZE,
 } from '@/game/systemConfig'
-import { altGateMapLabel, VOID_MOTHERSHIP_MAP_LABEL } from '@/lore/easterEggs'
-import { Mothership } from '@/lore/Mothership'
+import { altGateMapLabel } from '@/lore/easterEggs'
 import {
   GATE_MAP_SIZE,
   MisplantedGate,
@@ -32,6 +31,16 @@ import {
   VOID_GATE_OFFSET,
   gatePortalExitWorld,
 } from '@/lore/MisplantedGate'
+import {
+  VOID_STATION_NATIVE,
+  VOID_STATION_URLS,
+  VoidDerelictStation,
+} from '@/lore/VoidDerelictStation'
+import {
+  voidRemnantById,
+  voidRemnantMapLabel,
+  type VoidRemnantId,
+} from '@/lore/voidAncestors'
 import type { PlayerCargoStatus } from '@/loot/cargoBait'
 import type { MaterialKind } from '@/loot/economy'
 import {
@@ -39,13 +48,14 @@ import {
   type MaterialDropsHandle,
   type MaterialPickup,
 } from '@/loot/MaterialDrops'
-import { MapTracker, type TrackedBody } from '@/map/MapTracker'
+import { MapTracker, type TrackedBody, type TrackedStation } from '@/map/MapTracker'
 import { MapWaypointTracker } from '@/map/MapWaypointTracker'
 import type { MapWaypointState } from '@/map/mapWaypoint'
 import type { MapSnapshot } from '@/map/systemMap'
 import type { AttitudeHudState } from '@/ship/attitudeHud'
 import {
   PlayerShip,
+  type DockBerth,
   type HazardField,
   type OrbitalTelemetry,
 } from '@/ship/PlayerShip'
@@ -58,6 +68,80 @@ import { Sun } from '@/world/Sun'
 const VOID_SUN_POSITION: [number, number, number] = [0, 0, 0]
 
 /**
+ * Parked Freeport husk — 3× the prior remnant span.
+ * Offset pushed past the rubble belt (outer 980) so half-length (~432) stays clear.
+ */
+const DRIFT_HULK_OFFSET: [number, number, number] = [1760, 110, -310]
+const DRIFT_HULK_LENGTH = 864
+const DRIFT_HULK_SPIN = 0.0175
+
+const ORBITING_VOID_STATIONS = [
+  {
+    id: 'freeport' as const satisfies VoidRemnantId,
+    url: VOID_STATION_URLS.freeport,
+    native: VOID_STATION_NATIVE.freeport,
+    length: 52,
+    orbitRadius: 1280,
+    orbitSpeed: 0.001,
+    inclination: 0.18,
+    phase: 0.4,
+    mapSize: 8,
+    dockRange: 55,
+    attachClearance: 18,
+    sightRange: 140,
+    name: STATION_NAMES.voidFreeport,
+  },
+  {
+    id: 'greenpeace' as const satisfies VoidRemnantId,
+    url: VOID_STATION_URLS.greenpeace,
+    native: VOID_STATION_NATIVE.greenpeace,
+    length: 72,
+    orbitRadius: 1620,
+    orbitSpeed: 0.00075,
+    inclination: -0.14,
+    phase: 2.1,
+    mapSize: 10,
+    dockRange: 70,
+    attachClearance: 22,
+    sightRange: 160,
+    name: STATION_NAMES.voidGreenpeace,
+  },
+  {
+    id: 'orbitalComplex' as const satisfies VoidRemnantId,
+    url: VOID_STATION_URLS.orbitalComplex,
+    native: VOID_STATION_NATIVE.orbitalComplex,
+    length: 48,
+    orbitRadius: 1960,
+    orbitSpeed: 0.0006,
+    inclination: 0.28,
+    phase: 4.0,
+    mapSize: 7,
+    dockRange: 55,
+    attachClearance: 16,
+    sightRange: 130,
+    name: STATION_NAMES.voidOrbital,
+  },
+  {
+    id: 'miningOutpost' as const satisfies VoidRemnantId,
+    url: VOID_STATION_URLS.miningOutpost,
+    native: VOID_STATION_NATIVE.miningOutpost,
+    length: 88,
+    orbitRadius: 2340,
+    orbitSpeed: 0.0005,
+    inclination: -0.22,
+    phase: 5.3,
+    mapSize: 12,
+    dockRange: 80,
+    attachClearance: 26,
+    sightRange: 180,
+    name: STATION_NAMES.voidMining,
+  },
+] as const
+
+const DRIFT_HULK_MAP_LABEL = 'Drift hulk'
+const DRIFT_HULK_MAP_SIZE = 28
+
+/**
  * Supernova remnant pocket past the misplanted gate —
  * cooled black dwarf, empty cavity, dense outer nebula, and the matching ring.
  */
@@ -65,6 +149,7 @@ export const GateVoidSpace = memo(function GateVoidSpace({
   started,
   paused,
   docked,
+  dockStationName,
   onLockChange,
   onTelemetry,
   onDockAvailable,
@@ -88,10 +173,14 @@ export const GateVoidSpace = memo(function GateVoidSpace({
   gateArrival = null,
   adminWarpTarget = null,
   gatePortalUsed = false,
+  voidRemnantSeen,
+  voidRemnantDocked,
+  onVoidRemnantSeen,
 }: {
   started: boolean
   paused: boolean
   docked: boolean
+  dockStationName?: string
   onLockChange: (locked: boolean) => void
   onTelemetry: (telemetry: OrbitalTelemetry) => void
   onDockAvailable: (available: boolean, stationName?: string) => void
@@ -115,21 +204,81 @@ export const GateVoidSpace = memo(function GateVoidSpace({
   gateArrival?: GateArrivalRequest | null
   adminWarpTarget?: AdminWarpRequest | null
   gatePortalUsed?: boolean
+  voidRemnantSeen: Readonly<Record<VoidRemnantId, boolean>>
+  voidRemnantDocked: Readonly<Record<VoidRemnantId, boolean>>
+  onVoidRemnantSeen: (id: VoidRemnantId, toast: string) => void
 }) {
   const gfx = useGraphicsSettings()
   const misplantedGate = useRef<Group>(null)
-  const mothership = useRef<Group>(null)
+  const driftHulkStation = useRef<Group>(null)
+  const freeportStation = useRef<Group>(null)
+  const greenpeaceStation = useRef<Group>(null)
+  const orbitalComplexStation = useRef<Group>(null)
+  const miningOutpostStation = useRef<Group>(null)
   const gateHazards = useRef<HazardField | null>(null)
   const asteroidHazards = useRef<HazardField | null>(null)
-  const mothershipHazards = useRef<HazardField | null>(null)
+  const driftHulkHazards = useRef<HazardField | null>(null)
+  const freeportHazards = useRef<HazardField | null>(null)
+  const greenpeaceHazards = useRef<HazardField | null>(null)
+  const orbitalComplexHazards = useRef<HazardField | null>(null)
+  const miningOutpostHazards = useRef<HazardField | null>(null)
   const materialDrops = useRef<MaterialDropsHandle | null>(null)
   const mapCloakRef = useRef(false)
-  const emptyBerths = useMemo(() => [], [])
   const emptyHazards = useMemo(() => [], [])
   const hazardFields = useMemo(
-    () => [asteroidHazards, gateHazards, mothershipHazards],
+    () => [
+      asteroidHazards,
+      gateHazards,
+      driftHulkHazards,
+      freeportHazards,
+      greenpeaceHazards,
+      orbitalComplexHazards,
+      miningOutpostHazards,
+    ],
     [],
   )
+
+  const stationRefs = useMemo(
+    () =>
+      ({
+        freeport: freeportStation,
+        greenpeace: greenpeaceStation,
+        orbitalComplex: orbitalComplexStation,
+        miningOutpost: miningOutpostStation,
+      }) as const,
+    [],
+  )
+  const stationHazardRefs = useMemo(
+    () =>
+      ({
+        freeport: freeportHazards,
+        greenpeace: greenpeaceHazards,
+        orbitalComplex: orbitalComplexHazards,
+        miningOutpost: miningOutpostHazards,
+      }) as const,
+    [],
+  )
+
+  const dockBerths = useMemo<DockBerth[]>(
+    () =>
+      ORBITING_VOID_STATIONS.map((spec) => ({
+        station: stationRefs[spec.id],
+        planet: stationRefs[spec.id],
+        name: spec.name,
+        planetDockRange: spec.dockRange,
+        attachClearance: spec.attachClearance,
+      })),
+    [stationRefs],
+  )
+
+  const dockedSpec = useMemo(
+    () => ORBITING_VOID_STATIONS.find((s) => s.name === dockStationName),
+    [dockStationName],
+  )
+  const dockedStationRef = dockedSpec
+    ? stationRefs[dockedSpec.id]
+    : misplantedGate
+  const dockedAtRemnant = docked && !!dockedSpec
 
   const {
     ambient,
@@ -200,14 +349,16 @@ export const GateVoidSpace = memo(function GateVoidSpace({
       post: folder(
         {
           bloomIntensity: {
-            value: 0.85,
+            value: 0.7,
             min: 0,
             max: 4,
             step: 0.05,
             label: 'Bloom',
           },
           bloomThreshold: {
-            value: 0.48,
+            // Higher than Sol: void nebulae are bright/additive; lower values
+            // bloom soft silhouette aliasing into white fringe while moving.
+            value: 0.74,
             min: 0,
             max: 1,
             step: 0.01,
@@ -231,21 +382,21 @@ export const GateVoidSpace = memo(function GateVoidSpace({
       nebula: folder(
         {
           shellIntensity: {
-            value: 1.85,
+            value: 1.55,
             min: 0,
             max: 3,
             step: 0.02,
             label: 'Shell',
           },
           wispCount: {
-            value: 560,
+            value: 420,
             min: 0,
             max: 900,
             step: 2,
             label: 'Wisps (per layer)',
           },
           wispOpacity: {
-            value: 0.68,
+            value: 0.52,
             min: 0.05,
             max: 1,
             step: 0.01,
@@ -276,10 +427,12 @@ export const GateVoidSpace = memo(function GateVoidSpace({
     }
     // Non-gate admin warps leave placement alone (sun / belt cheats, etc.).
     if (adminWarpTarget) return null
-    // Reload into the remnant — no pad to undock from; start at the throat.
+    // Hard-dock restore — ride the remnant pad; no throat warp.
+    if (dockedAtRemnant) return null
+    // Undocked remnant session — start at the throat.
     const exit = gatePortalExitWorld(sunPosition, VOID_GATE_OFFSET)
     return { seq: 1, ...exit }
-  }, [gateArrival, adminWarpTarget, sunPosition])
+  }, [gateArrival, adminWarpTarget, sunPosition, dockedAtRemnant])
 
   const mapBodies = useMemo<TrackedBody[]>(
     () => [
@@ -290,20 +443,35 @@ export const GateVoidSpace = memo(function GateVoidSpace({
         color: '#6b5cff',
         kind: 'moon',
       },
-      {
-        name: VOID_MOTHERSHIP_MAP_LABEL,
-        object: mothership,
-        size: VOID_MOTHERSHIP_MAP_SIZE,
-        color: '#9a9588',
-        kind: 'planet',
-      },
     ],
     [gatePortalUsed],
   )
 
+  /** Free-floating contacts — gold pips; designations unlock after hard-dock. */
+  const mapStations = useMemo<TrackedStation[]>(
+    () => [
+      {
+        name: DRIFT_HULK_MAP_LABEL,
+        object: driftHulkStation,
+        host: driftHulkStation,
+        hostSize: DRIFT_HULK_MAP_SIZE,
+        hostRing: false,
+        alwaysShowLabel: true,
+      },
+      ...ORBITING_VOID_STATIONS.map((spec) => ({
+        name: voidRemnantMapLabel(spec.id, !!voidRemnantDocked[spec.id]),
+        object: stationRefs[spec.id],
+        host: stationRefs[spec.id],
+        hostSize: spec.mapSize,
+        hostRing: false as const,
+        alwaysShowLabel: true,
+      })),
+    ],
+    [stationRefs, voidRemnantDocked],
+  )
+
   const emptyBandits = useMemo(() => [], [])
   const emptyPatrols = useMemo(() => [], [])
-  const emptyStations = useMemo(() => [], [])
 
   const onRockDestroyed = useCallback(
     (
@@ -380,12 +548,40 @@ export const GateVoidSpace = memo(function GateVoidSpace({
         palette="tint"
       />
 
-      <Mothership
+      <VoidDerelictStation
+        modelUrl={VOID_STATION_URLS.freeport2}
         sunPosition={sunPosition}
+        length={DRIFT_HULK_LENGTH}
+        nativeLongest={VOID_STATION_NATIVE.freeport2}
+        offset={DRIFT_HULK_OFFSET}
+        spinSpeed={DRIFT_HULK_SPIN}
         paused={paused}
-        shipRef={mothership}
-        hazardRef={mothershipHazards}
+        stationRef={driftHulkStation}
+        hazardRef={driftHulkHazards}
       />
+
+      {ORBITING_VOID_STATIONS.map((spec) => (
+        <VoidDerelictStation
+          key={spec.id}
+          modelUrl={spec.url}
+          sunPosition={sunPosition}
+          length={spec.length}
+          nativeLongest={spec.native}
+          orbitRadius={spec.orbitRadius}
+          orbitSpeed={spec.orbitSpeed}
+          inclination={spec.inclination}
+          phase={spec.phase}
+          paused={paused}
+          docked={docked && dockStationName === spec.name}
+          stationRef={stationRefs[spec.id]}
+          hazardRef={stationHazardRefs[spec.id]}
+          playerRef={mapShipRef as RefObject<Object3D | null>}
+          sightRange={spec.sightRange}
+          alreadySeen={!!voidRemnantSeen[spec.id]}
+          toast={voidRemnantById(spec.id).toast}
+          onFirstSight={(toast) => onVoidRemnantSeen(spec.id, toast)}
+        />
+      ))}
 
       {started && (
         <>
@@ -443,9 +639,15 @@ export const GateVoidSpace = memo(function GateVoidSpace({
             shipRef={mapShipRef}
             onMaterialPickup={onMaterialPickup}
             materialDropsRef={materialDrops}
-            spawnAnchorRef={misplantedGate}
-            spawnClearance={PORTAL_EXIT_CLEARANCE}
-            dockBerths={emptyBerths}
+            spawnAnchorRef={dockedAtRemnant ? dockedStationRef : misplantedGate}
+            spawnPlanetRef={dockedAtRemnant ? dockedStationRef : undefined}
+            spawnClearance={
+              dockedAtRemnant
+                ? (dockedSpec?.attachClearance ?? PORTAL_EXIT_CLEARANCE)
+                : PORTAL_EXIT_CLEARANCE
+            }
+            dockBerths={dockBerths}
+            dockStationName={dockStationName}
             docked={docked}
             paused={paused}
             onLockChange={onLockChange}
@@ -489,7 +691,7 @@ export const GateVoidSpace = memo(function GateVoidSpace({
         shipRef={mapShipRef}
         banditRefs={emptyBandits}
         patrolRefs={emptyPatrols}
-        stations={emptyStations}
+        stations={mapStations}
         hideNpcsRef={mapCloakRef}
       />
 
@@ -508,8 +710,12 @@ export const GateVoidSpace = memo(function GateVoidSpace({
         fadeEnd={VOID_NEBULA_FADE_END}
         seed={41}
         paused={paused}
+        shellRenderOrder={-1100}
+        wispRenderOrder={-50}
       />
-      {/* Depth layer — same azimuthal field, softer / slightly larger. */}
+      {/* Depth layer — same azimuthal field, softer / slightly larger.
+          Distinct renderOrders: both wisp meshes sit at origin (shader
+          offsets), so identical orders can flip and strobe under bloom. */}
       <Nebula
         origin={sunPosition}
         shellIntensity={shellIntensity * 0.35}
@@ -524,6 +730,8 @@ export const GateVoidSpace = memo(function GateVoidSpace({
         fadeEnd={VOID_NEBULA_FADE_END}
         seed={119}
         paused={paused}
+        shellRenderOrder={-1101}
+        wispRenderOrder={-55}
       />
 
       <Starfield
@@ -537,11 +745,14 @@ export const GateVoidSpace = memo(function GateVoidSpace({
       />
 
       {gfx.bloomScale > 0 && (
-        <EffectComposer enableNormalPass={false} multisampling={0}>
+        <EffectComposer
+          enableNormalPass={false}
+          multisampling={gfx.composerMultisampling}
+        >
           <Bloom
             intensity={bloomIntensity * gfx.bloomScale}
             luminanceThreshold={bloomThreshold}
-            luminanceSmoothing={0.9}
+            luminanceSmoothing={0.96}
             mipmapBlur
           />
         </EffectComposer>

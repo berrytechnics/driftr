@@ -3,7 +3,7 @@ export type MapWaypointState = {
   /** Selected body / station name (planet / moon / star / station), or null */
   name: string | null
   /** Kind hint for label styling */
-  kind: 'star' | 'planet' | 'moon' | 'station' | null
+  kind: 'star' | 'planet' | 'moon' | 'station' | 'marker' | null
   /** Screen overlay — written by MapWaypointTracker */
   show: boolean
   /** True when the body projects inside the view frustum box */

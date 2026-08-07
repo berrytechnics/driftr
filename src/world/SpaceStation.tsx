@@ -8,9 +8,15 @@ import {
   type MeshStandardMaterial,
   type Object3D,
 } from 'three'
-import stationThalassaUrl from '@/assets/models/space+station.glb?url'
-import stationAresUrl from '@/assets/models/space_station.glb?url'
-import stationKronosUrl from '@/assets/models/space__station.glb?url'
+import stationThalassaUrl from '@/assets/models/stations/station_thalassa.glb?url'
+import stationAresUrl from '@/assets/models/stations/station_ares.glb?url'
+import stationKronosUrl from '@/assets/models/stations/station_kronos.glb?url'
+import type { HazardField } from '@/ship/PlayerShip'
+import {
+  buildHullColliders,
+  createMeshHazardField,
+  type HullCollider,
+} from '@/world/meshHazard'
 
 export const STATION_MODEL_URLS = {
   thalassa: stationThalassaUrl,
@@ -36,6 +42,8 @@ type SpaceStationProps = {
   paused?: boolean
   /** Exposes the station root for collision / dock tests */
   stationRef?: RefObject<Group | null>
+  /** Mesh-surface lethal plating (BVH). */
+  hazardRef?: RefObject<HazardField | null>
 }
 
 const _planet = new Vector3()
@@ -74,9 +82,11 @@ export function SpaceStation({
   scale = 0.28,
   paused = false,
   stationRef,
+  hazardRef,
 }: SpaceStationProps) {
   const group = useRef<Group>(null!)
   const angle = useRef(phase)
+  const hullRef = useRef<HullCollider[]>([])
   // meshopt + webp (compressed station asset); decoder enabled via useMeshopt
   const { scene } = useGLTF(modelUrl, true, true)
 
@@ -85,6 +95,21 @@ export function SpaceStation({
     tuneStationMaterials(clone)
     return clone
   }, [scene])
+
+  useLayoutEffect(() => {
+    hullRef.current = buildHullColliders(model)
+  }, [model])
+
+  useLayoutEffect(() => {
+    if (!hazardRef) return
+    hazardRef.current = createMeshHazardField({
+      getRoot: () => group.current,
+      getHull: () => hullRef.current,
+    })
+    return () => {
+      hazardRef.current = null
+    }
+  }, [hazardRef])
 
   const placeAtAngle = (root: Group, theta: number) => {
     const planet = planetRef.current

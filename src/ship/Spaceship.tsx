@@ -7,7 +7,7 @@ import {
   type MeshStandardMaterial,
   type Object3D,
 } from 'three'
-import shipUrl from '@/assets/models/character_ship.glb?url'
+import shipUrl from '@/assets/models/ships/player_ship.glb?url'
 
 type SpaceshipProps = {
   scale?: number
