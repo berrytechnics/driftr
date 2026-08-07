@@ -19,14 +19,17 @@ export default defineConfig(({ mode }) => {
       },
     },
     build: {
+      // postfx (~1MB) is lazy via ScenePostFX; warn only on unexpected giants
+      chunkSizeWarningLimit: 1000,
       rollupOptions: {
         output: {
           manualChunks(id) {
             if (!id.includes('node_modules')) return
+            // Before @react-three — package path contains both names.
+            if (id.includes('postprocessing')) return 'postfx'
             if (id.includes('three') || id.includes('@react-three')) {
               return 'three'
             }
-            if (id.includes('postprocessing')) return 'postfx'
             if (id.includes('leva')) return 'leva'
             if (id.includes('react-dom') || id.includes('/react/')) {
               return 'react'

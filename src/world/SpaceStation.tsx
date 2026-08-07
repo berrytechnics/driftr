@@ -8,21 +8,15 @@ import {
   type MeshStandardMaterial,
   type Object3D,
 } from 'three'
-import stationThalassaUrl from '@/assets/models/stations/station_thalassa.glb?url'
-import stationAresUrl from '@/assets/models/stations/station_ares.glb?url'
-import stationKronosUrl from '@/assets/models/stations/station_kronos.glb?url'
 import type { HazardField } from '@/ship/PlayerShip'
 import {
   buildHullColliders,
   createMeshHazardField,
   type HullCollider,
 } from '@/world/meshHazard'
+import { STATION_MODEL_URLS } from '@/world/stationModels'
 
-export const STATION_MODEL_URLS = {
-  thalassa: stationThalassaUrl,
-  ares: stationAresUrl,
-  kronos: stationKronosUrl,
-} as const
+export { STATION_MODEL_URLS } from '@/world/stationModels'
 
 type SpaceStationProps = {
   /** Planet the station orbits */

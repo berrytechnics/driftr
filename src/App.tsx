@@ -128,7 +128,7 @@ import {
   parseSiphonPadIndex,
   SIPHON_INITIAL_DEAD,
 } from '@/lore/siphonPads'
-import { buildSiphonPadStats } from '@/ui/CollectorPadMenu'
+import { buildSiphonPadStats } from '@/ui/siphonPadStats'
 
 const PauseMenu = lazy(() =>
   import('@/ui/PauseMenu').then((m) => ({ default: m.PauseMenu })),

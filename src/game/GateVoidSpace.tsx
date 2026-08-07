@@ -1,7 +1,14 @@
 import { Environment, Lightformer } from '@react-three/drei'
-import { Bloom, EffectComposer } from '@react-three/postprocessing'
 import { folder, useControls } from 'leva'
-import { memo, useCallback, useMemo, useRef, type RefObject } from 'react'
+import {
+  lazy,
+  memo,
+  Suspense,
+  useCallback,
+  useMemo,
+  useRef,
+  type RefObject,
+} from 'react'
 import { Group, Vector3, type Object3D } from 'three'
 import type { CombatHudState } from '@/combat/combatHud'
 import type { AdminWarpRequest, GateArrivalRequest } from '@/dev/adminTypes'
@@ -63,6 +70,10 @@ import { AsteroidBelt } from '@/world/AsteroidBelt'
 import { Nebula, DEFAULT_QUADRANT_COLORS } from '@/world/Nebula'
 import { Starfield } from '@/world/Starfield'
 import { Sun } from '@/world/Sun'
+
+const ScenePostFX = lazy(() =>
+  import('@/game/ScenePostFX').then((m) => ({ default: m.ScenePostFX })),
+)
 
 /** Black dwarf at the hollow remnant core — gate orbits this. */
 const VOID_SUN_POSITION: [number, number, number] = [0, 0, 0]
@@ -745,17 +756,14 @@ export const GateVoidSpace = memo(function GateVoidSpace({
       />
 
       {gfx.bloomScale > 0 && (
-        <EffectComposer
-          enableNormalPass={false}
-          multisampling={gfx.composerMultisampling}
-        >
-          <Bloom
+        <Suspense fallback={null}>
+          <ScenePostFX
+            multisampling={gfx.composerMultisampling}
             intensity={bloomIntensity * gfx.bloomScale}
             luminanceThreshold={bloomThreshold}
             luminanceSmoothing={0.96}
-            mipmapBlur
           />
-        </EffectComposer>
+        </Suspense>
       )}
     </>
   )

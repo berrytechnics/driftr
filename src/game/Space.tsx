@@ -1,6 +1,5 @@
 import { Environment, Lightformer } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
-import { Bloom, EffectComposer } from '@react-three/postprocessing'
 import { folder, useControls } from 'leva'
 import {
   lazy,
@@ -74,7 +73,6 @@ import { PlanetMoons } from '@/world/Moons'
 import { Nebula } from '@/world/Nebula'
 import { Planet } from '@/world/Planet'
 import { Starfield } from '@/world/Starfield'
-import { StableGodRays } from '@/world/StableGodRays'
 import { Sun } from '@/world/Sun'
 import { AshFlare } from '@/lore/AshFlare'
 import { NyxBeacon } from '@/lore/NyxBeacon'
@@ -113,6 +111,9 @@ import {
 
 const SpaceStation = lazy(() =>
   import('@/world/SpaceStation').then((m) => ({ default: m.SpaceStation })),
+)
+const ScenePostFX = lazy(() =>
+  import('@/game/ScenePostFX').then((m) => ({ default: m.ScenePostFX })),
 )
 
 /** Expire jettison bait if scavengers never claim it. */
@@ -1567,18 +1568,14 @@ export const Space = memo(function Space({
       />
 
       {gfx.bloomScale > 0 && (
-        <EffectComposer
-          enableNormalPass={false}
-          multisampling={gfx.composerMultisampling}
-        >
-          <Bloom
+        <Suspense fallback={null}>
+          <ScenePostFX
+            multisampling={gfx.composerMultisampling}
             intensity={bloomIntensity * gfx.bloomScale}
             luminanceThreshold={bloomThreshold}
-            luminanceSmoothing={0.9}
-            mipmapBlur
+            godRaysSun={godRays && sunReady ? sunMesh : null}
           />
-          {godRays && sunReady ? <StableGodRays sun={sunMesh} /> : <></>}
-        </EffectComposer>
+        </Suspense>
       )}
     </>
   )

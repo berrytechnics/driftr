@@ -1,6 +1,5 @@
 import { Environment, Lightformer } from '@react-three/drei'
 import { useFrame } from '@react-three/fiber'
-import { Bloom, EffectComposer } from '@react-three/postprocessing'
 import { folder, useControls } from 'leva'
 import {
   lazy,
@@ -102,10 +101,9 @@ import {
 import { AsteroidBelt } from '@/world/AsteroidBelt'
 import { Nebula } from '@/world/Nebula'
 import { Planet } from '@/world/Planet'
-import { StableGodRays } from '@/world/StableGodRays'
 import { Starfield } from '@/world/Starfield'
 import { Sun } from '@/world/Sun'
-import { STATION_MODEL_URLS } from '@/world/SpaceStation'
+import { STATION_MODEL_URLS } from '@/world/stationModels'
 
 /** Self-centered approach shell for the free-floating tug. */
 export const ALT_TUG_DOCK_RANGE = 42
@@ -118,6 +116,9 @@ const GATEWRIGHT_OFFSET: [number, number, number] = [450, 40, -120]
 
 const SpaceStation = lazy(() =>
   import('@/world/SpaceStation').then((m) => ({ default: m.SpaceStation })),
+)
+const ScenePostFX = lazy(() =>
+  import('@/game/ScenePostFX').then((m) => ({ default: m.ScenePostFX })),
 )
 
 function SunLight({
@@ -1048,18 +1049,15 @@ export const NyxAltSpace = memo(function NyxAltSpace({
       />
 
       {gfx.bloomScale > 0 && (
-        <EffectComposer
-          enableNormalPass={false}
-          multisampling={gfx.composerMultisampling}
-        >
-          <Bloom
+        <Suspense fallback={null}>
+          <ScenePostFX
+            multisampling={gfx.composerMultisampling}
             intensity={bloomIntensity * gfx.bloomScale}
             luminanceThreshold={bloomThreshold}
             luminanceSmoothing={0.92}
-            mipmapBlur
+            godRaysSun={godRays && sunReady ? sunMesh : null}
           />
-          {godRays && sunReady ? <StableGodRays sun={sunMesh} /> : <></>}
-        </EffectComposer>
+        </Suspense>
       )}
     </>
   )
