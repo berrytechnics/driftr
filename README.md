@@ -45,7 +45,7 @@ npm run electron:pack:win     # NSIS + portable
 npm run electron:pack:mac     # DMG
 ```
 
-Packaging writes to `release/` (gitignored). Place a `build/icon.png` (512+) for installers; platforms fall back to `public/driftr.png` when needed.
+Packaging writes to `release/` (gitignored). Installer / AppImage / window icons use `public/driftr.png` (large PNG — electron-builder generates platform sizes; the checked-in `.ico` is only 32×32).
 
 ## Controls
 

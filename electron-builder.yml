@@ -12,6 +12,8 @@ files:
   - dist/**/*
   - electron/**/*
   - package.json
+  # Runtime BrowserWindow / taskbar icon (packaged path: public/driftr.png)
+  - public/driftr.png
 
 # Optional: drop a local steam_appid.txt next to the binary when testing Steamworks.
 # That file is gitignored — do not add it via extraFiles here.
@@ -22,7 +24,8 @@ asarUnpack:
 
 npmRebuild: false
 
-# Icon: place build/icon.png (512+) for all platforms; falls back gracefully if missing.
+# App / installer icons. Prefer the large PNG — electron-builder generates
+# platform sizes (.ico / .icns / hicolor). public/driftr.ico is only 32×32.
 linux:
   target:
     - AppImage

@@ -11,6 +11,7 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const isDev = !app.isPackaged
+const appIcon = path.join(__dirname, '..', 'public', 'driftr.png')
 
 // Linux Chromium sandbox often fails without a root-owned setuid chrome-sandbox
 // (common in Steam Deck / packaged Electron deploys).
@@ -27,6 +28,7 @@ function createWindow() {
     backgroundColor: '#000000',
     show: false,
     autoHideMenuBar: true,
+    icon: appIcon,
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
