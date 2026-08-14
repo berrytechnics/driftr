@@ -170,3 +170,7 @@ Cargo desk sells ore, ice, and alloy for credits. **Nyx Station** in Vesper only
 - [Leva](https://github.com/pmnd.rs/leva) for debug controls
 - [vite-plugin-pwa](https://vite-pwa-org.netlify.app/) for install / offline support
 - [Electron](https://www.electronjs.org/) + [electron-builder](https://www.electron.build/) for optional desktop packages
+
+## License
+
+Original source is [MIT](LICENSE). Third-party models, textures, and audio keep their original licenses.

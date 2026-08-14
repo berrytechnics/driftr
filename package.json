@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "description": "Fly the Sol system — dock, fight asteroids, and chase buffs.",
   "author": "Driftr",
+  "license": "MIT",
   "type": "module",
   "main": "electron/main.mjs",
   "scripts": {
